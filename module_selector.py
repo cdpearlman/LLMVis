@@ -1,5 +1,6 @@
 import re
 import sys
+import json
 from typing import Dict, List, Tuple, Any
 import argparse
 import torch
@@ -67,7 +68,7 @@ def categorize_modules(pattern_to_modules: Dict[str, List[str]]) -> Tuple[List[s
     return attn_patterns, mlp_patterns, other_patterns, pattern_to_modules
 
 
-def print_group(title: str, items: List[str], max_items: int = 200) -> None:
+def print_group(title: str, items: List[str]) -> None:
     """Print a formatted group of items with a title"""
     print("=" * 80)
     print(title)
@@ -75,10 +76,8 @@ def print_group(title: str, items: List[str], max_items: int = 200) -> None:
     if not items:
         print("(none)")
         return
-    for idx, name in enumerate(items[:max_items]):
+    for idx, name in enumerate(items):
         print(f"[{idx}] {name}")
-    if len(items) > max_items:
-        print(f"... ({len(items) - max_items} more not shown)")
 
 
 def parse_selection(user_input: str, options: List[str]) -> List[str]:
@@ -120,43 +119,25 @@ def parse_selection(user_input: str, options: List[str]) -> List[str]:
 def get_user_selection(
     attn_patterns: List[str], 
     mlp_patterns: List[str], 
-    other_patterns: List[str], 
-    pattern_to_modules: Dict[str, List[str]],
-    auto_select: str = None,
-    max_print: int = 200
+    other_patterns: List[str]
 ) -> Tuple[List[str], List[str], List[str]]:
     """
-    Get user selection of patterns, either through auto_select string or interactive input.
+    Get user selection of patterns through interactive input.
     Returns (selected_attn_patterns, selected_mlp_patterns, selected_other_patterns)
     """
-    print_group("Attention-like module patterns (will apply to all layers)", attn_patterns, max_print)
-    print_group("MLP-like module patterns (will apply to all layers)", mlp_patterns, max_print)
-    print_group("Other module patterns", other_patterns, max_print)
+    print_group("Attention-like module patterns (will apply to all layers)", attn_patterns)
+    print_group("MLP-like module patterns (will apply to all layers)", mlp_patterns)
+    print_group("Other module patterns", other_patterns)
 
-    if auto_select:
-        # Parse auto-select format: "attn:1,2;mlp:1,2;other:"
-        parts = auto_select.split(';')
-        attn_sel = mlp_sel = other_sel = ""
-        for part in parts:
-            if ':' in part:
-                group, indices = part.split(':', 1)
-                if group.strip().lower() in ['attn', 'attention']:
-                    attn_sel = indices
-                elif group.strip().lower() == 'mlp':
-                    mlp_sel = indices
-                elif group.strip().lower() == 'other':
-                    other_sel = indices
-        print(f"Auto-selected: attn='{attn_sel}', mlp='{mlp_sel}', other='{other_sel}'")
-    else:
-        print("\nEnter comma-separated selections. You may use indices (shown left), exact patterns, or unique suffixes.")
-        print("Selected patterns will be applied to ALL layers that have them.")
-        try:
-            attn_sel = input("Select attention patterns: ")
-            mlp_sel = input("Select MLP patterns: ")
-            other_sel = input("Select other patterns: ")
-        except (EOFError, KeyboardInterrupt):
-            print("\nInput interrupted. Exiting.")
-            sys.exit(0)
+    print("\nEnter comma-separated selections. You may use indices (shown left), exact patterns, or unique suffixes.")
+    print("Selected patterns will be applied to ALL layers that have them.")
+    try:
+        attn_sel = input("Select attention patterns: ")
+        mlp_sel = input("Select MLP patterns: ")
+        other_sel = input("Select other patterns: ")
+    except (EOFError, KeyboardInterrupt):
+        print("\nInput interrupted. Exiting.")
+        sys.exit(0)
 
     sel_attn_patterns = parse_selection(attn_sel, attn_patterns)
     sel_mlp_patterns = parse_selection(mlp_sel, mlp_patterns)
@@ -194,10 +175,39 @@ def expand_patterns_to_modules(
     return selected_attn_modules, selected_mlp_modules, selected_other_modules
 
 
-def select_modules(model, auto_select: str = None, max_print: int = 200) -> Tuple[List[str], List[str], List[str]]:
+def save_module_selections(
+    selected_attn_modules: List[str],
+    selected_mlp_modules: List[str], 
+    selected_other_modules: List[str],
+    model_name: str,
+    prompt: str,
+    output_path: str = "module_selections.json"
+) -> None:
+    """
+    Save module selections to a JSON file for use by activation_capture.py.
+    """
+    selections = {
+        "model_name": model_name,
+        "prompt": prompt,
+        "selected_modules": {
+            "attention": selected_attn_modules,
+            "mlp": selected_mlp_modules,
+            "other": selected_other_modules
+        },
+        "total_modules": len(selected_attn_modules) + len(selected_mlp_modules) + len(selected_other_modules)
+    }
+    
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(selections, f, indent=2)
+    
+    print(f"\nSaved module selections to: {output_path}")
+    print(f"Total modules selected: {selections['total_modules']}")
+
+
+def select_modules(model, model_name: str, prompt: str) -> None:
     """
     Main orchestrator function for module selection.
-    Returns (selected_attn_modules, selected_mlp_modules, selected_other_modules)
+    Saves selections to module_selections.json.
     """
     # Detect patterns
     pattern_to_modules, _ = detect_numeric_patterns(model)
@@ -207,7 +217,7 @@ def select_modules(model, auto_select: str = None, max_print: int = 200) -> Tupl
     
     # Get user selection
     sel_attn_patterns, sel_mlp_patterns, sel_other_patterns = get_user_selection(
-        attn_patterns, mlp_patterns, other_patterns, pattern_to_modules, auto_select, max_print
+        attn_patterns, mlp_patterns, other_patterns
     )
     
     # Expand to actual module names
@@ -224,38 +234,34 @@ def select_modules(model, auto_select: str = None, max_print: int = 200) -> Tupl
         count = len(pattern_to_modules.get(pattern, []))
         print(f" - {pattern} ({count} instances)")
     
-    return selected_attn_modules, selected_mlp_modules, selected_other_modules
+    # Save selections to file
+    save_module_selections(
+        selected_attn_modules, 
+        selected_mlp_modules, 
+        selected_other_modules,
+        model_name,
+        prompt
+    )
 
 
 def main():
-    """Main function for testing module selection"""
+    """Main function for module selection"""
     parser = argparse.ArgumentParser(description="Module pattern detection and selection")
     parser.add_argument("--model", type=str, default="Qwen/Qwen2.5-0.5B", help="Model name or path")
-    parser.add_argument("--auto-select", type=str, help="Auto-select patterns (format: 'attn:1,2;mlp:1,2;other:')")
-    parser.add_argument("--max-print", type=int, default=200, help="Max items to print per group")
     args = parser.parse_args()
 
     print(f"Loading model: {args.model}")
     model = AutoModelForCausalLM.from_pretrained(args.model, attn_implementation='eager')
     model.eval()
-
-    selected_attn_modules, selected_mlp_modules, selected_other_modules = select_modules(
-        model, args.auto_select, args.max_print
-    )
     
-    print(f"\nFinal selection:")
-    print(f"Attention modules: {len(selected_attn_modules)}")
-    print(f"MLP modules: {len(selected_mlp_modules)}")  
-    print(f"Other modules: {len(selected_other_modules)}")
+    # Get prompt from user
+    try:
+        prompt = input("\nEnter prompt for activation capture: ")
+    except (EOFError, KeyboardInterrupt):
+        print("\nInput interrupted. Exiting.")
+        sys.exit(0)
     
-    # Show first few from each category
-    for category, modules in [("Attention", selected_attn_modules), ("MLP", selected_mlp_modules), ("Other", selected_other_modules)]:
-        if modules:
-            print(f"\n{category} modules (first 3):")
-            for mod in modules[:3]:
-                print(f"  {mod}")
-            if len(modules) > 3:
-                print(f"  ... and {len(modules) - 3} more")
+    select_modules(model, args.model, prompt)
 
 
 if __name__ == "__main__":

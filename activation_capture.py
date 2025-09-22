@@ -6,13 +6,6 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 
-def try_import_pyvene():
-    """Try to import PyVene, return None if not available"""
-    try:
-        import pyvene  # type: ignore
-        return pyvene
-    except Exception:
-        return None
 
 
 def safe_to_serializable(obj: Any) -> Any:
@@ -32,10 +25,7 @@ def safe_to_serializable(obj: Any) -> Any:
 
 def register_hooks(
     model,
-    module_names: List[str],
-    store_inputs: bool,
-    store_outputs: bool,
-    use_pyvene: bool,
+    module_names: List[str]
 ) -> Tuple[Dict[str, Any], List[Any]]:
     """
     Register hooks on specified modules to capture activations.
@@ -43,60 +33,15 @@ def register_hooks(
     """
     captured: Dict[str, Any] = {}
     hooks: List[Any] = []
-
     name_to_module = dict(model.named_modules())
 
-    if use_pyvene:
-        pyvene = try_import_pyvene()
-        if pyvene is None:
-            print("PyVene not available; falling back to torch hooks.")
-            use_pyvene = False
-
-    if use_pyvene:
-        # Minimal PyVene integration: attach to chosen modules; capture input/output
-        from contextlib import ExitStack
-
-        stack = ExitStack()
-        # Store stack so we can close later via hooks list
-        hooks.append(stack)
-
-        def make_cb(mod_name: str):
-            def callback(evt):
-                # evt has: module, inputs, output (API may vary)
-                try:
-                    payload: Dict[str, Any] = {}
-                    if store_inputs:
-                        payload['inputs'] = safe_to_serializable(evt.inputs)
-                    if store_outputs:
-                        payload['output'] = safe_to_serializable(evt.output)
-                    captured[mod_name] = payload
-                except Exception as e:
-                    captured[mod_name] = {"error": f"{e}"}
-            return callback
-
-        for mod_name in module_names:
-            module = name_to_module.get(mod_name)
-            if module is None:
-                continue
-            cb = make_cb(mod_name)
-            # Using hypothetical pyvene API; wrap module forward
-            handle = pyvene.hook(module, cb)
-            stack.enter_context(handle)
-        return captured, hooks
-
-    # Torch hooks fallback
     def make_torch_hook(mod_name: str):
         def hook_fn(module, inputs, output):
             try:
-                payload: Dict[str, Any] = {}
-                if store_inputs:
-                    payload['inputs'] = safe_to_serializable(inputs)
-                if store_outputs:
-                    payload['output'] = safe_to_serializable(output)
-                captured[mod_name] = payload
+                captured[mod_name] = {'output': safe_to_serializable(output)}
                 # Debug print for first few captures
                 if len(captured) <= 3:
-                    print(f"  Captured from {mod_name}: {list(payload.keys())}")
+                    print(f"  Captured from {mod_name}")
             except Exception as e:
                 captured[mod_name] = {"error": f"{e}"}
                 print(f"  Error capturing from {mod_name}: {e}")
@@ -111,18 +56,6 @@ def register_hooks(
         try:
             hooks.append(module.register_forward_hook(make_torch_hook(mod_name)))
             registered_count += 1
-            # Also capture pre-forward inputs if requested
-            if store_inputs:
-                def make_pre_hook(name_inner: str):
-                    def pre_hook_fn(module, inputs):
-                        try:
-                            entry = captured.get(name_inner, {})
-                            entry['pre_inputs'] = safe_to_serializable(inputs)
-                            captured[name_inner] = entry
-                        except Exception as e:
-                            captured[name_inner] = {"error_pre": f"{e}"}
-                    return pre_hook_fn
-                hooks.append(module.register_forward_pre_hook(make_pre_hook(mod_name)))
         except Exception as e:
             print(f"Failed to register hook for {mod_name}: {e}")
     
@@ -134,14 +67,49 @@ def remove_hooks(hooks: List[Any]) -> None:
     """Remove all registered hooks"""
     for h in hooks:
         try:
-            # PyVene context manager vs torch handle
-            close = getattr(h, 'close', None)
-            if callable(close):
-                close()
-            else:
-                h.remove()
+            h.remove()
         except Exception:
             pass
+
+
+def load_module_selections(
+    selections_path: str
+) -> Tuple[List[str], List[str], List[str], str, str]:
+    """
+    Load module selections from JSON file.
+    Returns (selected_attn_modules, selected_mlp_modules, selected_other_modules, model_name, prompt)
+    """
+    try:
+        with open(selections_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        
+        selected_modules = data.get("selected_modules", {})
+        selected_attn_modules = selected_modules.get("attention", [])
+        selected_mlp_modules = selected_modules.get("mlp", [])
+        selected_other_modules = selected_modules.get("other", [])
+        model_name = data.get("model_name", "")
+        prompt = data.get("prompt", "")
+        
+        print(f"Loaded module selections from {selections_path}:")
+        print(f"  Model: {model_name}")
+        print(f"  Prompt: {prompt}")
+        print(f"  Attention modules: {len(selected_attn_modules)}")
+        print(f"  MLP modules: {len(selected_mlp_modules)}")
+        print(f"  Other modules: {len(selected_other_modules)}")
+        print(f"  Total modules: {len(selected_attn_modules) + len(selected_mlp_modules) + len(selected_other_modules)}")
+        
+        return selected_attn_modules, selected_mlp_modules, selected_other_modules, model_name, prompt
+        
+    except FileNotFoundError:
+        print(f"ERROR: Module selections file not found: {selections_path}")
+        print("Please run module_selector.py first to generate the selections file.")
+        sys.exit(1)
+    except json.JSONDecodeError as e:
+        print(f"ERROR: Invalid JSON in selections file: {e}")
+        sys.exit(1)
+    except Exception as e:
+        print(f"ERROR: Failed to load module selections: {e}")
+        sys.exit(1)
 
 
 def capture_activations(
@@ -151,10 +119,7 @@ def capture_activations(
     selected_other_modules: List[str],
     prompt: str,
     tokenizer,
-    device: torch.device,
-    store_inputs: bool = False,
-    store_outputs: bool = True,
-    use_pyvene: bool = False
+    device: torch.device
 ) -> Tuple[Dict[str, Any], torch.Tensor]:
     """
     Main orchestrator function for capturing activations.
@@ -167,13 +132,7 @@ def capture_activations(
         return {}, torch.tensor([])
     
     print(f"\nRegistering hooks for {len(all_modules)} modules...")
-    captured, hooks = register_hooks(
-        model,
-        all_modules,
-        store_inputs=store_inputs,
-        store_outputs=store_outputs,
-        use_pyvene=use_pyvene,
-    )
+    captured, hooks = register_hooks(model, all_modules)
     print(f"Successfully registered {len(hooks)} hooks")
 
     print(f"\nRunning forward pass with prompt: '{prompt}'")
@@ -190,19 +149,6 @@ def capture_activations(
         print("WARNING: No data was captured! This might indicate an issue with hook registration.")
     else:
         print(f"Successfully captured data from {len(captured)} modules.")
-        for name, data in list(captured.items())[:3]:  # Show first 3 for debugging
-            if isinstance(data, dict) and 'output' in data:
-                output_shape = "unknown"
-                if isinstance(data['output'], list) and data['output']:
-                    try:
-                        # Try to infer shape from nested list structure
-                        shape_info = f"list with {len(data['output'])} items"
-                        if isinstance(data['output'][0], list):
-                            shape_info += f" x {len(data['output'][0])}"
-                        output_shape = shape_info
-                    except:
-                        pass
-                print(f"  {name}: output shape = {output_shape}")
 
     return captured, inputs["input_ids"]
 
@@ -245,67 +191,31 @@ def save_simplified_json(
 
 
 def main():
-    """Main function for testing activation capture"""
+    """Main function for activation capture using module selections from JSON file"""
     parser = argparse.ArgumentParser(description="Activation capture from specified modules")
-    parser.add_argument("--model", type=str, default="Qwen/Qwen2.5-0.5B", help="Model name or path")
-    parser.add_argument("--prompt", type=str, default="Once upon a time", help="Input prompt")
+    parser.add_argument("--selections", type=str, default="module_selections.json", help="Path to module selections JSON file (generated by module_selector.py)")
     parser.add_argument("--device", type=str, default="cpu", help="Device (cpu|cuda|mps)")
-    parser.add_argument("--use-pyvene", action="store_true", help="Attempt to use PyVene for hooking")
-    parser.add_argument("--output", type=str, default="simplified_activations.json", help="Output JSON path")
-    parser.add_argument("--store-inputs", action="store_true", help="Store module inputs (pre and forward)")
-    parser.add_argument("--store-outputs", action="store_true", default=True, help="Store module outputs")
-    
-    # For testing, we'll simulate some module selections
-    parser.add_argument("--test-modules", type=str, nargs='+', 
-                       help="Test with specific module names (format: attn:mod1,mod2 mlp:mod3,mod4 other:mod5)")
-    
+    parser.add_argument("--output", type=str, default="activations.json", help="Output JSON path")
     args = parser.parse_args()
 
-    print(f"Loading model: {args.model}")
-    tokenizer = AutoTokenizer.from_pretrained(args.model)
-    model = AutoModelForCausalLM.from_pretrained(args.model, attn_implementation='eager')
+    # Load module selections from JSON file
+    selected_attn_modules, selected_mlp_modules, selected_other_modules, model_name, prompt = load_module_selections(args.selections)
+        
+    print(f"Loading model: {model_name}")
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    model = AutoModelForCausalLM.from_pretrained(model_name, attn_implementation='eager')
     model.eval()
     device = torch.device(args.device)
     model.to(device)
-
-    # For testing, use provided test modules or default selections
-    if args.test_modules:
-        selected_attn_modules = []
-        selected_mlp_modules = []
-        selected_other_modules = []
-        
-        for spec in args.test_modules:
-            if ':' in spec:
-                category, modules_str = spec.split(':', 1)
-                modules = [m.strip() for m in modules_str.split(',') if m.strip()]
-                if category.lower() in ['attn', 'attention']:
-                    selected_attn_modules.extend(modules)
-                elif category.lower() == 'mlp':
-                    selected_mlp_modules.extend(modules)
-                elif category.lower() == 'other':
-                    selected_other_modules.extend(modules)
-    else:
-        # Default test: select first attention and mlp modules found
-        all_modules = [name for name, _ in model.named_modules() if name]
-        selected_attn_modules = [name for name in all_modules if 'attn' in name.lower()][:2]
-        selected_mlp_modules = [name for name in all_modules if 'mlp' in name.lower()][:2]
-        selected_other_modules = []
-        
-        print("No test modules specified, using default selection:")
-        print(f"Attention: {selected_attn_modules}")
-        print(f"MLP: {selected_mlp_modules}")
 
     captured_data, input_ids = capture_activations(
         model,
         selected_attn_modules,
         selected_mlp_modules,
         selected_other_modules,
-        args.prompt,
+        prompt,
         tokenizer,
-        device,
-        store_inputs=args.store_inputs,
-        store_outputs=args.store_outputs,
-        use_pyvene=args.use_pyvene
+        device
     )
     
     save_simplified_json(
@@ -313,8 +223,8 @@ def main():
         selected_attn_modules,
         selected_mlp_modules,
         selected_other_modules,
-        args.model,
-        args.prompt,
+        model_name,
+        prompt,
         input_ids,
         args.output
     )
