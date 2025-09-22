@@ -1,0 +1,367 @@
+{
+  "model": "Qwen/Qwen2.5-0.5B",
+  "prompt": "Once upon a time",
+  "analysis_type": "logit_lens",
+  "layers": [
+    {
+      "layer": 0,
+      "top_tokens": [
+        {
+          "token": ",",
+          "probability": 6.610279797314433e-06,
+          "rank": 1
+        },
+        {
+          "token": "，",
+          "probability": 6.608266630792059e-06,
+          "rank": 2
+        }
+      ]
+    },
+    {
+      "layer": 1,
+      "top_tokens": [
+        {
+          "token": "CLUDING",
+          "probability": 6.5946624090429395e-06,
+          "rank": 1
+        },
+        {
+          "token": "矧",
+          "probability": 6.593350917682983e-06,
+          "rank": 2
+        }
+      ]
+    },
+    {
+      "layer": 2,
+      "top_tokens": [
+        {
+          "token": ",",
+          "probability": 6.6707916630548425e-06,
+          "rank": 1
+        },
+        {
+          "token": "，",
+          "probability": 6.6644552134675905e-06,
+          "rank": 2
+        }
+      ]
+    },
+    {
+      "layer": 3,
+      "top_tokens": [
+        {
+          "token": ",",
+          "probability": 6.62653974359273e-06,
+          "rank": 1
+        },
+        {
+          "token": "，",
+          "probability": 6.623360150115332e-06,
+          "rank": 2
+        }
+      ]
+    },
+    {
+      "layer": 4,
+      "top_tokens": [
+        {
+          "token": ",",
+          "probability": 6.581727575394325e-06,
+          "rank": 1
+        },
+        {
+          "token": "，",
+          "probability": 6.581712568731746e-06,
+          "rank": 2
+        }
+      ]
+    },
+    {
+      "layer": 5,
+      "top_tokens": [
+        {
+          "token": "CLUDING",
+          "probability": 6.607416707993252e-06,
+          "rank": 1
+        },
+        {
+          "token": "矧",
+          "probability": 6.604710051760776e-06,
+          "rank": 2
+        }
+      ]
+    },
+    {
+      "layer": 6,
+      "top_tokens": [
+        {
+          "token": "CLUDING",
+          "probability": 6.618621682719095e-06,
+          "rank": 1
+        },
+        {
+          "token": "矧",
+          "probability": 6.614749963773647e-06,
+          "rank": 2
+        }
+      ]
+    },
+    {
+      "layer": 7,
+      "top_tokens": [
+        {
+          "token": ",",
+          "probability": 6.712353297189111e-06,
+          "rank": 1
+        },
+        {
+          "token": "，",
+          "probability": 6.703039616695605e-06,
+          "rank": 2
+        }
+      ]
+    },
+    {
+      "layer": 8,
+      "top_tokens": [
+        {
+          "token": ",",
+          "probability": 6.612760444113519e-06,
+          "rank": 1
+        },
+        {
+          "token": "，",
+          "probability": 6.610578566323966e-06,
+          "rank": 2
+        }
+      ]
+    },
+    {
+      "layer": 9,
+      "top_tokens": [
+        {
+          "token": "CLUDING",
+          "probability": 6.5940007516474e-06,
+          "rank": 1
+        },
+        {
+          "token": "矧",
+          "probability": 6.5927638388529886e-06,
+          "rank": 2
+        }
+      ]
+    },
+    {
+      "layer": 10,
+      "top_tokens": [
+        {
+          "token": ",",
+          "probability": 6.6127704485552385e-06,
+          "rank": 1
+        },
+        {
+          "token": "，",
+          "probability": 6.6105876612709835e-06,
+          "rank": 2
+        }
+      ]
+    },
+    {
+      "layer": 11,
+      "top_tokens": [
+        {
+          "token": ",",
+          "probability": 6.658412985416362e-06,
+          "rank": 1
+        },
+        {
+          "token": "，",
+          "probability": 6.652967385889497e-06,
+          "rank": 2
+        }
+      ]
+    },
+    {
+      "layer": 12,
+      "top_tokens": [
+        {
+          "token": ",",
+          "probability": 6.634943474637112e-06,
+          "rank": 1
+        },
+        {
+          "token": "，",
+          "probability": 6.631177711824421e-06,
+          "rank": 2
+        }
+      ]
+    },
+    {
+      "layer": 13,
+      "top_tokens": [
+        {
+          "token": ",",
+          "probability": 6.718244549119845e-06,
+          "rank": 1
+        },
+        {
+          "token": "，",
+          "probability": 6.7084974944009446e-06,
+          "rank": 2
+        }
+      ]
+    },
+    {
+      "layer": 14,
+      "top_tokens": [
+        {
+          "token": "CLUDING",
+          "probability": 6.656522600678727e-06,
+          "rank": 1
+        },
+        {
+          "token": "矧",
+          "probability": 6.6486545620136894e-06,
+          "rank": 2
+        }
+      ]
+    },
+    {
+      "layer": 15,
+      "top_tokens": [
+        {
+          "token": ",",
+          "probability": 6.915311132615898e-06,
+          "rank": 1
+        },
+        {
+          "token": "，",
+          "probability": 6.891176781209651e-06,
+          "rank": 2
+        }
+      ]
+    },
+    {
+      "layer": 16,
+      "top_tokens": [
+        {
+          "token": ",",
+          "probability": 7.088653546816204e-06,
+          "rank": 1
+        },
+        {
+          "token": "，",
+          "probability": 7.0515493462153245e-06,
+          "rank": 2
+        }
+      ]
+    },
+    {
+      "layer": 17,
+      "top_tokens": [
+        {
+          "token": ",",
+          "probability": 7.054678462736774e-06,
+          "rank": 1
+        },
+        {
+          "token": "，",
+          "probability": 7.020137672952842e-06,
+          "rank": 2
+        }
+      ]
+    },
+    {
+      "layer": 18,
+      "top_tokens": [
+        {
+          "token": ",",
+          "probability": 6.995172952883877e-06,
+          "rank": 1
+        },
+        {
+          "token": "，",
+          "probability": 6.96510323905386e-06,
+          "rank": 2
+        }
+      ]
+    },
+    {
+      "layer": 19,
+      "top_tokens": [
+        {
+          "token": ",",
+          "probability": 7.682615432713646e-06,
+          "rank": 1
+        },
+        {
+          "token": "，",
+          "probability": 7.598950560350204e-06,
+          "rank": 2
+        }
+      ]
+    },
+    {
+      "layer": 20,
+      "top_tokens": [
+        {
+          "token": ",",
+          "probability": 8.627777788206004e-06,
+          "rank": 1
+        },
+        {
+          "token": "，",
+          "probability": 8.46378316055052e-06,
+          "rank": 2
+        }
+      ]
+    },
+    {
+      "layer": 21,
+      "top_tokens": [
+        {
+          "token": ",",
+          "probability": 7.978323992574587e-06,
+          "rank": 1
+        },
+        {
+          "token": "，",
+          "probability": 7.870314220781438e-06,
+          "rank": 2
+        }
+      ]
+    },
+    {
+      "layer": 22,
+      "top_tokens": [
+        {
+          "token": ",",
+          "probability": 1.0627497431414668e-05,
+          "rank": 1
+        },
+        {
+          "token": "，",
+          "probability": 1.0271644896420185e-05,
+          "rank": 2
+        }
+      ]
+    },
+    {
+      "layer": 23,
+      "top_tokens": [
+        {
+          "token": ",",
+          "probability": 0.00014084704162087291,
+          "rank": 1
+        },
+        {
+          "token": "，",
+          "probability": 0.00011237340368097648,
+          "rank": 2
+        }
+      ]
+    }
+  ]
+}
