@@ -5,7 +5,7 @@ from transformers import AutoTokenizer
 from bertviz import head_view, model_view
 
 # Load data and tokenizer
-with open('agnostic_activations.json', 'r') as f:
+with open('activations.json', 'r') as f:
     data = json.load(f)
 
 tokenizer = AutoTokenizer.from_pretrained(data['model'])
