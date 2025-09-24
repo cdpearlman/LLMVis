@@ -11,7 +11,7 @@ import argparse
 from typing import List, Tuple, Dict, Any
 import torch
 import torch.nn.functional as F
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, AutoModel
 
 
 def load_activations(filepath: str) -> Dict[str, Any]:
@@ -34,86 +34,69 @@ def extract_layer_number_from_name(module_name: str) -> int:
 
 
 def extract_mlp_outputs(data: Dict[str, Any]) -> List[torch.Tensor]:
-    """Extract MLP outputs for each layer from the captured data."""
-    mlp_data = data['mlp_data']
+    """Extract MLP outputs for each layer from the captured data using new format."""
+    mlp_modules = data['mlp_modules']
+    mlp_outputs_data = data['mlp_outputs']
     
-    # Sort by layer number in a model-agnostic way
-    try:
-        sorted_layers = sorted(mlp_data.keys(), key=extract_layer_number_from_name)
-    except Exception as e:
-        print(f"Warning: Could not sort layers by number ({e}), using alphabetical order")
-        sorted_layers = sorted(mlp_data.keys())
-    
-    print(f"Extracting MLP outputs from {len(sorted_layers)} layers...")
+    print(f"Extracting MLP outputs from {len(mlp_modules)} layers...")
     
     mlp_outputs = []
-    for layer_name in sorted_layers:
-        output_data = mlp_data[layer_name]['output']
+    for module_name in mlp_modules:
+        if module_name not in mlp_outputs_data:
+            raise ValueError(f"Module {module_name} not found in mlp_outputs data")
+        
+        output_data = mlp_outputs_data[module_name]['output']
         tensor = torch.tensor(output_data)
         mlp_outputs.append(tensor)
-        print(f"  {layer_name}: shape {tensor.shape}")
+        print(f"  {module_name}: shape {tensor.shape}")
     
     return mlp_outputs
 
 
-def extract_weights_and_logits(data: Dict[str, Any]) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    """Extract lm_head logits and normalization weights from captured data."""
-    print(f"Extracting weights and final logits...")
+def extract_norm_weights(data: Dict[str, Any]) -> torch.Tensor:
+    """Extract normalization weights from captured norm_parameter data."""
+    print(f"Extracting normalization weights...")
     
-    # Extract final lm_head logits
-    if 'lm_head' not in data['other_data']:
-        raise ValueError("lm_head outputs not found in captured data")
+    # Extract normalization weights from norm_parameter
+    if 'norm_parameter' not in data:
+        raise ValueError("norm_parameter not found in captured data")
     
-    final_logits = torch.tensor(data['other_data']['lm_head']['output'])
-    print(f"  Final logits shape: {final_logits.shape}")
-    
-    # Extract normalization weights
-    if 'model.norm' not in data['parameters']:
-        raise ValueError("model.norm parameters not found in captured data")
-    
-    norm_weight = torch.tensor(data['parameters']['model.norm']['weight'])
+    norm_weight = torch.tensor(data['norm_parameter'])
     print(f"  Norm weight shape: {norm_weight.shape}")
+    print(f"  Using RMSNorm (no bias)")
     
-    # Try to extract norm bias if available
-    norm_bias = None
-    if 'bias' in data['parameters']['model.norm']:
-        norm_bias = torch.tensor(data['parameters']['model.norm']['bias'])
-        print(f"  Norm bias shape: {norm_bias.shape}")
-    else:
-        print(f"  No norm bias found (RMSNorm)")
-    
-    return final_logits, norm_weight, norm_bias
+    return norm_weight
 
 
-def derive_lm_head_weights(final_hidden_states: torch.Tensor, final_logits: torch.Tensor) -> torch.Tensor:
-    """Derive lm_head weights from final hidden states and logits."""
-    # Use the last token position for stable approximation
-    hidden = final_hidden_states.squeeze(0)  # [seq_len, hidden_dim]
-    logits = final_logits.squeeze(0)        # [seq_len, vocab_size]
-    
-    last_hidden = hidden[-1:, :]  # [1, hidden_dim]
-    last_logits = logits[-1:, :]  # [1, vocab_size]
+def load_logit_lens_weights(model_name: str, logit_lens_parameter: str) -> torch.Tensor:
+    """Dynamically load the logit lens weights from the model."""
+    print(f"Loading logit lens weights from {logit_lens_parameter}...")
     
     try:
-        # Solve: last_logits = last_hidden @ W.T
-        weight_T = torch.linalg.pinv(last_hidden) @ last_logits  # [hidden_dim, vocab_size]
-        weight = weight_T.T  # [vocab_size, hidden_dim]
+        # Load the model to get the embedding weights
+        model = AutoModel.from_pretrained(model_name)
         
-        # Verify and scale
-        test_logits = torch.matmul(last_hidden, weight.T)
-        if test_logits.std() > 0:
-            scale_factor = (last_logits.std() / test_logits.std()).item()
-            weight = weight * scale_factor
-            
-        print(f"  Derived lm_head weights: {weight.shape}, scale factor: {scale_factor:.3f}")
-        return weight
+        # Extract the parameter by name (e.g., "model.embed_tokens.weight")
+        # For AutoModel, we need to skip the first 'model' part as it's already the model instance
+        param_parts = logit_lens_parameter.split('.')
+        if param_parts[0] == 'model':
+            param_parts = param_parts[1:]  # Skip the 'model' prefix
+        
+        param_tensor = model
+        for part in param_parts:
+            param_tensor = getattr(param_tensor, part)
+        
+        # The embedding weights are typically [vocab_size, hidden_dim]
+        # For logit lens, we need them as [vocab_size, hidden_dim]
+        logit_lens_weight = param_tensor.detach().clone()
+        print(f"  Loaded logit lens weights: {logit_lens_weight.shape}")
+        
+        return logit_lens_weight
+        
     except Exception as e:
-        print(f"  Warning: Could not derive lm_head weights ({e})")
-        # Fallback: create scaled random weights
-        hidden_dim = hidden.shape[-1]
-        vocab_size = logits.shape[-1]
-        scale = logits.std().item() / (hidden_dim ** 0.5)
-        return torch.randn(vocab_size, hidden_dim) * scale
+        print(f"  Error loading logit lens weights: {e}")
+        print(f"  Available attributes: {[attr for attr in dir(model) if not attr.startswith('_')]}")
+        raise ValueError(f"Could not load {logit_lens_parameter} from model {model_name}")
 
 
 def apply_normalization(hidden_states: torch.Tensor, norm_weight: torch.Tensor, norm_bias: torch.Tensor = None, eps: float = 1e-6) -> torch.Tensor:
@@ -133,9 +116,8 @@ def apply_normalization(hidden_states: torch.Tensor, norm_weight: torch.Tensor, 
 
 def apply_logit_lens(
     mlp_outputs: List[torch.Tensor],
-    lm_head_weight: torch.Tensor,
+    logit_lens_weight: torch.Tensor,
     norm_weight: torch.Tensor,
-    norm_bias: torch.Tensor,
     tokenizer: AutoTokenizer,
     top_k: int = 3
 ) -> List[List[Tuple[str, float]]]:
@@ -143,7 +125,7 @@ def apply_logit_lens(
     results = []
     
     print(f"\nApplying logit lens to {len(mlp_outputs)} layers...")
-    print(f"Using lm_head weight shape: {lm_head_weight.shape}")
+    print(f"Using logit lens weight shape: {logit_lens_weight.shape}")
     print(f"Using norm weight shape: {norm_weight.shape}")
     
     with torch.no_grad():
@@ -152,11 +134,11 @@ def apply_logit_lens(
             if len(mlp_output.shape) == 4:
                 mlp_output = mlp_output.squeeze(0)
             
-            # Apply normalization using captured weights
-            normalized = apply_normalization(mlp_output, norm_weight, norm_bias)
+            # Apply normalization using captured weights (RMSNorm, no bias)
+            normalized = apply_normalization(mlp_output, norm_weight, None)
             
-            # Project to vocabulary space: hidden_states @ lm_head_weight.T
-            logits = torch.matmul(normalized, lm_head_weight.T)
+            # Project to vocabulary space: hidden_states @ logit_lens_weight.T
+            logits = torch.matmul(normalized, logit_lens_weight.T)
             
             # Apply softmax to get probabilities
             probs = F.softmax(logits, dim=-1)
@@ -220,7 +202,7 @@ def format_results(results: List[List[Tuple[str, float]]], model_name: str, prom
 
 def main():
     parser = argparse.ArgumentParser(description="Streamlined logit lens analysis with captured weights")
-    parser.add_argument("--input", type=str, default="minimal_activations.json",
+    parser.add_argument("--input", type=str, default="activations.json",
                        help="Path to captured activations JSON file")
     parser.add_argument("--top-k", type=int, default=3,
                        help="Number of top tokens to extract per layer")
@@ -237,26 +219,20 @@ def main():
         tokenizer = AutoTokenizer.from_pretrained(model_name)
         print(f"  Vocabulary size: {len(tokenizer)}")
         
-        # Extract MLP outputs
+        # Extract MLP outputs using new format
         mlp_outputs = extract_mlp_outputs(data)
         if not mlp_outputs:
             raise ValueError("No MLP outputs found in the data!")
         
-        # Extract weights and final logits
-        final_logits, norm_weight, norm_bias = extract_weights_and_logits(data)
+        # Extract normalization weights from norm_parameter
+        norm_weight = extract_norm_weights(data)
         
-        # Get final normalized hidden states from model.norm output
-        if 'model.norm' not in data['other_data']:
-            raise ValueError("model.norm outputs not found in captured data")
-        
-        final_hidden_states = torch.tensor(data['other_data']['model.norm']['output'])
-        print(f"  Final hidden states shape: {final_hidden_states.shape}")
-        
-        # Derive lm_head weights
-        lm_head_weight = derive_lm_head_weights(final_hidden_states, final_logits)
+        # Load logit lens weights dynamically from model
+        logit_lens_parameter = data['logit_lens_parameter']
+        logit_lens_weight = load_logit_lens_weights(model_name, logit_lens_parameter)
         
         # Apply logit lens
-        results = apply_logit_lens(mlp_outputs, lm_head_weight, norm_weight, norm_bias, tokenizer, args.top_k)
+        results = apply_logit_lens(mlp_outputs, logit_lens_weight, norm_weight, tokenizer, args.top_k)
         
         # Format and display results
         formatted_output = format_results(results, model_name, data['prompt'])
