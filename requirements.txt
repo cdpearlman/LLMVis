@@ -1,0 +1,9 @@
+dash>=2.14.0
+dash-extensions>=1.0.0
+dash-bootstrap-components>=1.4.0
+plotly>=5.16.0
+torch>=2.0.0
+transformers>=4.30.0
+bertviz>=1.4.0
+numpy>=1.24.0
+kaleido>=0.2.1
