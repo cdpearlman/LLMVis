@@ -1,0 +1,14 @@
+# Dashboard dependencies
+dash>=2.14.0
+dash-cytoscape>=0.3.0
+plotly>=5.15.0
+
+# ML/Transformer dependencies  
+torch>=2.0.0
+transformers>=4.30.0
+
+# Visualization dependencies
+bertviz>=1.4.0
+
+# Utility dependencies
+numpy>=1.24.0

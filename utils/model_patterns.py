@@ -1,0 +1,358 @@
+"""Model pattern extraction utilities for transformer models."""
+
+import re
+import torch
+import torch.nn.functional as F
+from typing import Dict, List, Tuple, Any, Optional
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+
+def extract_patterns(model, use_modules=True) -> Dict[str, List[str]]:
+    """Extract patterns from model modules or parameters."""
+    items = model.named_modules() if use_modules else model.named_parameters()
+    patterns = {}
+    
+    for name, _ in items:
+        if not name:
+            continue
+        # Replace numeric sequences with {N} placeholder
+        pattern = re.sub(r'(\.|_)(\d+)(\.|_|$)', r'\1{N}\3', name)
+        pattern = re.sub(r'([a-zA-Z])(\d+)(\.|_|$)', r'\1{N}\3', pattern)
+        
+        if pattern not in patterns:
+            patterns[pattern] = []
+        patterns[pattern].append(name)
+    
+    return patterns
+
+
+def load_model_and_get_patterns(model_name: str) -> Tuple[Dict[str, List[str]], Dict[str, List[str]]]:
+    """
+    Load model from HuggingFace Hub and extract module/parameter patterns.
+    
+    Returns:
+        (module_patterns, parameter_patterns): Pattern dictionaries mapping patterns to name lists
+    """
+    print(f"Loading model: {model_name}")
+    
+    # Load model and tokenizer
+    model = AutoModelForCausalLM.from_pretrained(model_name, attn_implementation='eager')
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    model.eval()
+    
+    # Extract patterns
+    module_patterns = extract_patterns(model, use_modules=True)
+    param_patterns = extract_patterns(model, use_modules=False)
+    
+    print(f"Found {len(module_patterns)} module patterns, {len(param_patterns)} parameter patterns")
+    
+    return module_patterns, param_patterns
+
+
+def safe_to_serializable(obj: Any) -> Any:
+    """Convert tensors to lists recursively for JSON serialization."""
+    if torch.is_tensor(obj):
+        return obj.detach().cpu().tolist()
+    if isinstance(obj, (list, tuple)):
+        return [safe_to_serializable(x) for x in obj]
+    if isinstance(obj, dict):
+        return {k: safe_to_serializable(v) for k, v in obj.items()}
+    return obj
+
+
+def execute_forward_pass(model, tokenizer, prompt: str, config: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Execute forward pass with hooks to capture activations from specified modules.
+    
+    Args:
+        model: Loaded transformer model
+        tokenizer: Loaded tokenizer
+        prompt: Input text prompt
+        config: Dict with module lists like {"attention_modules": [...], "mlp_modules": [...], ...}
+    
+    Returns:
+        JSON-serializable dict with captured activations and metadata
+    """
+    print(f"Executing forward pass with prompt: '{prompt}'")
+    
+    # Extract module lists from config
+    attention_modules = config.get("attention_modules", [])
+    mlp_modules = config.get("mlp_modules", [])
+    other_modules = config.get("other_modules", [])
+    norm_parameters = config.get("norm_parameters", [])
+    logit_lens_parameter = config.get("logit_lens_parameter")
+    
+    all_modules = attention_modules + mlp_modules + other_modules
+    if not all_modules:
+        print("No modules specified for capture")
+        return {"error": "No modules specified"}
+    
+    # Register hooks and capture activations
+    captured = {}
+    hooks = []
+    name_to_module = dict(model.named_modules())
+    
+    def make_hook(mod_name: str):
+        def hook_fn(module, inputs, output):
+            captured[mod_name] = {"output": safe_to_serializable(output)}
+        return hook_fn
+    
+    # Register hooks
+    for mod_name in all_modules:
+        if mod_name in name_to_module:
+            hooks.append(name_to_module[mod_name].register_forward_hook(make_hook(mod_name)))
+    
+    print(f"Registered {len(hooks)} hooks")
+    
+    # Execute forward pass
+    inputs = tokenizer(prompt, return_tensors="pt")
+    with torch.no_grad():
+        _ = model(**inputs, use_cache=False)
+    
+    # Remove hooks
+    for hook in hooks:
+        hook.remove()
+    
+    # Separate outputs by type
+    attention_outputs = {k: v for k, v in captured.items() if k in attention_modules}
+    mlp_outputs = {k: v for k, v in captured.items() if k in mlp_modules}
+    other_outputs = {k: v for k, v in captured.items() if k in other_modules}
+    
+    # Capture normalization parameters
+    norm_data = []
+    if norm_parameters:
+        all_params = dict(model.named_parameters())
+        for param_name in norm_parameters:
+            if param_name in all_params:
+                norm_data.append(safe_to_serializable(all_params[param_name]))
+    
+    # Build comprehensive output dictionary
+    result = {
+        "model": getattr(model.config, "name_or_path", "unknown"),
+        "prompt": prompt,
+        "input_ids": safe_to_serializable(inputs["input_ids"]),
+        "attention_modules": attention_modules,
+        "attention_outputs": attention_outputs,
+        "mlp_modules": mlp_modules,
+        "mlp_outputs": mlp_outputs,
+        "other_modules": other_modules,
+        "other_outputs": other_outputs,
+        "norm_parameters": norm_parameters,
+        "norm_data": norm_data,
+        "logit_lens_parameter": logit_lens_parameter
+    }
+    
+    print(f"Captured {len(captured)} module outputs")
+    return result
+
+
+def logit_lens_transformation(mlp_output: Any, norm_data: List[Any], model, logit_lens_parameter: str, tokenizer) -> List[Tuple[str, float]]:
+    """
+    Transform MLP output to top 3 token probabilities using logit lens.
+    
+    Args:
+        mlp_output: MLP layer output (from execute_forward_pass)
+        norm_data: Normalization weights (from execute_forward_pass)
+        model: Model to extract logit lens weights from
+        logit_lens_parameter: Parameter name for vocab projection (e.g., "transformer.wte.weight")
+        tokenizer: Model tokenizer for token decoding
+    
+    Returns:
+        List of (token_string, probability) tuples for top 3 tokens
+    """
+    # Convert inputs to tensors
+    if not isinstance(mlp_output, torch.Tensor):
+        mlp_output = torch.tensor(mlp_output)
+    if not isinstance(norm_data, torch.Tensor):
+        norm_data = torch.tensor(norm_data[0]) if norm_data else torch.ones(mlp_output.size(-1))
+    
+    # Load logit lens weights from model
+    all_params = dict(model.named_parameters())
+    if logit_lens_parameter not in all_params:
+        raise ValueError(f"Parameter {logit_lens_parameter} not found in model")
+    logit_lens_weight = all_params[logit_lens_parameter]
+    
+    with torch.no_grad():
+        # Ensure correct shape [batch, seq_len, hidden_dim]
+        if len(mlp_output.shape) == 4:
+            mlp_output = mlp_output.squeeze(0)
+        
+        # Apply RMSNorm (no bias)
+        variance = mlp_output.pow(2).mean(-1, keepdim=True)
+        normalized = mlp_output * torch.rsqrt(variance + 1e-6) * norm_data
+        
+        # Project to vocabulary space
+        logits = torch.matmul(normalized, logit_lens_weight.T)
+        
+        # Get probabilities for last token (next token prediction)
+        probs = F.softmax(logits, dim=-1)
+        last_token_probs = probs[0, -1, :]  # [vocab_size]
+        
+        # Get top 3 tokens
+        top_probs, top_indices = torch.topk(last_token_probs, 3)
+        
+        # Convert to token strings
+        result = []
+        for i in range(3):
+            token_id = top_indices[i].item()
+            probability = top_probs[i].item()
+            token_str = tokenizer.decode([token_id], skip_special_tokens=False)
+            result.append((token_str, probability))
+        
+        return result
+
+
+def token_to_color(token: str) -> str:
+    """Convert token to consistent color using hash."""
+    import hashlib
+    hash_val = int(hashlib.md5(token.encode()).hexdigest()[:6], 16)
+    hue = hash_val % 360
+    return f'hsl({hue}, 70%, 50%)'
+
+
+def format_data_for_cytoscape(activation_data: Dict[str, Any], model, tokenizer) -> List[Dict[str, Any]]:
+    """
+    Convert activation data to Cytoscape format with nodes (layers) and edges (top-3 tokens).
+    """
+    elements = []
+    mlp_modules = activation_data.get('mlp_modules', [])
+    if not mlp_modules:
+        return elements
+    
+    # Extract and sort layers
+    layer_info = [(int(re.findall(r'\d+', name)[0]), name) for name in mlp_modules if re.findall(r'\d+', name)]
+    layer_info.sort()
+    
+    # Create nodes with positioning and top token stats
+    for i, (layer_num, module_name) in enumerate(layer_info):
+        # Get top token for this layer for node label
+        mlp_output = activation_data['mlp_outputs'][module_name]['output']
+        norm_data = activation_data.get('norm_data', [])
+        logit_lens_param = activation_data.get('logit_lens_parameter')
+        
+        node_label = f'L{layer_num}'
+        if logit_lens_param:
+            try:
+                top_tokens = logit_lens_transformation(mlp_output, norm_data, model, logit_lens_param, tokenizer)
+                if top_tokens:
+                    token, prob = top_tokens[0]
+                    node_label = f'L{layer_num}\n{token[:6]}\n{prob:.2f}'
+            except:
+                pass
+        
+        elements.append({
+            'data': {
+                'id': f'layer_{layer_num}',
+                'label': node_label,
+                'layer_num': layer_num,
+                'module_name': module_name
+            },
+            'position': {'x': i * 120 + 60, 'y': 200}  # Horizontal layout
+        })
+    
+    # Create edges for top-3 tokens between consecutive layers
+    for i in range(len(layer_info) - 1):
+        current_layer_num, current_module = layer_info[i]
+        next_layer_num, _ = layer_info[i + 1]
+        
+        mlp_output = activation_data['mlp_outputs'][current_module]['output']
+        norm_data = activation_data.get('norm_data', [])
+        logit_lens_param = activation_data.get('logit_lens_parameter')
+        
+        if logit_lens_param:
+            try:
+                top_tokens = logit_lens_transformation(mlp_output, norm_data, model, logit_lens_param, tokenizer)
+                for rank, (token, prob) in enumerate(top_tokens):
+                    elements.append({
+                        'data': {
+                            'id': f'edge_{current_layer_num}_{next_layer_num}_{rank}',
+                            'source': f'layer_{current_layer_num}',
+                            'target': f'layer_{next_layer_num}',
+                            'token': token,
+                            'probability': prob,
+                            'width': max(2, prob * 10),  # Width based on probability
+                            'opacity': max(0.3, prob),    # Opacity based on probability  
+                            'color': token_to_color(token) # Color based on token
+                        }
+                    })
+            except Exception as e:
+                # Simple fallback edge
+                elements.append({
+                    'data': {
+                        'id': f'edge_{current_layer_num}_{next_layer_num}',
+                        'source': f'layer_{current_layer_num}',
+                        'target': f'layer_{next_layer_num}',
+                        'width': 2, 'opacity': 0.5, 'color': '#ccc'
+                    }
+                })
+    
+    return elements
+
+
+def generate_bertviz_html(activation_data: Dict[str, Any], layer_index: int, view_type: str = 'full') -> str:
+    """
+    Generate BertViz attention visualization HTML for a specific layer.
+    
+    Args:
+        activation_data: Output from execute_forward_pass
+        layer_index: Index of layer to visualize
+        view_type: 'full' for complete visualization or 'mini' for preview
+    
+    Returns:
+        HTML string for the visualization
+    """
+    try:
+        from bertviz import head_view
+        from transformers import AutoTokenizer
+        
+        # Extract attention modules and sort by layer
+        attention_outputs = activation_data.get('attention_outputs', {})
+        if not attention_outputs:
+            return f"<p>No attention data available for layer {layer_index}</p>"
+        
+        # Find attention module for the specified layer
+        target_module = None
+        for module_name in attention_outputs.keys():
+            numbers = re.findall(r'\d+', module_name)
+            if numbers and int(numbers[0]) == layer_index:
+                target_module = module_name
+                break
+        
+        if not target_module:
+            return f"<p>Layer {layer_index} not found in attention data</p>"
+        
+        # Get attention weights (element 1 of the output tuple)
+        attention_output = attention_outputs[target_module]['output']
+        if not isinstance(attention_output, list) or len(attention_output) < 2:
+            return f"<p>Invalid attention format for layer {layer_index}</p>"
+        
+        attention_weights = torch.tensor(attention_output[1])  # [batch, heads, seq, seq]
+        
+        # Get tokens
+        input_ids = torch.tensor(activation_data['input_ids'])
+        model_name = activation_data.get('model', 'unknown')
+        
+        # Load tokenizer and convert to tokens
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        raw_tokens = tokenizer.convert_ids_to_tokens(input_ids[0])
+        tokens = [token.replace('Ġ', ' ') if token.startswith('Ġ') else token for token in raw_tokens]
+        
+        # Generate visualization based on view_type
+        if view_type == 'mini':
+            # Mini version: simplified HTML preview
+            return f"""
+            <div style="padding:10px; border:1px solid #ccc; border-radius:5px;">
+                <h4>Layer {layer_index} Attention Preview</h4>
+                <p><strong>Tokens:</strong> {' '.join(tokens[:8])}{'...' if len(tokens) > 8 else ''}</p>
+                <p><strong>Attention Shape:</strong> {list(attention_weights.shape)}</p>
+                <p><em>Click for full visualization</em></p>
+            </div>
+            """
+        else:
+            # Full version: complete bertviz visualization
+            attentions = (attention_weights,)  # Single layer tuple
+            html_result = head_view(attentions, tokens, html_action='return')
+            return html_result.data if hasattr(html_result, 'data') else str(html_result)
+            
+    except Exception as e:
+        return f"<p>Error generating visualization: {str(e)}</p>"
