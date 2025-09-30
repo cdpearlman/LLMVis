@@ -5,6 +5,7 @@ import torch
 import torch.nn.functional as F
 from typing import Dict, List, Tuple, Any, Optional
 from transformers import AutoModelForCausalLM, AutoTokenizer
+from pyvene import RepresentationConfig, IntervenableConfig, IntervenableModel
 
 
 def extract_patterns(model, use_modules=True) -> Dict[str, List[str]]:
@@ -62,7 +63,7 @@ def safe_to_serializable(obj: Any) -> Any:
 
 def execute_forward_pass(model, tokenizer, prompt: str, config: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Execute forward pass with hooks to capture activations from specified modules.
+    Execute forward pass with PyVene IntervenableModel to capture activations from specified modules.
     
     Args:
         model: Loaded transformer model
@@ -87,27 +88,62 @@ def execute_forward_pass(model, tokenizer, prompt: str, config: Dict[str, Any]) 
         print("No modules specified for capture")
         return {"error": "No modules specified"}
     
-    # Register hooks and capture activations
+    # Build IntervenableConfig from module names
+    intervenable_representations = []
+    for mod_name in all_modules:
+        # Extract layer index from module name
+        layer_match = re.search(r'\.(\d+)(?:\.|$)', mod_name)
+        if not layer_match:
+            print(f"ERROR: Could not extract layer number from module: {mod_name}")
+            return {"error": f"Invalid module name format: {mod_name}"}
+        
+        layer_idx = int(layer_match.group(1))
+        
+        # Determine component type based on module category
+        if mod_name in mlp_modules:
+            component = 'mlp_output'
+        elif mod_name in attention_modules:
+            component = 'attention_output'
+        else:
+            component = 'block_output'
+        
+        intervenable_representations.append(
+            RepresentationConfig(
+                layer=layer_idx,
+                component=component,
+                unit="pos",
+                max_number_of_units=None
+            )
+        )
+    
+    # Create IntervenableConfig and wrap model
+    intervenable_config = IntervenableConfig(
+        intervenable_representations=intervenable_representations
+    )
+    intervenable_model = IntervenableModel(intervenable_config, model)
+    
+    print(f"Created IntervenableModel with {len(intervenable_representations)} representations")
+    
+    # Prepare inputs
+    inputs = tokenizer(prompt, return_tensors="pt")
+    
+    # Capture activations via hooks on underlying model
     captured = {}
     hooks = []
-    name_to_module = dict(model.named_modules())
+    name_to_module = dict(intervenable_model.model.named_modules())
     
     def make_hook(mod_name: str):
         def hook_fn(module, inputs, output):
             captured[mod_name] = {"output": safe_to_serializable(output)}
         return hook_fn
     
-    # Register hooks
     for mod_name in all_modules:
         if mod_name in name_to_module:
             hooks.append(name_to_module[mod_name].register_forward_hook(make_hook(mod_name)))
     
-    print(f"Registered {len(hooks)} hooks")
-    
-    # Execute forward pass
-    inputs = tokenizer(prompt, return_tensors="pt")
+    # Execute forward pass through underlying model
     with torch.no_grad():
-        _ = model(**inputs, use_cache=False)
+        _ = intervenable_model.model(**inputs, use_cache=False)
     
     # Remove hooks
     for hook in hooks:
@@ -126,7 +162,7 @@ def execute_forward_pass(model, tokenizer, prompt: str, config: Dict[str, Any]) 
             if param_name in all_params:
                 norm_data.append(safe_to_serializable(all_params[param_name]))
     
-    # Build comprehensive output dictionary
+    # Build output dictionary
     result = {
         "model": getattr(model.config, "name_or_path", "unknown"),
         "prompt": prompt,
@@ -142,7 +178,7 @@ def execute_forward_pass(model, tokenizer, prompt: str, config: Dict[str, Any]) 
         "logit_lens_parameter": logit_lens_parameter
     }
     
-    print(f"Captured {len(captured)} module outputs")
+    print(f"Captured {len(captured)} module outputs using PyVene")
     return result
 
 

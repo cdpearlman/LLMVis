@@ -6,6 +6,7 @@ plotly>=5.15.0
 # ML/Transformer dependencies  
 torch>=2.0.0
 transformers>=4.30.0
+pyvene>=0.1.0
 
 # Visualization dependencies
 bertviz>=1.4.0
