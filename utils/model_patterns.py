@@ -184,41 +184,36 @@ def execute_forward_pass(model, tokenizer, prompt: str, config: Dict[str, Any]) 
 
 def logit_lens_transformation(mlp_output: Any, norm_data: List[Any], model, logit_lens_parameter: str, tokenizer) -> List[Tuple[str, float]]:
     """
-    Transform MLP output to top 3 token probabilities using logit lens.
+    Transform MLP/layer output to top 3 token probabilities using logit lens.
+    Uses model's own output head for correct projection to vocabulary space.
+    
+    Note: Assumes the input hidden states already include any necessary normalization
+    (e.g., in GPT-2, hidden_states[-1] already includes ln_f; in LLaMA, you may need
+    to apply model.norm separately for intermediate layers).
     
     Args:
-        mlp_output: MLP layer output (from execute_forward_pass)
-        norm_data: Normalization weights (from execute_forward_pass)
-        model: Model to extract logit lens weights from
-        logit_lens_parameter: Parameter name for vocab projection (e.g., "transformer.wte.weight")
+        mlp_output: Hidden state from any layer (from execute_forward_pass)
+        norm_data: Not used - kept for backward compatibility  
+        model: HuggingFace model with get_output_embeddings() method
+        logit_lens_parameter: Not used - kept for backward compatibility
         tokenizer: Model tokenizer for token decoding
     
     Returns:
         List of (token_string, probability) tuples for top 3 tokens
     """
-    # Convert inputs to tensors
+    # Convert to tensor if needed
     if not isinstance(mlp_output, torch.Tensor):
         mlp_output = torch.tensor(mlp_output)
-    if not isinstance(norm_data, torch.Tensor):
-        norm_data = torch.tensor(norm_data[0]) if norm_data else torch.ones(mlp_output.size(-1))
-    
-    # Load logit lens weights from model
-    all_params = dict(model.named_parameters())
-    if logit_lens_parameter not in all_params:
-        raise ValueError(f"Parameter {logit_lens_parameter} not found in model")
-    logit_lens_weight = all_params[logit_lens_parameter]
     
     with torch.no_grad():
         # Ensure correct shape [batch, seq_len, hidden_dim]
         if len(mlp_output.shape) == 4:
             mlp_output = mlp_output.squeeze(0)
         
-        # Apply RMSNorm (no bias)
-        variance = mlp_output.pow(2).mean(-1, keepdim=True)
-        normalized = mlp_output * torch.rsqrt(variance + 1e-6) * norm_data
-        
-        # Project to vocabulary space
-        logits = torch.matmul(normalized, logit_lens_weight.T)
+        # Project to vocabulary space using model's output head
+        # This uses the correct tied/untied embeddings automatically
+        lm_head = model.get_output_embeddings()
+        logits = lm_head(mlp_output)
         
         # Get probabilities for last token (next token prediction)
         probs = F.softmax(logits, dim=-1)
@@ -253,13 +248,16 @@ def format_data_for_cytoscape(activation_data: Dict[str, Any], model, tokenizer)
     elements = []
     mlp_modules = activation_data.get('mlp_modules', [])
     if not mlp_modules:
+        print("DEBUG: No mlp_modules found, returning empty elements")
         return elements
     
     # Extract and sort layers
     layer_info = [(int(re.findall(r'\d+', name)[0]), name) for name in mlp_modules if re.findall(r'\d+', name)]
     layer_info.sort()
+    print(f"DEBUG: layer_info = {layer_info}")
     
     # Create nodes with positioning and top token stats
+    print(f"DEBUG: Creating {len(layer_info)} nodes...")
     for i, (layer_num, module_name) in enumerate(layer_info):
         # Get top token for this layer for node label
         mlp_output = activation_data['mlp_outputs'][module_name]['output']
@@ -267,16 +265,20 @@ def format_data_for_cytoscape(activation_data: Dict[str, Any], model, tokenizer)
         logit_lens_param = activation_data.get('logit_lens_parameter')
         
         node_label = f'L{layer_num}'
+        print(f"DEBUG: Processing layer {layer_num} ({module_name})")
         if logit_lens_param:
             try:
+                print(f"DEBUG: Computing logit lens for layer {layer_num}...")
                 top_tokens = logit_lens_transformation(mlp_output, norm_data, model, logit_lens_param, tokenizer)
+                print(f"DEBUG: Layer {layer_num} top_tokens = {top_tokens}")
                 if top_tokens:
                     token, prob = top_tokens[0]
                     node_label = f'L{layer_num}\n{token[:6]}\n{prob:.2f}'
-            except:
-                pass
+                    print(f"DEBUG: Layer {layer_num} node_label = {node_label}")
+            except Exception as e:
+                print(f"Warning: Could not compute logit lens for layer {layer_num}: {e}")
         
-        elements.append({
+        node_data = {
             'data': {
                 'id': f'layer_{layer_num}',
                 'label': node_label,
@@ -284,43 +286,69 @@ def format_data_for_cytoscape(activation_data: Dict[str, Any], model, tokenizer)
                 'module_name': module_name
             },
             'position': {'x': i * 120 + 60, 'y': 200}  # Horizontal layout
-        })
+        }
+        elements.append(node_data)
+        print(f"DEBUG: Added node for layer {layer_num}")
     
     # Create edges for top-3 tokens between consecutive layers
+    print(f"DEBUG: Creating edges between {len(layer_info)} layers...")
+    print(f"DEBUG: Will create {len(layer_info) - 1} edge groups")
+    
     for i in range(len(layer_info) - 1):
         current_layer_num, current_module = layer_info[i]
         next_layer_num, _ = layer_info[i + 1]
+        
+        print(f"DEBUG: Creating edges from layer {current_layer_num} to {next_layer_num}")
+        print(f"DEBUG: Using module {current_module}")
         
         mlp_output = activation_data['mlp_outputs'][current_module]['output']
         norm_data = activation_data.get('norm_data', [])
         logit_lens_param = activation_data.get('logit_lens_parameter')
         
+        print(f"DEBUG: logit_lens_param = {logit_lens_param}")
+        
         if logit_lens_param:
             try:
+                print(f"DEBUG: Computing logit lens for edge {current_layer_num}->{next_layer_num}...")
                 top_tokens = logit_lens_transformation(mlp_output, norm_data, model, logit_lens_param, tokenizer)
+                print(f"DEBUG: Edge {current_layer_num}->{next_layer_num} top_tokens = {top_tokens}")
+                
                 for rank, (token, prob) in enumerate(top_tokens):
-                    elements.append({
+                    edge_data = {
                         'data': {
                             'id': f'edge_{current_layer_num}_{next_layer_num}_{rank}',
                             'source': f'layer_{current_layer_num}',
                             'target': f'layer_{next_layer_num}',
                             'token': token,
                             'probability': prob,
-                            'width': max(2, prob * 10),  # Width based on probability
-                            'opacity': max(0.3, prob),    # Opacity based on probability  
-                            'color': token_to_color(token) # Color based on token
+                            'width': max(2, prob * 10),
+                            'opacity': max(0.3, prob),
+                            'color': token_to_color(token)
                         }
-                    })
+                    }
+                    elements.append(edge_data)
+                    print(f"DEBUG: Added edge {current_layer_num}->{next_layer_num} rank {rank}: token='{token}', prob={prob:.4f}")
             except Exception as e:
+                print(f"Warning: Could not compute logit lens for edge {current_layer_num}->{next_layer_num}: {e}")
                 # Simple fallback edge
-                elements.append({
+                fallback_edge = {
                     'data': {
                         'id': f'edge_{current_layer_num}_{next_layer_num}',
                         'source': f'layer_{current_layer_num}',
                         'target': f'layer_{next_layer_num}',
                         'width': 2, 'opacity': 0.5, 'color': '#ccc'
                     }
-                })
+                }
+                elements.append(fallback_edge)
+                print(f"DEBUG: Added fallback edge {current_layer_num}->{next_layer_num}")
+        else:
+            print(f"DEBUG: No logit_lens_param, skipping edges for {current_layer_num}->{next_layer_num}")
+    
+    print(f"DEBUG: Total elements created: {len(elements)}")
+    nodes = [e for e in elements if 'source' not in e['data']]
+    edges = [e for e in elements if 'source' in e['data']]
+    print(f"DEBUG: Nodes: {len(nodes)}, Edges: {len(edges)}")
+    print(f"=== DEBUG: format_data_for_cytoscape END ===\n")
     
     return elements
 

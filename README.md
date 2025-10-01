@@ -1,12 +1,52 @@
 # Transformer Activation Capture and Visualization
 
-This project provides tools for capturing activations from transformer models and visualizing attention patterns using bertviz.
+This project provides tools for capturing activations from transformer models and visualizing attention patterns using bertviz and an interactive Dash web application.
 
 ## Overview
 
-The project consists of two main components:
-1. **Activation Capture** (`agnostic_capture.py`) - Captures activations from any transformer model
-2. **Attention Visualization** (`bertviz_head_model_view.py`) - Creates interactive attention visualizations
+The project consists of multiple components:
+1. **Interactive Dashboard** (`app.py`) - Web-based visualization with automatic model family detection
+2. **Model Configuration** (`utils/model_config.py`) - Hard-coded mappings for common model families
+3. **Activation Capture** (`utils/model_patterns.py`) - PyVene-based activation capture utilities
+4. **Legacy Tools** (`agnostic_capture.py`, `bertviz_head_model_view.py`) - Command-line tools
+
+## New Feature: Automatic Model Family Detection
+
+The dashboard now automatically detects model families and pre-fills dropdown selections with appropriate modules and parameters. This eliminates manual selection for common architectures.
+
+### Supported Model Families
+
+- **LLaMA-like**: LLaMA 2/3, Mistral, Mixtral, Qwen2/2.5
+- **GPT-2**: GPT-2, GPT-2 Medium/Large/XL
+- **OPT**: Facebook OPT models (125M - 30B)
+- **GPT-NeoX**: EleutherAI Pythia, GPT-NeoX-20B
+- **BLOOM**: BigScience BLOOM models
+- **Falcon**: TII Falcon models
+- **MPT**: MosaicML MPT models
+
+### How It Works
+
+1. Select a model from the dropdown
+2. The app detects the model family (e.g., "gpt2", "llama_like")
+3. Dropdowns auto-fill with family-specific patterns:
+   - **Attention modules**: e.g., `transformer.h.{N}.attn` for GPT-2
+   - **MLP modules**: e.g., `model.layers.{N}.mlp` for LLaMA
+   - **Normalization parameters**: e.g., `model.norm.weight` for LLaMA
+   - **Logit lens parameter**: e.g., `lm_head.weight`
+4. You can still manually adjust selections if needed
+
+### Adding New Models
+
+Edit `utils/model_config.py` and add entries to `MODEL_TO_FAMILY`:
+
+```python
+MODEL_TO_FAMILY = {
+    "your-org/your-model": "llama_like",  # or gpt2, opt, etc.
+    # ...
+}
+```
+
+No code changes needed if the model follows an existing family's architecture!
 
 ## Files
 

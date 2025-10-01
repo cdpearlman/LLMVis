@@ -9,6 +9,7 @@ import dash
 from dash import html, dcc, Input, Output, State, callback, no_update
 import dash_cytoscape as cyto
 from utils import load_model_and_get_patterns, execute_forward_pass, format_data_for_cytoscape
+from utils.model_config import get_auto_selections, get_model_family
 
 # Import modular components
 from components.sidebar import create_sidebar
@@ -69,6 +70,10 @@ app.layout = html.Div([
      Output('mlp-modules-dropdown', 'options'),
      Output('norm-params-dropdown', 'options'),
      Output('logit-lens-dropdown', 'options'),
+     Output('attention-modules-dropdown', 'value', allow_duplicate=True),
+     Output('mlp-modules-dropdown', 'value', allow_duplicate=True),
+     Output('norm-params-dropdown', 'value', allow_duplicate=True),
+     Output('logit-lens-dropdown', 'value', allow_duplicate=True),
      Output('loading-indicator', 'children')],
     [Input('model-dropdown', 'value')],
     prevent_initial_call=True
@@ -76,7 +81,7 @@ app.layout = html.Div([
 def load_model_patterns(selected_model):
     """Load and categorize model patterns when a model is selected."""
     if not selected_model:
-        return {}, [], [], [], [], None
+        return {}, [], [], [], [], None, None, None, None, None
     
     try:
         # Load model patterns
@@ -123,24 +128,57 @@ def load_model_patterns(selected_model):
         norm_options = create_grouped_options(
             param_patterns, ['norm', 'layernorm', 'layer_norm'], 'params'
         )
+        # Logit lens can be in either modules or parameters - combine both
+        combined_patterns = {**param_patterns, **module_patterns}
         logit_lens_options = create_grouped_options(
-            param_patterns, ['lm_head', 'head', 'classifier', 'embed', 'wte', 'word'], 'params'
+            combined_patterns, ['lm_head', 'head', 'classifier', 'embed', 'wte', 'word'], 'items'
         )
         
-        # Store patterns data
+        # Get auto-selections based on model family
+        auto_selections = get_auto_selections(selected_model, module_patterns, param_patterns)
+        
+        # Store patterns data with family info
         patterns_data = {
             'module_patterns': module_patterns,
             'param_patterns': param_patterns,
-            'selected_model': selected_model
+            'selected_model': selected_model,
+            'family': auto_selections.get('family_name'),
+            'family_description': auto_selections.get('family_description', '')
         }
         
-        # Clear loading indicator
-        loading_content = html.Div([
-            html.I(className="fas fa-check-circle", style={'color': '#28a745', 'marginRight': '8px'}),
-            "Model patterns loaded successfully!"
-        ], className="status-success")
+        # Prepare loading indicator with family info
+        family_name = auto_selections.get('family_name')
+        if family_name:
+            loading_content = html.Div([
+                html.I(className="fas fa-check-circle", style={'color': '#28a745', 'marginRight': '8px'}),
+                html.Div([
+                    html.Div("Model patterns loaded successfully!"),
+                    html.Div(f"Detected family: {auto_selections.get('family_description', family_name)}", 
+                            style={'fontSize': '12px', 'color': '#6c757d', 'marginTop': '4px'})
+                ])
+            ], className="status-success")
+        else:
+            loading_content = html.Div([
+                html.I(className="fas fa-check-circle", style={'color': '#28a745', 'marginRight': '8px'}),
+                html.Div([
+                    html.Div("Model patterns loaded successfully!"),
+                    html.Div("No family detected - manual selection required", 
+                            style={'fontSize': '12px', 'color': '#f0ad4e', 'marginTop': '4px'})
+                ])
+            ], className="status-success")
         
-        return patterns_data, attention_options, mlp_options, norm_options, logit_lens_options, loading_content
+        return (
+            patterns_data, 
+            attention_options, 
+            mlp_options, 
+            norm_options, 
+            logit_lens_options,
+            auto_selections.get('attention_selection', []),
+            auto_selections.get('mlp_selection', []),
+            auto_selections.get('norm_selection', []),
+            auto_selections.get('logit_lens_selection'),
+            loading_content
+        )
         
     except Exception as e:
         print(f"Error loading model patterns: {e}")
@@ -148,7 +186,7 @@ def load_model_patterns(selected_model):
             html.I(className="fas fa-exclamation-triangle", style={'color': '#dc3545', 'marginRight': '8px'}),
             f"Error loading model: {str(e)}"
         ], className="status-error")
-        return {}, [], [], [], [], error_content
+        return {}, [], [], [], [], None, None, None, None, error_content
 
 # Callback to show loading spinner when model is being processed
 @app.callback(
@@ -213,7 +251,13 @@ def clear_all_selections(n_clicks):
 )
 def run_analysis(n_clicks, model_name, prompt, attn_patterns, mlp_patterns, norm_patterns, logit_pattern, patterns_data):
     """Run forward pass and generate cytoscape visualization."""
+    print(f"\n=== DEBUG: run_analysis START ===")
+    print(f"DEBUG: n_clicks={n_clicks}, model_name={model_name}, prompt='{prompt}'")
+    print(f"DEBUG: mlp_patterns={mlp_patterns}")
+    print(f"DEBUG: logit_pattern={logit_pattern}")
+    
     if not n_clicks or not model_name or not prompt or not mlp_patterns:
+        print("DEBUG: Missing required inputs, returning empty")
         return [], {}
     
     try:
@@ -226,19 +270,24 @@ def run_analysis(n_clicks, model_name, prompt, attn_patterns, mlp_patterns, norm
         # Build config from selected patterns
         module_patterns = patterns_data.get('module_patterns', {})
         param_patterns = patterns_data.get('param_patterns', {})
+        all_patterns = {**module_patterns, **param_patterns}
         
         config = {
             'attention_modules': [mod for pattern in (attn_patterns or []) for mod in module_patterns.get(pattern, [])],
             'mlp_modules': [mod for pattern in mlp_patterns for mod in module_patterns.get(pattern, [])],
             'norm_parameters': [param for pattern in (norm_patterns or []) for param in param_patterns.get(pattern, [])],
-            'logit_lens_parameter': param_patterns.get(logit_pattern, [None])[0] if logit_pattern else None
+            'logit_lens_parameter': all_patterns.get(logit_pattern, [None])[0] if logit_pattern else None
         }
+        
+        print(f"DEBUG: config = {config}")
         
         # Execute forward pass
         activation_data = execute_forward_pass(model, tokenizer, prompt, config)
         
         # Format for cytoscape
         elements = format_data_for_cytoscape(activation_data, model, tokenizer)
+        
+        print(f"DEBUG: Created {len(elements)} elements for cytoscape")
         
         # Store only essential data to avoid quota issues
         essential_data = {
@@ -248,10 +297,13 @@ def run_analysis(n_clicks, model_name, prompt, attn_patterns, mlp_patterns, norm
             'input_ids': activation_data.get('input_ids', [])
         }
         
+        print(f"=== DEBUG: run_analysis END ===\n")
         return elements, essential_data
         
     except Exception as e:
         print(f"Analysis error: {e}")
+        import traceback
+        traceback.print_exc()
         return [], {}
 
 # Enable Run Analysis button when requirements are met
