@@ -61,6 +61,29 @@ def safe_to_serializable(obj: Any) -> Any:
     return obj
 
 
+def get_actual_model_output(model_output, tokenizer) -> Tuple[str, float]:
+    """
+    Extract the predicted token from model's output.
+    
+    Args:
+        model_output: Output from model(**inputs) containing logits
+        tokenizer: Tokenizer for decoding
+    
+    Returns:
+        (token_string, probability) for the predicted next token
+    """
+    with torch.no_grad():
+        # Get probabilities for next token (last position)
+        logits = model_output.logits[0, -1, :]  # [vocab_size]
+        probs = F.softmax(logits, dim=-1)
+        
+        # Get top predicted token
+        top_prob, top_idx = probs.max(dim=-1)
+        token_str = tokenizer.decode([top_idx.item()], skip_special_tokens=False)
+        
+        return token_str, top_prob.item()
+
+
 def execute_forward_pass(model, tokenizer, prompt: str, config: Dict[str, Any]) -> Dict[str, Any]:
     """
     Execute forward pass with PyVene IntervenableModel to capture activations from specified modules.
@@ -94,12 +117,9 @@ def execute_forward_pass(model, tokenizer, prompt: str, config: Dict[str, Any]) 
         # Extract layer index from module name
         layer_match = re.search(r'\.(\d+)(?:\.|$)', mod_name)
         if not layer_match:
-            print(f"ERROR: Could not extract layer number from module: {mod_name}")
             return {"error": f"Invalid module name format: {mod_name}"}
         
-        layer_idx = int(layer_match.group(1))
-        
-        # Determine component type based on module category
+        # Determine component type
         if mod_name in mlp_modules:
             component = 'mlp_output'
         elif mod_name in attention_modules:
@@ -108,12 +128,7 @@ def execute_forward_pass(model, tokenizer, prompt: str, config: Dict[str, Any]) 
             component = 'block_output'
         
         intervenable_representations.append(
-            RepresentationConfig(
-                layer=layer_idx,
-                component=component,
-                unit="pos",
-                max_number_of_units=None
-            )
+            RepresentationConfig(layer=int(layer_match.group(1)), component=component, unit="pos")
         )
     
     # Create IntervenableConfig and wrap model
@@ -127,23 +142,21 @@ def execute_forward_pass(model, tokenizer, prompt: str, config: Dict[str, Any]) 
     # Prepare inputs
     inputs = tokenizer(prompt, return_tensors="pt")
     
-    # Capture activations via hooks on underlying model
+    # Register hooks to capture activations
     captured = {}
-    hooks = []
     name_to_module = dict(intervenable_model.model.named_modules())
     
     def make_hook(mod_name: str):
-        def hook_fn(module, inputs, output):
-            captured[mod_name] = {"output": safe_to_serializable(output)}
-        return hook_fn
+        return lambda module, inputs, output: captured.update({mod_name: {"output": safe_to_serializable(output)}})
     
-    for mod_name in all_modules:
-        if mod_name in name_to_module:
-            hooks.append(name_to_module[mod_name].register_forward_hook(make_hook(mod_name)))
+    hooks = [
+        name_to_module[mod_name].register_forward_hook(make_hook(mod_name))
+        for mod_name in all_modules if mod_name in name_to_module
+    ]
     
-    # Execute forward pass through underlying model
+    # Execute forward pass through underlying model and capture actual output
     with torch.no_grad():
-        _ = intervenable_model.model(**inputs, use_cache=False)
+        model_output = intervenable_model.model(**inputs, use_cache=False)
     
     # Remove hooks
     for hook in hooks:
@@ -154,13 +167,17 @@ def execute_forward_pass(model, tokenizer, prompt: str, config: Dict[str, Any]) 
     mlp_outputs = {k: v for k, v in captured.items() if k in mlp_modules}
     other_outputs = {k: v for k, v in captured.items() if k in other_modules}
     
-    # Capture normalization parameters
-    norm_data = []
-    if norm_parameters:
-        all_params = dict(model.named_parameters())
-        for param_name in norm_parameters:
-            if param_name in all_params:
-                norm_data.append(safe_to_serializable(all_params[param_name]))
+    # Capture normalization parameters (deprecated - kept for backward compatibility)
+    all_params = dict(model.named_parameters())
+    norm_data = [safe_to_serializable(all_params[p]) for p in norm_parameters if p in all_params]
+    
+    # Extract predicted token from model output
+    actual_output = None
+    try:
+        output_token, output_prob = get_actual_model_output(model_output, tokenizer)
+        actual_output = {"token": output_token, "probability": output_prob}
+    except Exception as e:
+        print(f"Warning: Could not extract model output: {e}")
     
     # Build output dictionary
     result = {
@@ -175,7 +192,8 @@ def execute_forward_pass(model, tokenizer, prompt: str, config: Dict[str, Any]) 
         "other_outputs": other_outputs,
         "norm_parameters": norm_parameters,
         "norm_data": norm_data,
-        "logit_lens_parameter": logit_lens_parameter
+        "logit_lens_parameter": logit_lens_parameter,
+        "actual_output": actual_output  # Store only token and probability, not full output
     }
     
     print(f"Captured {len(captured)} module outputs using PyVene")
@@ -184,53 +202,67 @@ def execute_forward_pass(model, tokenizer, prompt: str, config: Dict[str, Any]) 
 
 def logit_lens_transformation(mlp_output: Any, norm_data: List[Any], model, logit_lens_parameter: str, tokenizer) -> List[Tuple[str, float]]:
     """
-    Transform MLP/layer output to top 3 token probabilities using logit lens.
-    Uses model's own output head for correct projection to vocabulary space.
+    Transform layer output to top 3 token probabilities using logit lens.
     
-    Note: Assumes the input hidden states already include any necessary normalization
-    (e.g., in GPT-2, hidden_states[-1] already includes ln_f; in LLaMA, you may need
-    to apply model.norm separately for intermediate layers).
+    Applies final layer normalization before projection (critical for correctness).
+    Uses model's built-in functions to minimize computational errors.
     
     Args:
-        mlp_output: Hidden state from any layer (from execute_forward_pass)
-        norm_data: Not used - kept for backward compatibility  
-        model: HuggingFace model with get_output_embeddings() method
-        logit_lens_parameter: Not used - kept for backward compatibility
-        tokenizer: Model tokenizer for token decoding
+        mlp_output: Hidden state from any layer
+        norm_data: Not used (deprecated - using model's norm layer directly)
+        model: HuggingFace model
+        logit_lens_parameter: Not used (deprecated)
+        tokenizer: Tokenizer for decoding
     
     Returns:
         List of (token_string, probability) tuples for top 3 tokens
     """
-    # Convert to tensor if needed
-    if not isinstance(mlp_output, torch.Tensor):
-        mlp_output = torch.tensor(mlp_output)
-    
     with torch.no_grad():
-        # Ensure correct shape [batch, seq_len, hidden_dim]
-        if len(mlp_output.shape) == 4:
-            mlp_output = mlp_output.squeeze(0)
+        # Convert to tensor and ensure proper shape [batch, seq_len, hidden_dim]
+        hidden = torch.tensor(mlp_output) if not isinstance(mlp_output, torch.Tensor) else mlp_output
+        if hidden.dim() == 4:
+            hidden = hidden.squeeze(0)
         
-        # Project to vocabulary space using model's output head
-        # This uses the correct tied/untied embeddings automatically
+        # Step 1: Apply final layer normalization (critical for intermediate layers)
+        final_norm = get_final_norm_layer(model)
+        if final_norm is not None:
+            hidden = final_norm(hidden)
+        
+        # Step 2: Project to vocab space using model's lm_head
         lm_head = model.get_output_embeddings()
-        logits = lm_head(mlp_output)
+        logits = lm_head(hidden)
         
-        # Get probabilities for last token (next token prediction)
-        probs = F.softmax(logits, dim=-1)
-        last_token_probs = probs[0, -1, :]  # [vocab_size]
+        # Step 3: Get probabilities via softmax
+        probs = F.softmax(logits[0, -1, :], dim=-1)
         
-        # Get top 3 tokens
-        top_probs, top_indices = torch.topk(last_token_probs, 3)
+        # Step 4: Extract top 3 tokens
+        top_probs, top_indices = torch.topk(probs, k=3)
         
-        # Convert to token strings
-        result = []
-        for i in range(3):
-            token_id = top_indices[i].item()
-            probability = top_probs[i].item()
-            token_str = tokenizer.decode([token_id], skip_special_tokens=False)
-            result.append((token_str, probability))
-        
-        return result
+        return [
+            (tokenizer.decode([idx.item()], skip_special_tokens=False), prob.item())
+            for idx, prob in zip(top_indices, top_probs)
+        ]
+
+
+def get_final_norm_layer(model):
+    """
+    Get the final layer normalization module from the model.
+    Returns None if not found.
+    
+    Supports GPT-2 (transformer.ln_f), LLaMA (model.norm), and similar architectures.
+    """
+    # Try common final norm layer names
+    for attr_path in ['transformer.ln_f', 'model.norm', 'model.decoder.final_layer_norm', 
+                      'gpt_neox.final_layer_norm', 'transformer.norm_f']:
+        try:
+            parts = attr_path.split('.')
+            obj = model
+            for part in parts:
+                obj = getattr(obj, part)
+            return obj
+        except AttributeError:
+            continue
+    return None
 
 
 def token_to_color(token: str) -> str:
@@ -241,114 +273,92 @@ def token_to_color(token: str) -> str:
     return f'hsl({hue}, 70%, 50%)'
 
 
+def _get_top_tokens(activation_data: Dict[str, Any], module_name: str, model, tokenizer) -> Optional[List[Tuple[str, float]]]:
+    """Helper: Get top 3 tokens for a layer's output."""
+    try:
+        mlp_output = activation_data['mlp_outputs'][module_name]['output']
+        return logit_lens_transformation(mlp_output, [], model, None, tokenizer)
+    except Exception as e:
+        print(f"Warning: Could not compute logit lens for {module_name}: {e}")
+        return None
+
+
+def _create_node(layer_num: int, module_name: str, x_pos: int, top_token: Optional[Tuple[str, float]] = None) -> Dict[str, Any]:
+    """Helper: Create a Cytoscape node."""
+    label = f'L{layer_num}'
+    if top_token:
+        token, prob = top_token
+        label = f'L{layer_num}\n{token[:6]}\n{prob:.2f}'
+    
+    return {
+        'data': {'id': f'layer_{layer_num}', 'label': label, 'layer_num': layer_num, 'module_name': module_name},
+        'position': {'x': x_pos, 'y': 200}
+    }
+
+
+def _create_edge(src_layer: int, tgt_layer: int, token: str, prob: float, rank: int = 0) -> Dict[str, Any]:
+    """Helper: Create a Cytoscape edge."""
+    edge_id = f'edge_{src_layer}_{tgt_layer}_{rank}' if rank else f'edge_{src_layer}_{tgt_layer}'
+    return {
+        'data': {
+            'id': edge_id,
+            'source': f'layer_{src_layer}',
+            'target': f'layer_{tgt_layer}' if isinstance(tgt_layer, int) else tgt_layer,
+            'token': token,
+            'probability': prob,
+            'width': max(2, prob * 10),
+            'opacity': max(0.3, prob),
+            'color': token_to_color(token)
+        }
+    }
+
+
 def format_data_for_cytoscape(activation_data: Dict[str, Any], model, tokenizer) -> List[Dict[str, Any]]:
-    """
-    Convert activation data to Cytoscape format with nodes (layers) and edges (top-3 tokens).
-    """
-    elements = []
+    """Convert activation data to Cytoscape format with nodes (layers) and edges (top-3 tokens)."""
     mlp_modules = activation_data.get('mlp_modules', [])
     if not mlp_modules:
-        print("DEBUG: No mlp_modules found, returning empty elements")
-        return elements
+        return []
     
-    # Extract and sort layers
-    layer_info = [(int(re.findall(r'\d+', name)[0]), name) for name in mlp_modules if re.findall(r'\d+', name)]
-    layer_info.sort()
-    print(f"DEBUG: layer_info = {layer_info}")
+    # Extract and sort layers by layer number
+    layer_info = sorted(
+        [(int(re.findall(r'\d+', name)[0]), name) 
+         for name in mlp_modules if re.findall(r'\d+', name)]
+    )
     
-    # Create nodes with positioning and top token stats
-    print(f"DEBUG: Creating {len(layer_info)} nodes...")
+    elements = []
+    logit_lens_enabled = activation_data.get('logit_lens_parameter') is not None
+    
+    # Create layer nodes
     for i, (layer_num, module_name) in enumerate(layer_info):
-        # Get top token for this layer for node label
-        mlp_output = activation_data['mlp_outputs'][module_name]['output']
-        norm_data = activation_data.get('norm_data', [])
-        logit_lens_param = activation_data.get('logit_lens_parameter')
-        
-        node_label = f'L{layer_num}'
-        print(f"DEBUG: Processing layer {layer_num} ({module_name})")
-        if logit_lens_param:
-            try:
-                print(f"DEBUG: Computing logit lens for layer {layer_num}...")
-                top_tokens = logit_lens_transformation(mlp_output, norm_data, model, logit_lens_param, tokenizer)
-                print(f"DEBUG: Layer {layer_num} top_tokens = {top_tokens}")
-                if top_tokens:
-                    token, prob = top_tokens[0]
-                    node_label = f'L{layer_num}\n{token[:6]}\n{prob:.2f}'
-                    print(f"DEBUG: Layer {layer_num} node_label = {node_label}")
-            except Exception as e:
-                print(f"Warning: Could not compute logit lens for layer {layer_num}: {e}")
-        
-        node_data = {
-            'data': {
-                'id': f'layer_{layer_num}',
-                'label': node_label,
-                'layer_num': layer_num,
-                'module_name': module_name
-            },
-            'position': {'x': i * 120 + 60, 'y': 200}  # Horizontal layout
-        }
-        elements.append(node_data)
-        print(f"DEBUG: Added node for layer {layer_num}")
+        top_tokens = _get_top_tokens(activation_data, module_name, model, tokenizer) if logit_lens_enabled else None
+        top_token = top_tokens[0] if top_tokens else None
+        elements.append(_create_node(layer_num, module_name, i * 120 + 60, top_token))
     
-    # Create edges for top-3 tokens between consecutive layers
-    print(f"DEBUG: Creating edges between {len(layer_info)} layers...")
-    print(f"DEBUG: Will create {len(layer_info) - 1} edge groups")
-    
-    for i in range(len(layer_info) - 1):
-        current_layer_num, current_module = layer_info[i]
-        next_layer_num, _ = layer_info[i + 1]
-        
-        print(f"DEBUG: Creating edges from layer {current_layer_num} to {next_layer_num}")
-        print(f"DEBUG: Using module {current_module}")
-        
-        mlp_output = activation_data['mlp_outputs'][current_module]['output']
-        norm_data = activation_data.get('norm_data', [])
-        logit_lens_param = activation_data.get('logit_lens_parameter')
-        
-        print(f"DEBUG: logit_lens_param = {logit_lens_param}")
-        
-        if logit_lens_param:
-            try:
-                print(f"DEBUG: Computing logit lens for edge {current_layer_num}->{next_layer_num}...")
-                top_tokens = logit_lens_transformation(mlp_output, norm_data, model, logit_lens_param, tokenizer)
-                print(f"DEBUG: Edge {current_layer_num}->{next_layer_num} top_tokens = {top_tokens}")
-                
+    # Create edges between consecutive layers
+    if logit_lens_enabled:
+        for i in range(len(layer_info) - 1):
+            curr_layer_num, curr_module = layer_info[i]
+            next_layer_num = layer_info[i + 1][0]
+            
+            top_tokens = _get_top_tokens(activation_data, curr_module, model, tokenizer)
+            if top_tokens:
                 for rank, (token, prob) in enumerate(top_tokens):
-                    edge_data = {
-                        'data': {
-                            'id': f'edge_{current_layer_num}_{next_layer_num}_{rank}',
-                            'source': f'layer_{current_layer_num}',
-                            'target': f'layer_{next_layer_num}',
-                            'token': token,
-                            'probability': prob,
-                            'width': max(2, prob * 10),
-                            'opacity': max(0.3, prob),
-                            'color': token_to_color(token)
-                        }
-                    }
-                    elements.append(edge_data)
-                    print(f"DEBUG: Added edge {current_layer_num}->{next_layer_num} rank {rank}: token='{token}', prob={prob:.4f}")
-            except Exception as e:
-                print(f"Warning: Could not compute logit lens for edge {current_layer_num}->{next_layer_num}: {e}")
-                # Simple fallback edge
-                fallback_edge = {
-                    'data': {
-                        'id': f'edge_{current_layer_num}_{next_layer_num}',
-                        'source': f'layer_{current_layer_num}',
-                        'target': f'layer_{next_layer_num}',
-                        'width': 2, 'opacity': 0.5, 'color': '#ccc'
-                    }
-                }
-                elements.append(fallback_edge)
-                print(f"DEBUG: Added fallback edge {current_layer_num}->{next_layer_num}")
-        else:
-            print(f"DEBUG: No logit_lens_param, skipping edges for {current_layer_num}->{next_layer_num}")
+                    elements.append(_create_edge(curr_layer_num, next_layer_num, token, prob, rank))
     
-    print(f"DEBUG: Total elements created: {len(elements)}")
-    nodes = [e for e in elements if 'source' not in e['data']]
-    edges = [e for e in elements if 'source' in e['data']]
-    print(f"DEBUG: Nodes: {len(nodes)}, Edges: {len(edges)}")
-    print(f"=== DEBUG: format_data_for_cytoscape END ===\n")
+    # Add final output node
+    actual_output = activation_data.get('actual_output')
+    if actual_output and layer_info:
+        last_layer_num = layer_info[-1][0]
+        output_token, output_prob = actual_output['token'], actual_output['probability']
+        
+        # Output node
+        elements.append({
+            'data': {'id': 'output_node', 'label': f'Output\n{output_token[:8]}\n{output_prob:.2f}'},
+            'position': {'x': len(layer_info) * 120 + 60, 'y': 200}
+        })
+        
+        # Edge to output
+        elements.append(_create_edge(last_layer_num, 'output_node', output_token, output_prob))
     
     return elements
 

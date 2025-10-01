@@ -235,10 +235,27 @@ def clear_all_selections(n_clicks):
         cleared_status  # loading-indicator children
     )
 
+# Callback to show loading spinner when Run Analysis is clicked
+@app.callback(
+    Output('analysis-loading-indicator', 'children', allow_duplicate=True),
+    [Input('run-analysis-btn', 'n_clicks')],
+    prevent_initial_call=True
+)
+def show_analysis_loading_spinner(n_clicks):
+    """Show loading spinner when Run Analysis button is clicked."""
+    if not n_clicks:
+        return None
+    
+    return html.Div([
+        html.I(className="fas fa-spinner fa-spin", style={'marginRight': '8px'}),
+        "Collecting Data..."
+    ], className="status-loading")
+
 # Callback to run analysis and generate visualization
 @app.callback(
     [Output('model-flow-graph', 'elements'),
-     Output('session-activation-store', 'data', allow_duplicate=True)],
+     Output('session-activation-store', 'data', allow_duplicate=True),
+     Output('analysis-loading-indicator', 'children')],
     [Input('run-analysis-btn', 'n_clicks')],
     [State('model-dropdown', 'value'),
      State('prompt-input', 'value'),
@@ -258,7 +275,7 @@ def run_analysis(n_clicks, model_name, prompt, attn_patterns, mlp_patterns, norm
     
     if not n_clicks or not model_name or not prompt or not mlp_patterns:
         print("DEBUG: Missing required inputs, returning empty")
-        return [], {}
+        return [], {}, None
     
     try:
         # Load model for execution
@@ -297,14 +314,27 @@ def run_analysis(n_clicks, model_name, prompt, attn_patterns, mlp_patterns, norm
             'input_ids': activation_data.get('input_ids', [])
         }
         
+        # Show success message
+        success_message = html.Div([
+            html.I(className="fas fa-check-circle", style={'color': '#28a745', 'marginRight': '8px'}),
+            "Analysis completed successfully!"
+        ], className="status-success")
+        
         print(f"=== DEBUG: run_analysis END ===\n")
-        return elements, essential_data
+        return elements, essential_data, success_message
         
     except Exception as e:
         print(f"Analysis error: {e}")
         import traceback
         traceback.print_exc()
-        return [], {}
+        
+        # Show error message
+        error_message = html.Div([
+            html.I(className="fas fa-exclamation-triangle", style={'color': '#dc3545', 'marginRight': '8px'}),
+            f"Analysis error: {str(e)}"
+        ], className="status-error")
+        
+        return [], {}, error_message
 
 # Enable Run Analysis button when requirements are met
 @app.callback(

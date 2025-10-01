@@ -20,6 +20,9 @@ def create_main_panel():
             create_model_selector()
         ], className="config-section"),
         
+        # Analysis loading indicator
+        html.Div(id="analysis-loading-indicator", className="loading-container"),
+        
         # Visualization section
         html.Div([
             html.H3("Model Flow Visualization", className="section-title"),
@@ -45,6 +48,24 @@ def create_main_panel():
                             'color': 'white',
                             'font-size': '10px',
                             'text-wrap': 'wrap'
+                        }
+                    },
+                    # Output node style (distinct from layer nodes)
+                    {
+                        'selector': 'node[id="output_node"]',
+                        'style': {
+                            'width': '80px',
+                            'height': '80px',
+                            'background-color': '#48bb78',
+                            'border-color': '#38a169',
+                            'border-width': '3px',
+                            'label': 'data(label)',
+                            'text-valign': 'center',
+                            'color': 'white',
+                            'font-size': '11px',
+                            'font-weight': 'bold',
+                            'text-wrap': 'wrap',
+                            'shape': 'round-rectangle'
                         }
                     },
                     # Edge styles
