@@ -57,8 +57,9 @@ Feature Updates:
 ✅ Feature 5 complete!
 
 ## Feature 6: Two-Prompt Difference Analysis
-[ ] Compute attention distribution differences across layers/heads
-[ ] Compute output probability differences at each layer
-[ ] Highlight layers with significant differences (red border)
-[ ] Add summary panel showing top-N divergent layers/heads
-[ ] Make difference thresholds configurable
+[x] Compute attention distribution differences across layers/heads
+[x] Compute output probability differences at each layer
+[x] Highlight layers with significant differences (red border)
+[x] Add summary panel showing top-N divergent layers/heads
+[x] Make difference thresholds configurable
+✅ Feature 6 complete!

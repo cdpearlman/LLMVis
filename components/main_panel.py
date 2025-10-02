@@ -73,6 +73,14 @@ def create_main_panel():
                             'text-wrap': 'wrap'
                         }
                     },
+                    # Divergent layer node style (red border for different prompts)
+                    {
+                        'selector': 'node.divergent-layer',
+                        'style': {
+                            'border-color': '#e53e3e',
+                            'border-width': '4px'
+                        }
+                    },
                     # Output node style (distinct from layer nodes)
                     {
                         'selector': 'node[id="output_node"]',
@@ -134,6 +142,14 @@ def create_main_panel():
                             'text-wrap': 'wrap'
                         }
                     },
+                    # Divergent layer node style (red border for different prompts)
+                    {
+                        'selector': 'node.divergent-layer',
+                        'style': {
+                            'border-color': '#e53e3e',
+                            'border-width': '4px'
+                        }
+                    },
                     # Output node style (distinct from layer nodes)
                     {
                         'selector': 'node[id="output_node"]',
@@ -167,6 +183,17 @@ def create_main_panel():
                 ]
             )
         ], id="second-visualization-section", className="visualization-section", style={'display': 'none'}),
+        
+        # Two-Prompt Comparison section (shown when comparing)
+        html.Div([
+            html.H3("Two-Prompt Comparison Analysis", className="section-title"),
+            html.Div([
+                html.P(
+                    "Comparison analysis will appear here when two prompts are provided.",
+                    className="placeholder-text"
+                )
+            ], id="comparison-container", className="results-area")
+        ], id="comparison-section", className="results-section", style={'display': 'none'}),
         
         # Head Categorization section
         html.Div([

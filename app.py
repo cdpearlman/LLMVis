@@ -8,7 +8,9 @@ Components are organized for easy understanding and maintenance.
 import dash
 from dash import html, dcc, Input, Output, State, callback, no_update
 import dash_cytoscape as cyto
-from utils import load_model_and_get_patterns, execute_forward_pass, format_data_for_cytoscape, categorize_all_heads, format_categorization_summary
+from utils import (load_model_and_get_patterns, execute_forward_pass, format_data_for_cytoscape, 
+                   categorize_all_heads, format_categorization_summary,
+                   compare_attention_layers, compare_output_probabilities, format_comparison_summary)
 from utils.model_config import get_auto_selections, get_model_family
 
 # Import modular components
@@ -31,6 +33,25 @@ AVAILABLE_MODELS = [
     "Qwen/Qwen2.5-0.5B",
     "gpt2"
 ]
+
+# Helper function for highlighting divergent layers
+def _highlight_divergent_layers(elements, divergent_layer_nums):
+    """Add red border styling to divergent layer nodes."""
+    if not divergent_layer_nums:
+        return elements
+    
+    # Create a set of divergent layer IDs
+    divergent_ids = set(f'layer_{num}' for num in divergent_layer_nums)
+    
+    # Update elements with divergent styling
+    updated_elements = []
+    for element in elements:
+        if element.get('data', {}).get('id') in divergent_ids:
+            # Add classes or style to indicate divergence
+            element['classes'] = 'divergent-layer'
+        updated_elements.append(element)
+    
+    return updated_elements
 
 # Helper function for creating category detail view
 def _create_category_detail_view(categorized_heads):
@@ -334,7 +355,9 @@ def submit_check_token(n_clicks, check_token):
      Output('session-activation-store-2', 'data'),
      Output('analysis-loading-indicator', 'children'),
      Output('second-visualization-section', 'style', allow_duplicate=True),
-     Output('head-categorization-container', 'children')],
+     Output('head-categorization-container', 'children'),
+     Output('comparison-section', 'style'),
+     Output('comparison-container', 'children')],
     [Input('run-analysis-btn', 'n_clicks')],
     [State('model-dropdown', 'value'),
      State('prompt-input', 'value'),
@@ -357,7 +380,8 @@ def run_analysis(n_clicks, model_name, prompt, prompt2, check_token, attn_patter
     if not n_clicks or not model_name or not prompt or not block_patterns:
         print("DEBUG: Missing required inputs, returning empty")
         placeholder_text = html.P("Head categorization will appear here after running analysis.", className="placeholder-text")
-        return [], [], {}, {}, None, {'display': 'none'}, placeholder_text
+        comparison_placeholder = html.P("Comparison analysis will appear here when two prompts are provided.", className="placeholder-text")
+        return [], [], {}, {}, None, {'display': 'none'}, placeholder_text, {'display': 'none'}, comparison_placeholder
     
     try:
         # Load model for execution
@@ -413,6 +437,8 @@ def run_analysis(n_clicks, model_name, prompt, prompt2, check_token, attn_patter
         elements2 = []
         essential_data2 = {}
         second_viz_style = {'display': 'none'}  # Default: hide second viz
+        comparison_style = {'display': 'none'}  # Default: hide comparison
+        comparison_display = html.P("Comparison analysis will appear here when two prompts are provided.", className="placeholder-text")
         
         if prompt2 and prompt2.strip():
             activation_data2 = execute_forward_pass(model, tokenizer, prompt2, config)
@@ -429,6 +455,34 @@ def run_analysis(n_clicks, model_name, prompt, prompt2, check_token, attn_patter
             # Show second visualization if we have data
             if elements2:
                 second_viz_style = {'display': 'block'}
+            
+            # Compute comparison between two prompts
+            comparison_results = compare_attention_layers(activation_data, activation_data2)
+            prob_differences = compare_output_probabilities(activation_data, activation_data2, model, tokenizer)
+            comparison_summary = format_comparison_summary(comparison_results, prob_differences)
+            
+            # Get divergent layer numbers for highlighting
+            divergent_layer_nums = set(ld['layer'] for ld in comparison_results['divergent_layers'])
+            
+            # Highlight divergent layers in both visualizations
+            elements = _highlight_divergent_layers(elements, divergent_layer_nums)
+            elements2 = _highlight_divergent_layers(elements2, divergent_layer_nums)
+            
+            # Create comparison display
+            comparison_display = html.Div([
+                html.Pre(comparison_summary, style={'whiteSpace': 'pre-wrap', 'fontFamily': 'monospace', 'fontSize': '13px'}),
+                html.Hr(),
+                html.Div([
+                    html.H4("Divergent Layers", style={'marginTop': '1rem', 'color': '#e53e3e'}),
+                    html.P(f"{len(divergent_layer_nums)} layers show significant differences between prompts.", 
+                          style={'color': '#6c757d', 'fontSize': '14px'}),
+                    html.P("These layers are highlighted with red borders in the visualizations above.",
+                          style={'color': '#6c757d', 'fontSize': '14px'})
+                ])
+            ])
+            
+            # Show comparison section
+            comparison_style = {'display': 'block'}
         
         # Show success message
         success_message = html.Div([
@@ -437,7 +491,7 @@ def run_analysis(n_clicks, model_name, prompt, prompt2, check_token, attn_patter
         ], className="status-success")
         
         print(f"=== DEBUG: run_analysis END ===\n")
-        return elements, elements2, essential_data, essential_data2, success_message, second_viz_style, head_categorization_display
+        return elements, elements2, essential_data, essential_data2, success_message, second_viz_style, head_categorization_display, comparison_style, comparison_display
         
     except Exception as e:
         print(f"Analysis error: {e}")
@@ -451,7 +505,8 @@ def run_analysis(n_clicks, model_name, prompt, prompt2, check_token, attn_patter
         ], className="status-error")
         
         placeholder_text = html.P("Error generating head categorization.", className="placeholder-text")
-        return [], [], {}, {}, error_message, {'display': 'none'}, placeholder_text
+        comparison_placeholder = html.P("Comparison analysis will appear here when two prompts are provided.", className="placeholder-text")
+        return [], [], {}, {}, error_message, {'display': 'none'}, placeholder_text, {'display': 'none'}, comparison_placeholder
 
 # Enable Run Analysis button when requirements are met
 @app.callback(
