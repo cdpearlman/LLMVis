@@ -320,6 +320,55 @@ def _get_top_tokens(activation_data: Dict[str, Any], module_name: str, model, to
         return None
 
 
+def _get_check_token_probability(activation_data: Dict[str, Any], module_name: str, model, tokenizer, check_token: str) -> Optional[Tuple[str, float]]:
+    """
+    Helper: Get probability for a specific check token at a layer's output.
+    
+    If check_token produces multiple sub-tokens, uses the last sub-token as per specs.
+    """
+    try:
+        # Tokenize the check token
+        token_ids = tokenizer.encode(check_token, add_special_tokens=False)
+        if not token_ids:
+            return None
+        
+        # Use last sub-token if multiple (as per plans.md)
+        target_token_id = token_ids[-1]
+        token_str = tokenizer.decode([target_token_id], skip_special_tokens=False)
+        
+        # Get block output
+        if module_name not in activation_data.get('block_outputs', {}):
+            return None
+        
+        layer_output = activation_data['block_outputs'][module_name]['output']
+        
+        # Apply logit lens transformation
+        with torch.no_grad():
+            hidden = torch.tensor(layer_output) if not isinstance(layer_output, torch.Tensor) else layer_output
+            if hidden.dim() == 4:
+                hidden = hidden.squeeze(0)
+            
+            # Apply final norm
+            norm_params = activation_data.get('norm_parameters', [])
+            norm_parameter = norm_params[0] if norm_params else None
+            final_norm = get_norm_layer_from_parameter(model, norm_parameter)
+            if final_norm is not None:
+                hidden = final_norm(hidden)
+            
+            # Project to vocab space
+            lm_head = model.get_output_embeddings()
+            logits = lm_head(hidden)
+            probs = F.softmax(logits[0, -1, :], dim=-1)
+            
+            # Get probability for target token
+            prob = probs[target_token_id].item()
+            
+            return (token_str, prob)
+    except Exception as e:
+        print(f"Warning: Could not compute check token probability for {module_name}: {e}")
+        return None
+
+
 def _create_node(layer_num: int, module_name: str, x_pos: int, top_token: Optional[Tuple[str, float]] = None) -> Dict[str, Any]:
     """Helper: Create a Cytoscape node."""
     label = f'L{layer_num}'
@@ -350,11 +399,17 @@ def _create_edge(src_layer: int, tgt_layer: int, token: str, prob: float, rank: 
     }
 
 
-def format_data_for_cytoscape(activation_data: Dict[str, Any], model, tokenizer) -> List[Dict[str, Any]]:
+def format_data_for_cytoscape(activation_data: Dict[str, Any], model, tokenizer, check_token: Optional[str] = None) -> List[Dict[str, Any]]:
     """
-    Convert activation data to Cytoscape format with nodes (layers) and edges (top-3 tokens).
+    Convert activation data to Cytoscape format with nodes (layers) and edges (top-3 tokens + optional check token).
     
     Uses block outputs (full layer outputs / residual stream) for logit lens visualization.
+    
+    Args:
+        activation_data: Output from execute_forward_pass
+        model: The transformer model
+        tokenizer: The tokenizer
+        check_token: Optional token to track as 4th edge (with minimum opacity)
     """
     # Get block modules (full layer outputs)
     layer_modules = activation_data.get('block_modules', [])
@@ -386,6 +441,18 @@ def format_data_for_cytoscape(activation_data: Dict[str, Any], model, tokenizer)
             if top_tokens:
                 for rank, (token, prob) in enumerate(top_tokens):
                     elements.append(_create_edge(curr_layer_num, next_layer_num, token, prob, rank))
+            
+            # Add 4th edge for check token if provided
+            if check_token and check_token.strip():
+                check_result = _get_check_token_probability(activation_data, curr_module, model, tokenizer, check_token.strip())
+                if check_result:
+                    token, prob = check_result
+                    # Enforce minimum opacity of 0.25 for visibility
+                    prob_display = max(prob, 0.25)
+                    # Create edge with rank=3 (4th edge) and enforced minimum opacity
+                    edge = _create_edge(curr_layer_num, next_layer_num, token, prob, rank=3)
+                    edge['data']['opacity'] = max(0.25, prob_display)  # Override opacity with minimum
+                    elements.append(edge)
     
     # Add final output node
     actual_output = activation_data.get('actual_output')

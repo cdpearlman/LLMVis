@@ -269,6 +269,7 @@ def show_analysis_loading_spinner(n_clicks):
     [State('model-dropdown', 'value'),
      State('prompt-input', 'value'),
      State('prompt-input-2', 'value'),
+     State('check-token-input', 'value'),
      State('attention-modules-dropdown', 'value'),
      State('block-modules-dropdown', 'value'),
      State('norm-params-dropdown', 'value'), 
@@ -276,7 +277,7 @@ def show_analysis_loading_spinner(n_clicks):
      State('session-patterns-store', 'data')],
     prevent_initial_call=True
 )
-def run_analysis(n_clicks, model_name, prompt, prompt2, attn_patterns, block_patterns, norm_patterns, logit_pattern, patterns_data):
+def run_analysis(n_clicks, model_name, prompt, prompt2, check_token, attn_patterns, block_patterns, norm_patterns, logit_pattern, patterns_data):
     """Run forward pass and generate cytoscape visualization (handles 1 or 2 prompts)."""
     print(f"\n=== DEBUG: run_analysis START ===")
     print(f"DEBUG: n_clicks={n_clicks}, model_name={model_name}, prompt='{prompt}', prompt2='{prompt2}'")
@@ -311,7 +312,7 @@ def run_analysis(n_clicks, model_name, prompt, prompt2, attn_patterns, block_pat
         
         # Execute forward pass for first prompt
         activation_data = execute_forward_pass(model, tokenizer, prompt, config)
-        elements = format_data_for_cytoscape(activation_data, model, tokenizer)
+        elements = format_data_for_cytoscape(activation_data, model, tokenizer, check_token)
         
         print(f"DEBUG: Created {len(elements)} elements for cytoscape (prompt 1)")
         
@@ -328,7 +329,7 @@ def run_analysis(n_clicks, model_name, prompt, prompt2, attn_patterns, block_pat
         essential_data2 = {}
         if prompt2 and prompt2.strip():
             activation_data2 = execute_forward_pass(model, tokenizer, prompt2, config)
-            elements2 = format_data_for_cytoscape(activation_data2, model, tokenizer)
+            elements2 = format_data_for_cytoscape(activation_data2, model, tokenizer, check_token)
             print(f"DEBUG: Created {len(elements2)} elements for cytoscape (prompt 2)")
             
             essential_data2 = {

@@ -23,6 +23,21 @@ def create_main_panel():
         # Analysis loading indicator
         html.Div(id="analysis-loading-indicator", className="loading-container"),
         
+        # Check Token input (for 4th edge visualization)
+        html.Div([
+            html.Label("Check Token (optional):", className="input-label"),
+            dcc.Input(
+                id='check-token-input',
+                type='text',
+                placeholder="Enter a token to track its probability...",
+                value="",
+                style={"width": "300px"},
+                className="prompt-input"
+            ),
+            html.Span(" (Adds a 4th edge showing this token's probability at each layer)", 
+                     style={"fontSize": "12px", "color": "#6c757d", "marginLeft": "10px"})
+        ], className="input-container", style={"marginBottom": "1.5rem"}),
+        
         # Visualization section (first prompt)
         html.Div([
             html.H3("Model Flow Visualization", className="section-title"),
