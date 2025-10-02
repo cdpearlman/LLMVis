@@ -13,7 +13,17 @@ from dash import html, dcc
 def create_sidebar():
     """Create the left sidebar with selection dropdowns."""
     return html.Div([
-        html.H3("Module Selection", className="sidebar-title"),
+        # Toggle button for collapsing/expanding sidebar
+        html.Button(
+            html.I(className="fas fa-bars"),
+            id="sidebar-toggle-btn",
+            className="sidebar-toggle-button",
+            title="Toggle sidebar"
+        ),
+        
+        # Sidebar content (hidden when collapsed)
+        html.Div([
+            html.H3("Module Selection", className="sidebar-title"),
         
         # Loading/status indicator
         html.Div(id="loading-indicator", className="loading-container"),
@@ -70,19 +80,20 @@ def create_sidebar():
             )
         ], className="dropdown-container"),
         
-        # Action buttons
-        html.Div([
-            html.Button(
-                "Run Analysis", 
-                id="run-analysis-btn",
-                className="action-button primary-button",
-                disabled=True
-            ),
-            html.Button(
-                "Clear Selections", 
-                id="clear-selections-btn",
-                className="action-button secondary-button"
-            )
-        ], className="button-container")
+            # Action buttons
+            html.Div([
+                html.Button(
+                    "Run Analysis", 
+                    id="run-analysis-btn",
+                    className="action-button primary-button",
+                    disabled=True
+                ),
+                html.Button(
+                    "Clear Selections", 
+                    id="clear-selections-btn",
+                    className="action-button secondary-button"
+                )
+            ], className="button-container")
+        ], id="sidebar-content", className="sidebar-content")
         
-    ], className="sidebar-content")
+    ])

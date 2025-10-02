@@ -37,6 +37,8 @@ app.layout = html.Div([
     # Session storage for activation data
     dcc.Store(id='session-activation-store', storage_type='session'),
     dcc.Store(id='session-patterns-store', storage_type='session'),
+    # Sidebar collapse state (default: collapsed = True)
+    dcc.Store(id='sidebar-collapse-store', storage_type='session', data=True),
     
     # Main container
     html.Div([
@@ -348,6 +350,27 @@ def run_analysis(n_clicks, model_name, prompt, attn_patterns, block_patterns, no
 def enable_run_button(model, prompt, block_modules):
     """Enable Run Analysis button when model, prompt, and layer blocks are selected."""
     return not (model and prompt and block_modules)
+
+# Sidebar collapse toggle
+@app.callback(
+    [Output('sidebar-collapse-store', 'data'),
+     Output('sidebar-content', 'style')],
+    [Input('sidebar-toggle-btn', 'n_clicks')],
+    [State('sidebar-collapse-store', 'data')],
+    prevent_initial_call=False
+)
+def toggle_sidebar(n_clicks, is_collapsed):
+    """Toggle sidebar collapse state and update content visibility."""
+    # On initial load, is_collapsed is True (default)
+    if n_clicks is None:
+        # Initial render: collapsed
+        return True, {'display': 'none'}
+    
+    # Toggle state
+    new_collapsed = not is_collapsed
+    style = {'display': 'none'} if new_collapsed else {'display': 'block'}
+    
+    return new_collapsed, style
 
 # Node click callback for analysis results  
 @app.callback(
