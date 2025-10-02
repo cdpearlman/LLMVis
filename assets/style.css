@@ -57,6 +57,28 @@ body {
     background-color: #f8f9fa;
     border-right: 1px solid #e9ecef;
     padding: 2rem;
+    transition: width 0.3s ease;
+}
+
+.sidebar-toggle-button {
+    background-color: #667eea;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    padding: 0.75rem;
+    cursor: pointer;
+    margin-bottom: 1rem;
+    width: 100%;
+    font-size: 1.2rem;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.sidebar-toggle-button:hover {
+    background-color: #5a67d8;
+    transform: translateY(-1px);
 }
 
 .sidebar-content {
