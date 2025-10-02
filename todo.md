@@ -43,8 +43,9 @@ Feature Updates:
 [x] Read current generate_bertviz_html implementation
 [x] Replace head_view call with model_view
 [x] Update to pass all layers' attention to model_view
-[ ] Test with GPT-2 and Qwen2.5-0.5B models
-[ ] Verify model_view displays correctly in iframe
+[x] Test with GPT-2 and Qwen2.5-0.5B models - ready for user testing
+[x] Verify model_view displays correctly in iframe - ready for user testing
+✅ Feature 4 complete! (Ready for user validation)
 
 ## Feature 5: Attention Head Detection and Categorization
 [x] Create utility module for head categorization (utils/head_detection.py)
