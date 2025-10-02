@@ -47,13 +47,14 @@ Feature Updates:
 [ ] Verify model_view displays correctly in iframe
 
 ## Feature 5: Attention Head Detection and Categorization
-[ ] Create utility module for head categorization (utils/head_detection.py)
-[ ] Implement detection heuristics for Previous-Token heads
-[ ] Implement detection heuristics for First/Positional heads
-[ ] Implement detection heuristics for Bag-of-Words heads
-[ ] Implement detection heuristics for Syntactic heads
-[ ] Add UI section to display categorized heads
-[ ] Make heuristics parameterized for tuning
+[x] Create utility module for head categorization (utils/head_detection.py)
+[x] Implement detection heuristics for Previous-Token heads
+[x] Implement detection heuristics for First/Positional heads
+[x] Implement detection heuristics for Bag-of-Words heads
+[x] Implement detection heuristics for Syntactic heads
+[x] Add UI section to display categorized heads
+[x] Make heuristics parameterized for tuning
+✅ Feature 5 complete!
 
 ## Feature 6: Two-Prompt Difference Analysis
 [ ] Compute attention distribution differences across layers/heads

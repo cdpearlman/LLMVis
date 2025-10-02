@@ -168,12 +168,23 @@ def create_main_panel():
             )
         ], id="second-visualization-section", className="visualization-section", style={'display': 'none'}),
         
-        # Results section (placeholder)
+        # Head Categorization section
         html.Div([
-            html.H3("Analysis Results", className="section-title"),
+            html.H3("Attention Head Categorization", className="section-title"),
             html.Div([
                 html.P(
-                    "Analysis results will appear here after running the analysis.",
+                    "Head categorization will appear here after running analysis.",
+                    className="placeholder-text"
+                )
+            ], id="head-categorization-container", className="results-area")
+        ], className="results-section"),
+        
+        # Results section (BertViz visualization on node click)
+        html.Div([
+            html.H3("Layer Analysis (BertViz)", className="section-title"),
+            html.Div([
+                html.P(
+                    "Click a layer node to see detailed attention analysis.",
                     className="placeholder-text"
                 )
             ], id="results-container", className="results-area")

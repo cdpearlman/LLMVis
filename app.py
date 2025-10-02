@@ -8,7 +8,7 @@ Components are organized for easy understanding and maintenance.
 import dash
 from dash import html, dcc, Input, Output, State, callback, no_update
 import dash_cytoscape as cyto
-from utils import load_model_and_get_patterns, execute_forward_pass, format_data_for_cytoscape
+from utils import load_model_and_get_patterns, execute_forward_pass, format_data_for_cytoscape, categorize_all_heads, format_categorization_summary
 from utils.model_config import get_auto_selections, get_model_family
 
 # Import modular components
@@ -31,6 +31,59 @@ AVAILABLE_MODELS = [
     "Qwen/Qwen2.5-0.5B",
     "gpt2"
 ]
+
+# Helper function for creating category detail view
+def _create_category_detail_view(categorized_heads):
+    """Create a formatted view of categorized heads by category."""
+    category_colors = {
+        'previous_token': '#ff7979',
+        'first_token': '#74b9ff',
+        'bow': '#ffeaa7',
+        'syntactic': '#a29bfe',
+        'other': '#dfe6e9'
+    }
+    
+    category_names = {
+        'previous_token': 'Previous-Token Heads',
+        'first_token': 'First/Positional Heads',
+        'bow': 'Bag-of-Words Heads',
+        'syntactic': 'Syntactic Heads',
+        'other': 'Other Heads'
+    }
+    
+    sections = []
+    
+    for category_key, display_name in category_names.items():
+        heads = categorized_heads.get(category_key, [])
+        color = category_colors.get(category_key, '#dfe6e9')
+        
+        # Create head badges
+        head_badges = []
+        for head_info in heads:
+            badge = html.Span(
+                head_info['label'],
+                style={
+                    'display': 'inline-block',
+                    'padding': '4px 8px',
+                    'margin': '4px',
+                    'backgroundColor': color,
+                    'borderRadius': '4px',
+                    'fontSize': '12px',
+                    'fontWeight': 'bold'
+                }
+            )
+            head_badges.append(badge)
+        
+        # Create category section
+        section = html.Div([
+            html.H5(f"{display_name} ({len(heads)})", style={'marginBottom': '0.5rem', 'color': '#495057'}),
+            html.Div(head_badges if head_badges else html.P("None", style={'color': '#6c757d', 'fontSize': '13px'}),
+                    style={'marginBottom': '1rem'})
+        ])
+        
+        sections.append(section)
+    
+    return html.Div(sections)
 
 # Main app layout
 app.layout = html.Div([
@@ -280,7 +333,8 @@ def submit_check_token(n_clicks, check_token):
      Output('session-activation-store', 'data', allow_duplicate=True),
      Output('session-activation-store-2', 'data'),
      Output('analysis-loading-indicator', 'children'),
-     Output('second-visualization-section', 'style', allow_duplicate=True)],
+     Output('second-visualization-section', 'style', allow_duplicate=True),
+     Output('head-categorization-container', 'children')],
     [Input('run-analysis-btn', 'n_clicks')],
     [State('model-dropdown', 'value'),
      State('prompt-input', 'value'),
@@ -302,7 +356,8 @@ def run_analysis(n_clicks, model_name, prompt, prompt2, check_token, attn_patter
     
     if not n_clicks or not model_name or not prompt or not block_patterns:
         print("DEBUG: Missing required inputs, returning empty")
-        return [], [], {}, {}, None, {'display': 'none'}
+        placeholder_text = html.P("Head categorization will appear here after running analysis.", className="placeholder-text")
+        return [], [], {}, {}, None, {'display': 'none'}, placeholder_text
     
     try:
         # Load model for execution
@@ -331,6 +386,20 @@ def run_analysis(n_clicks, model_name, prompt, prompt2, check_token, attn_patter
         elements = format_data_for_cytoscape(activation_data, model, tokenizer, check_token)
         
         print(f"DEBUG: Created {len(elements)} elements for cytoscape (prompt 1)")
+        
+        # Categorize attention heads (only for first prompt)
+        categorized_heads = categorize_all_heads(activation_data)
+        category_summary = format_categorization_summary(categorized_heads)
+        
+        # Create formatted display for head categorization
+        head_categorization_display = html.Div([
+            html.Pre(category_summary, style={'whiteSpace': 'pre-wrap', 'fontFamily': 'monospace', 'fontSize': '13px'}),
+            html.Hr(),
+            html.Div([
+                html.H4("Category Details", style={'marginTop': '1rem'}),
+                _create_category_detail_view(categorized_heads)
+            ])
+        ])
         
         # Store essential data for first prompt
         essential_data = {
@@ -368,7 +437,7 @@ def run_analysis(n_clicks, model_name, prompt, prompt2, check_token, attn_patter
         ], className="status-success")
         
         print(f"=== DEBUG: run_analysis END ===\n")
-        return elements, elements2, essential_data, essential_data2, success_message, second_viz_style
+        return elements, elements2, essential_data, essential_data2, success_message, second_viz_style, head_categorization_display
         
     except Exception as e:
         print(f"Analysis error: {e}")
@@ -381,7 +450,8 @@ def run_analysis(n_clicks, model_name, prompt, prompt2, check_token, attn_patter
             f"Analysis error: {str(e)}"
         ], className="status-error")
         
-        return [], [], {}, {}, error_message, {'display': 'none'}
+        placeholder_text = html.P("Error generating head categorization.", className="placeholder-text")
+        return [], [], {}, {}, error_message, {'display': 'none'}, placeholder_text
 
 # Enable Run Analysis button when requirements are met
 @app.callback(
