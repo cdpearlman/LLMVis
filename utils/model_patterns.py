@@ -324,22 +324,17 @@ def _get_check_token_probability(activation_data: Dict[str, Any], module_name: s
     """
     Helper: Get probability for a specific check token at a layer's output.
     
+    Tries both with and without leading space and uses the variant with higher probability.
     If check_token produces multiple sub-tokens, uses the last sub-token as per specs.
     """
     try:
-        # Tokenize the check token
-        token_ids = tokenizer.encode(check_token, add_special_tokens=False)
-        if not token_ids:
-            print(f"Warning: check_token '{check_token}' produced no token IDs")
-            return None
+        # Try tokenizing with and without leading space (different token IDs)
+        token_variants = [
+            (check_token, tokenizer.encode(check_token, add_special_tokens=False)),
+            (' ' + check_token, tokenizer.encode(' ' + check_token, add_special_tokens=False))
+        ]
         
-        # Use last sub-token if multiple (as per plans.md)
-        target_token_id = token_ids[-1]
-        token_str = tokenizer.decode([target_token_id], skip_special_tokens=False)
-        
-        print(f"DEBUG check_token: '{check_token}' -> token_ids={token_ids}, using target_token_id={target_token_id}, decoded='{token_str}'")
-        
-        # Get block output
+        # Get block output (needed for probability computation)
         if module_name not in activation_data.get('block_outputs', {}):
             print(f"Warning: module_name '{module_name}' not in block_outputs")
             return None
@@ -350,7 +345,7 @@ def _get_check_token_probability(activation_data: Dict[str, Any], module_name: s
         norm_params = activation_data.get('norm_parameters', [])
         norm_parameter = norm_params[0] if norm_params else None
         
-        # Apply logit lens transformation (same logic as logit_lens_transformation function)
+        # Apply logit lens transformation once (shared for both variants)
         with torch.no_grad():
             hidden = torch.tensor(layer_output) if not isinstance(layer_output, torch.Tensor) else layer_output
             if hidden.dim() == 4:
@@ -366,12 +361,34 @@ def _get_check_token_probability(activation_data: Dict[str, Any], module_name: s
             logits = lm_head(hidden)
             probs = F.softmax(logits[0, -1, :], dim=-1)
             
-            # Get probability for target token
-            prob = probs[target_token_id].item()
+            # Evaluate both variants and choose the one with higher probability
+            best_prob = 0.0
+            best_token_str = None
+            best_variant = None
             
-            print(f"DEBUG check_token prob for {module_name}: token_id={target_token_id}, prob={prob:.6f}")
+            for variant_text, token_ids in token_variants:
+                if not token_ids:
+                    continue
+                
+                # Use last sub-token if multiple (as per plans.md)
+                target_token_id = token_ids[-1]
+                token_str = tokenizer.decode([target_token_id], skip_special_tokens=False)
+                prob = probs[target_token_id].item()
+                
+                print(f"DEBUG check_token variant: '{variant_text}' -> token_ids={token_ids}, target_id={target_token_id}, decoded='{token_str}', prob={prob:.6f}")
+                
+                if prob > best_prob:
+                    best_prob = prob
+                    best_token_str = token_str
+                    best_variant = variant_text
             
-            return (token_str, prob)
+            if best_token_str is None:
+                print(f"Warning: check_token '{check_token}' produced no valid token IDs")
+                return None
+            
+            print(f"DEBUG check_token SELECTED for {module_name}: variant='{best_variant}', token='{best_token_str}', prob={best_prob:.6f}")
+            
+            return (best_token_str, best_prob)
     except Exception as e:
         print(f"Warning: Could not compute check token probability for {module_name}: {e}")
         import traceback

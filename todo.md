@@ -63,3 +63,7 @@ Feature Updates:
 [x] Add summary panel showing top-N divergent layers/heads
 [x] Make difference thresholds configurable
 ✅ Feature 6 complete!
+
+Feature Updates:
+[x] Check Token words needs to be checked with a leading space character in addition to token with no spaces. 'Washington' is a different token id than ' Washington'
+[ ] Attention classification updates: Remove Attention Head Categorization section. Instead, extract sections of the BertViz model view and organize it into categorized sections. For example, the previous-token heads should have the model view graphs associated with the heads that belong to that section, not just a list of heads.
