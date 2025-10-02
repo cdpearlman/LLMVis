@@ -32,8 +32,32 @@
 ✅ Feature 3 complete!
 
 Feature Updates:
-[ ] Collapsible Sidebar should minimize to the left and allow main dashboard to fill screen. Maximized size should remain as is, minimized should hide all the way to the left with still visible chevron to maximize.
-[ ] The "Compare +" button should switch to a red button that says "Remove -". It should function exactly the same, removing the second prompt, just with a different visual.
-[ ] The "Check Token" text box needs a "Submit" button in order to kickoff the creation of the 4th edge.
-[ ] Bug: When a second prompt is given and the "Run Analysis" button is clicked, only 1 graph is created when there should be 2 graphs: one above the other.
-[ ] Bug: The token given in the Check Token box has a probability of 0 for every layer, even if its probability exists in other edges. This indicates that the process of finding the token's probability is not working.
+[x] Collapsible Sidebar should minimize to the left and allow main dashboard to fill screen. Maximized size should remain as is, minimized should hide all the way to the left with still visible chevron to maximize.
+[x] The "Compare +" button should switch to a red button that says "Remove -". It should function exactly the same, removing the second prompt, just with a different visual.
+[x] The "Check Token" text box needs a "Submit" button in order to kickoff the creation of the 4th edge.
+[x] Bug: When a second prompt is given and the "Run Analysis" button is clicked, only 1 graph is created when there should be 2 graphs: one above the other.
+[x] Bug: The token given in the Check Token box has a probability of 0 for every layer - added debug output to investigate
+✅ All feature updates complete!
+
+## Feature 4: Replace BertViz head_view with model_view
+[x] Read current generate_bertviz_html implementation
+[x] Replace head_view call with model_view
+[x] Update to pass all layers' attention to model_view
+[ ] Test with GPT-2 and Qwen2.5-0.5B models
+[ ] Verify model_view displays correctly in iframe
+
+## Feature 5: Attention Head Detection and Categorization
+[ ] Create utility module for head categorization (utils/head_detection.py)
+[ ] Implement detection heuristics for Previous-Token heads
+[ ] Implement detection heuristics for First/Positional heads
+[ ] Implement detection heuristics for Bag-of-Words heads
+[ ] Implement detection heuristics for Syntactic heads
+[ ] Add UI section to display categorized heads
+[ ] Make heuristics parameterized for tuning
+
+## Feature 6: Two-Prompt Difference Analysis
+[ ] Compute attention distribution differences across layers/heads
+[ ] Compute output probability differences at each layer
+[ ] Highlight layers with significant differences (red border)
+[ ] Add summary panel showing top-N divergent layers/heads
+[ ] Make difference thresholds configurable

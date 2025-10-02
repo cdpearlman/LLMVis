@@ -484,42 +484,45 @@ def format_data_for_cytoscape(activation_data: Dict[str, Any], model, tokenizer,
 
 def generate_bertviz_html(activation_data: Dict[str, Any], layer_index: int, view_type: str = 'full') -> str:
     """
-    Generate BertViz attention visualization HTML for a specific layer.
+    Generate BertViz attention visualization HTML using model_view.
+    
+    Shows all layers with the specified layer highlighted/focused.
     
     Args:
         activation_data: Output from execute_forward_pass
-        layer_index: Index of layer to visualize
+        layer_index: Index of layer to visualize (for context; model_view shows all layers)
         view_type: 'full' for complete visualization or 'mini' for preview
     
     Returns:
         HTML string for the visualization
     """
     try:
-        from bertviz import head_view
+        from bertviz import model_view
         from transformers import AutoTokenizer
         
         # Extract attention modules and sort by layer
         attention_outputs = activation_data.get('attention_outputs', {})
         if not attention_outputs:
-            return f"<p>No attention data available for layer {layer_index}</p>"
+            return f"<p>No attention data available</p>"
         
-        # Find attention module for the specified layer
-        target_module = None
+        # Sort attention modules by layer number
+        layer_attention_pairs = []
         for module_name in attention_outputs.keys():
             numbers = re.findall(r'\d+', module_name)
-            if numbers and int(numbers[0]) == layer_index:
-                target_module = module_name
-                break
+            if numbers:
+                layer_num = int(numbers[0])
+                attention_output = attention_outputs[module_name]['output']
+                if isinstance(attention_output, list) and len(attention_output) >= 2:
+                    # Get attention weights (element 1 of the output tuple)
+                    attention_weights = torch.tensor(attention_output[1])  # [batch, heads, seq, seq]
+                    layer_attention_pairs.append((layer_num, attention_weights))
         
-        if not target_module:
-            return f"<p>Layer {layer_index} not found in attention data</p>"
+        if not layer_attention_pairs:
+            return f"<p>No valid attention data found</p>"
         
-        # Get attention weights (element 1 of the output tuple)
-        attention_output = attention_outputs[target_module]['output']
-        if not isinstance(attention_output, list) or len(attention_output) < 2:
-            return f"<p>Invalid attention format for layer {layer_index}</p>"
-        
-        attention_weights = torch.tensor(attention_output[1])  # [batch, heads, seq, seq]
+        # Sort by layer number and extract attention tensors
+        layer_attention_pairs.sort(key=lambda x: x[0])
+        attentions = tuple(attn for _, attn in layer_attention_pairs)
         
         # Get tokens
         input_ids = torch.tensor(activation_data['input_ids'])
@@ -528,6 +531,7 @@ def generate_bertviz_html(activation_data: Dict[str, Any], layer_index: int, vie
         # Load tokenizer and convert to tokens
         tokenizer = AutoTokenizer.from_pretrained(model_name)
         raw_tokens = tokenizer.convert_ids_to_tokens(input_ids[0])
+        # Clean up tokens (remove special tokenizer artifacts like Ġ for GPT-2)
         tokens = [token.replace('Ġ', ' ') if token.startswith('Ġ') else token for token in raw_tokens]
         
         # Generate visualization based on view_type
@@ -537,15 +541,17 @@ def generate_bertviz_html(activation_data: Dict[str, Any], layer_index: int, vie
             <div style="padding:10px; border:1px solid #ccc; border-radius:5px;">
                 <h4>Layer {layer_index} Attention Preview</h4>
                 <p><strong>Tokens:</strong> {' '.join(tokens[:8])}{'...' if len(tokens) > 8 else ''}</p>
-                <p><strong>Attention Shape:</strong> {list(attention_weights.shape)}</p>
-                <p><em>Click for full visualization</em></p>
+                <p><strong>Total Layers:</strong> {len(attentions)}</p>
+                <p><strong>Heads per Layer:</strong> {attentions[0].shape[1] if attentions else 'N/A'}</p>
+                <p><em>Click for full model_view visualization</em></p>
             </div>
             """
         else:
-            # Full version: complete bertviz visualization
-            attentions = (attention_weights,)  # Single layer tuple
-            html_result = head_view(attentions, tokens, html_action='return')
+            # Full version: complete bertviz model_view visualization (shows all layers)
+            html_result = model_view(attentions, tokens, html_action='return')
             return html_result.data if hasattr(html_result, 'data') else str(html_result)
             
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return f"<p>Error generating visualization: {str(e)}</p>"
