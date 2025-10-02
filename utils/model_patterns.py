@@ -92,7 +92,7 @@ def execute_forward_pass(model, tokenizer, prompt: str, config: Dict[str, Any]) 
         model: Loaded transformer model
         tokenizer: Loaded tokenizer
         prompt: Input text prompt
-        config: Dict with module lists like {"attention_modules": [...], "mlp_modules": [...], ...}
+        config: Dict with module lists like {"attention_modules": [...], "block_modules": [...], ...}
     
     Returns:
         JSON-serializable dict with captured activations and metadata
@@ -101,12 +101,11 @@ def execute_forward_pass(model, tokenizer, prompt: str, config: Dict[str, Any]) 
     
     # Extract module lists from config
     attention_modules = config.get("attention_modules", [])
-    mlp_modules = config.get("mlp_modules", [])
-    other_modules = config.get("other_modules", [])
+    block_modules = config.get("block_modules", [])
     norm_parameters = config.get("norm_parameters", [])
     logit_lens_parameter = config.get("logit_lens_parameter")
     
-    all_modules = attention_modules + mlp_modules + other_modules
+    all_modules = attention_modules + block_modules
     if not all_modules:
         print("No modules specified for capture")
         return {"error": "No modules specified"}
@@ -119,12 +118,12 @@ def execute_forward_pass(model, tokenizer, prompt: str, config: Dict[str, Any]) 
         if not layer_match:
             return {"error": f"Invalid module name format: {mod_name}"}
         
-        # Determine component type
-        if mod_name in mlp_modules:
-            component = 'mlp_output'
-        elif mod_name in attention_modules:
+        # Determine component type based on module name
+        if 'attn' in mod_name or 'attention' in mod_name:
             component = 'attention_output'
         else:
+            # Layer/block modules (e.g., "model.layers.0", "transformer.h.0")
+            # These represent the residual stream (full layer output)
             component = 'block_output'
         
         intervenable_representations.append(
@@ -162,10 +161,16 @@ def execute_forward_pass(model, tokenizer, prompt: str, config: Dict[str, Any]) 
     for hook in hooks:
         hook.remove()
     
-    # Separate outputs by type
-    attention_outputs = {k: v for k, v in captured.items() if k in attention_modules}
-    mlp_outputs = {k: v for k, v in captured.items() if k in mlp_modules}
-    other_outputs = {k: v for k, v in captured.items() if k in other_modules}
+    # Separate outputs by type based on module name pattern
+    attention_outputs = {}
+    block_outputs = {}
+    
+    for mod_name, output in captured.items():
+        if 'attn' in mod_name or 'attention' in mod_name:
+            attention_outputs[mod_name] = output
+        else:
+            # Block/layer outputs (residual stream - full layer output)
+            block_outputs[mod_name] = output
     
     # Capture normalization parameters (deprecated - kept for backward compatibility)
     all_params = dict(model.named_parameters())
@@ -184,47 +189,49 @@ def execute_forward_pass(model, tokenizer, prompt: str, config: Dict[str, Any]) 
         "model": getattr(model.config, "name_or_path", "unknown"),
         "prompt": prompt,
         "input_ids": safe_to_serializable(inputs["input_ids"]),
-        "attention_modules": attention_modules,
+        "attention_modules": list(attention_outputs.keys()),
         "attention_outputs": attention_outputs,
-        "mlp_modules": mlp_modules,
-        "mlp_outputs": mlp_outputs,
-        "other_modules": other_modules,
-        "other_outputs": other_outputs,
+        "block_modules": list(block_outputs.keys()),
+        "block_outputs": block_outputs,
         "norm_parameters": norm_parameters,
         "norm_data": norm_data,
         "logit_lens_parameter": logit_lens_parameter,
-        "actual_output": actual_output  # Store only token and probability, not full output
+        "actual_output": actual_output
     }
     
     print(f"Captured {len(captured)} module outputs using PyVene")
     return result
 
 
-def logit_lens_transformation(mlp_output: Any, norm_data: List[Any], model, logit_lens_parameter: str, tokenizer) -> List[Tuple[str, float]]:
+def logit_lens_transformation(layer_output: Any, norm_data: List[Any], model, logit_lens_parameter: str, tokenizer, norm_parameter: Optional[str] = None) -> List[Tuple[str, float]]:
     """
     Transform layer output to top 3 token probabilities using logit lens.
+    
+    For standard logit lens, use block/layer outputs (residual stream), not component outputs.
+    The residual stream contains the full hidden state with all accumulated information.
     
     Applies final layer normalization before projection (critical for correctness).
     Uses model's built-in functions to minimize computational errors.
     
     Args:
-        mlp_output: Hidden state from any layer
+        layer_output: Hidden state from any layer (preferably block output / residual stream)
         norm_data: Not used (deprecated - using model's norm layer directly)
         model: HuggingFace model
         logit_lens_parameter: Not used (deprecated)
         tokenizer: Tokenizer for decoding
+        norm_parameter: Parameter path for final norm layer (e.g., "model.norm.weight")
     
     Returns:
         List of (token_string, probability) tuples for top 3 tokens
     """
     with torch.no_grad():
         # Convert to tensor and ensure proper shape [batch, seq_len, hidden_dim]
-        hidden = torch.tensor(mlp_output) if not isinstance(mlp_output, torch.Tensor) else mlp_output
+        hidden = torch.tensor(layer_output) if not isinstance(layer_output, torch.Tensor) else layer_output
         if hidden.dim() == 4:
             hidden = hidden.squeeze(0)
         
         # Step 1: Apply final layer normalization (critical for intermediate layers)
-        final_norm = get_final_norm_layer(model)
+        final_norm = get_norm_layer_from_parameter(model, norm_parameter)
         if final_norm is not None:
             hidden = final_norm(hidden)
         
@@ -244,15 +251,31 @@ def logit_lens_transformation(mlp_output: Any, norm_data: List[Any], model, logi
         ]
 
 
-def get_final_norm_layer(model):
+def get_norm_layer_from_parameter(model, norm_parameter: Optional[str]) -> Optional[Any]:
     """
-    Get the final layer normalization module from the model.
-    Returns None if not found.
+    Get the final layer normalization module from the model using the norm parameter path.
     
-    Supports GPT-2 (transformer.ln_f), LLaMA (model.norm), and similar architectures.
+    Args:
+        model: The transformer model
+        norm_parameter: Parameter path (e.g., "model.norm.weight") or None
+        
+    Returns:
+        The normalization layer module, or None if not found
     """
-    # Try common final norm layer names
-    for attr_path in ['transformer.ln_f', 'model.norm', 'model.decoder.final_layer_norm', 
+    if norm_parameter:
+        # Convert parameter path to module path (remove .weight/.bias suffix)
+        module_path = norm_parameter.replace('.weight', '').replace('.bias', '')
+        try:
+            parts = module_path.split('.')
+            obj = model
+            for part in parts:
+                obj = getattr(obj, part)
+            return obj
+        except AttributeError:
+            print(f"Warning: Could not find norm layer at {module_path}")
+    
+    # Fallback: Try common final norm layer names if no parameter specified
+    for attr_path in ['model.norm', 'transformer.ln_f', 'model.decoder.final_layer_norm', 
                       'gpt_neox.final_layer_norm', 'transformer.norm_f']:
         try:
             parts = attr_path.split('.')
@@ -274,10 +297,24 @@ def token_to_color(token: str) -> str:
 
 
 def _get_top_tokens(activation_data: Dict[str, Any], module_name: str, model, tokenizer) -> Optional[List[Tuple[str, float]]]:
-    """Helper: Get top 3 tokens for a layer's output."""
+    """
+    Helper: Get top 3 tokens for a layer's block output.
+    
+    Uses block outputs (residual stream) which represent the full hidden state
+    after all layer computations (attention + feedforward + residuals).
+    """
     try:
-        mlp_output = activation_data['mlp_outputs'][module_name]['output']
-        return logit_lens_transformation(mlp_output, [], model, None, tokenizer)
+        # Get block output (residual stream)
+        if module_name not in activation_data.get('block_outputs', {}):
+            return None
+        
+        layer_output = activation_data['block_outputs'][module_name]['output']
+        
+        # Get norm parameter from activation data (should be a single parameter or list with one item)
+        norm_params = activation_data.get('norm_parameters', [])
+        norm_parameter = norm_params[0] if norm_params else None
+        
+        return logit_lens_transformation(layer_output, [], model, None, tokenizer, norm_parameter)
     except Exception as e:
         print(f"Warning: Could not compute logit lens for {module_name}: {e}")
         return None
@@ -314,15 +351,20 @@ def _create_edge(src_layer: int, tgt_layer: int, token: str, prob: float, rank: 
 
 
 def format_data_for_cytoscape(activation_data: Dict[str, Any], model, tokenizer) -> List[Dict[str, Any]]:
-    """Convert activation data to Cytoscape format with nodes (layers) and edges (top-3 tokens)."""
-    mlp_modules = activation_data.get('mlp_modules', [])
-    if not mlp_modules:
+    """
+    Convert activation data to Cytoscape format with nodes (layers) and edges (top-3 tokens).
+    
+    Uses block outputs (full layer outputs / residual stream) for logit lens visualization.
+    """
+    # Get block modules (full layer outputs)
+    layer_modules = activation_data.get('block_modules', [])
+    if not layer_modules:
         return []
     
     # Extract and sort layers by layer number
     layer_info = sorted(
         [(int(re.findall(r'\d+', name)[0]), name) 
-         for name in mlp_modules if re.findall(r'\d+', name)]
+         for name in layer_modules if re.findall(r'\d+', name)]
     )
     
     elements = []

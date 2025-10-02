@@ -3,7 +3,7 @@ Sidebar component with module and parameter selection dropdowns.
 
 This component provides the left sidebar interface for selecting:
 - Attention modules
-- MLP modules  
+- Layer blocks (residual stream outputs)
 - Normalization parameters
 - Logit lens parameters
 """
@@ -31,14 +31,14 @@ def create_sidebar():
             )
         ], className="dropdown-container"),
         
-        # MLP modules dropdown
+        # Layer blocks dropdown (residual stream outputs)
         html.Div([
-            html.Label("MLP Modules:", className="dropdown-label"),
+            html.Label("Layer Blocks:", className="dropdown-label"),
             dcc.Dropdown(
-                id='mlp-modules-dropdown',
+                id='block-modules-dropdown',
                 options=[],
                 value=None,
-                placeholder="Select MLP modules...",
+                placeholder="Select layer blocks...",
                 multi=True,
                 className="module-dropdown"
             )

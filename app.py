@@ -67,11 +67,11 @@ app.layout = html.Div([
 @app.callback(
     [Output('session-patterns-store', 'data'),
      Output('attention-modules-dropdown', 'options'),
-     Output('mlp-modules-dropdown', 'options'),
+     Output('block-modules-dropdown', 'options'),
      Output('norm-params-dropdown', 'options'),
      Output('logit-lens-dropdown', 'options'),
      Output('attention-modules-dropdown', 'value', allow_duplicate=True),
-     Output('mlp-modules-dropdown', 'value', allow_duplicate=True),
+     Output('block-modules-dropdown', 'value', allow_duplicate=True),
      Output('norm-params-dropdown', 'value', allow_duplicate=True),
      Output('logit-lens-dropdown', 'value', allow_duplicate=True),
      Output('loading-indicator', 'children')],
@@ -122,8 +122,9 @@ def load_model_patterns(selected_model):
         attention_options = create_grouped_options(
             module_patterns, ['attn', 'attention'], 'modules'
         )
-        mlp_options = create_grouped_options(
-            module_patterns, ['mlp'], 'modules'
+        # Block options - layer/block modules (residual stream outputs)
+        block_options = create_grouped_options(
+            module_patterns, ['layers', 'h.', 'blocks', 'decoder.layers'], 'modules'
         )
         norm_options = create_grouped_options(
             param_patterns, ['norm', 'layernorm', 'layer_norm'], 'params'
@@ -170,11 +171,11 @@ def load_model_patterns(selected_model):
         return (
             patterns_data, 
             attention_options, 
-            mlp_options, 
+            block_options, 
             norm_options, 
             logit_lens_options,
             auto_selections.get('attention_selection', []),
-            auto_selections.get('mlp_selection', []),
+            auto_selections.get('block_selection', []),
             auto_selections.get('norm_selection', []),
             auto_selections.get('logit_lens_selection'),
             loading_content
@@ -207,7 +208,7 @@ def show_loading_spinner(selected_model):
 # Callback to clear all selections when Clear button is pressed
 @app.callback(
     [Output('attention-modules-dropdown', 'value'),
-     Output('mlp-modules-dropdown', 'value'),
+     Output('block-modules-dropdown', 'value'),
      Output('norm-params-dropdown', 'value'),
      Output('logit-lens-dropdown', 'value'),
      Output('session-activation-store', 'data'),
@@ -228,7 +229,7 @@ def clear_all_selections(n_clicks):
     
     return (
         None,  # attention-modules-dropdown value
-        None,  # mlp-modules-dropdown value  
+        None,  # block-modules-dropdown value  
         None,  # norm-params-dropdown value
         None,  # logit-lens-dropdown value
         {},    # session-activation-store data
@@ -260,20 +261,20 @@ def show_analysis_loading_spinner(n_clicks):
     [State('model-dropdown', 'value'),
      State('prompt-input', 'value'),
      State('attention-modules-dropdown', 'value'),
-     State('mlp-modules-dropdown', 'value'),
+     State('block-modules-dropdown', 'value'),
      State('norm-params-dropdown', 'value'), 
      State('logit-lens-dropdown', 'value'),
      State('session-patterns-store', 'data')],
     prevent_initial_call=True
 )
-def run_analysis(n_clicks, model_name, prompt, attn_patterns, mlp_patterns, norm_patterns, logit_pattern, patterns_data):
+def run_analysis(n_clicks, model_name, prompt, attn_patterns, block_patterns, norm_patterns, logit_pattern, patterns_data):
     """Run forward pass and generate cytoscape visualization."""
     print(f"\n=== DEBUG: run_analysis START ===")
     print(f"DEBUG: n_clicks={n_clicks}, model_name={model_name}, prompt='{prompt}'")
-    print(f"DEBUG: mlp_patterns={mlp_patterns}")
+    print(f"DEBUG: block_patterns={block_patterns}")
     print(f"DEBUG: logit_pattern={logit_pattern}")
     
-    if not n_clicks or not model_name or not prompt or not mlp_patterns:
+    if not n_clicks or not model_name or not prompt or not block_patterns:
         print("DEBUG: Missing required inputs, returning empty")
         return [], {}, None
     
@@ -289,10 +290,11 @@ def run_analysis(n_clicks, model_name, prompt, attn_patterns, mlp_patterns, norm
         param_patterns = patterns_data.get('param_patterns', {})
         all_patterns = {**module_patterns, **param_patterns}
         
+        # Use block patterns (full layer outputs / residual stream) for logit lens
         config = {
             'attention_modules': [mod for pattern in (attn_patterns or []) for mod in module_patterns.get(pattern, [])],
-            'mlp_modules': [mod for pattern in mlp_patterns for mod in module_patterns.get(pattern, [])],
-            'norm_parameters': [param for pattern in (norm_patterns or []) for param in param_patterns.get(pattern, [])],
+            'block_modules': [mod for pattern in block_patterns for mod in module_patterns.get(pattern, [])],
+            'norm_parameters': param_patterns.get(norm_patterns, []) if norm_patterns else [],
             'logit_lens_parameter': all_patterns.get(logit_pattern, [None])[0] if logit_pattern else None
         }
         
@@ -341,11 +343,11 @@ def run_analysis(n_clicks, model_name, prompt, attn_patterns, mlp_patterns, norm
     Output('run-analysis-btn', 'disabled'),
     [Input('model-dropdown', 'value'),
      Input('prompt-input', 'value'),
-     Input('mlp-modules-dropdown', 'value')]
+     Input('block-modules-dropdown', 'value')]
 )
-def enable_run_button(model, prompt, mlp_modules):
-    """Enable Run Analysis button when model, prompt, and MLP modules are selected."""
-    return not (model and prompt and mlp_modules)
+def enable_run_button(model, prompt, block_modules):
+    """Enable Run Analysis button when model, prompt, and layer blocks are selected."""
+    return not (model and prompt and block_modules)
 
 # Node click callback for analysis results  
 @app.callback(

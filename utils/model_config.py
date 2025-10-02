@@ -17,7 +17,7 @@ MODEL_FAMILIES: Dict[str, Dict[str, Any]] = {
             "mlp_pattern": "model.layers.{N}.mlp",
             "block_pattern": "model.layers.{N}",
         },
-        "norm_patterns": ["model.norm.weight"],
+        "norm_parameter": "model.norm.weight",
         "logit_lens_pattern": "lm_head.weight",
         "norm_type": "rmsnorm",
     },
@@ -30,7 +30,7 @@ MODEL_FAMILIES: Dict[str, Dict[str, Any]] = {
             "mlp_pattern": "transformer.h.{N}.mlp",
             "block_pattern": "transformer.h.{N}",
         },
-        "norm_patterns": ["transformer.ln_f.weight", "transformer.ln_f.bias"],
+        "norm_parameter": "transformer.ln_f.weight",
         "logit_lens_pattern": "lm_head.weight",
         "norm_type": "layernorm",
     },
@@ -43,7 +43,7 @@ MODEL_FAMILIES: Dict[str, Dict[str, Any]] = {
             "mlp_pattern": "model.decoder.layers.{N}.fc2",
             "block_pattern": "model.decoder.layers.{N}",
         },
-        "norm_patterns": ["model.decoder.final_layer_norm.weight", "model.decoder.final_layer_norm.bias"],
+        "norm_parameter": "model.decoder.final_layer_norm.weight",
         "logit_lens_pattern": "lm_head.weight",
         "norm_type": "layernorm",
     },
@@ -56,7 +56,7 @@ MODEL_FAMILIES: Dict[str, Dict[str, Any]] = {
             "mlp_pattern": "gpt_neox.layers.{N}.mlp",
             "block_pattern": "gpt_neox.layers.{N}",
         },
-        "norm_patterns": ["gpt_neox.final_layer_norm.weight", "gpt_neox.final_layer_norm.bias"],
+        "norm_parameter": "gpt_neox.final_layer_norm.weight",
         "logit_lens_pattern": "embed_out.weight",
         "norm_type": "layernorm",
     },
@@ -69,7 +69,7 @@ MODEL_FAMILIES: Dict[str, Dict[str, Any]] = {
             "mlp_pattern": "transformer.h.{N}.mlp",
             "block_pattern": "transformer.h.{N}",
         },
-        "norm_patterns": ["transformer.ln_f.weight", "transformer.ln_f.bias"],
+        "norm_parameter": "transformer.ln_f.weight",
         "logit_lens_pattern": "lm_head.weight",
         "norm_type": "layernorm",
     },
@@ -82,7 +82,7 @@ MODEL_FAMILIES: Dict[str, Dict[str, Any]] = {
             "mlp_pattern": "transformer.h.{N}.mlp",
             "block_pattern": "transformer.h.{N}",
         },
-        "norm_patterns": ["transformer.ln_f.weight", "transformer.ln_f.bias"],
+        "norm_parameter": "transformer.ln_f.weight",
         "logit_lens_pattern": "lm_head.weight",
         "norm_type": "layernorm",
     },
@@ -95,8 +95,8 @@ MODEL_FAMILIES: Dict[str, Dict[str, Any]] = {
             "mlp_pattern": "transformer.blocks.{N}.ffn",
             "block_pattern": "transformer.blocks.{N}",
         },
-        "norm_patterns": ["transformer.norm_f.weight"],
-        "logit_lens_parameter": "lm_head.weight",
+        "norm_parameter": "transformer.norm_f.weight",
+        "logit_lens_pattern": "lm_head.weight",
         "norm_type": "layernorm",
     },
 }
@@ -214,15 +214,15 @@ def get_auto_selections(model_name: str, module_patterns: Dict[str, List[str]],
         param_patterns: Available parameter patterns from the model
         
     Returns:
-        Dict with keys: attention_selection, mlp_selection, norm_selection, logit_lens_selection
+        Dict with keys: attention_selection, block_selection, norm_selection, logit_lens_selection
         Each value is a list of pattern keys that should be pre-selected
     """
     family = get_model_family(model_name)
     if not family:
         return {
             'attention_selection': [],
-            'mlp_selection': [],
-            'norm_selection': [],
+            'block_selection': [],
+            'norm_selection': None,
             'logit_lens_selection': None,
             'family_name': None
         }
@@ -231,16 +231,16 @@ def get_auto_selections(model_name: str, module_patterns: Dict[str, List[str]],
     if not config:
         return {
             'attention_selection': [],
-            'mlp_selection': [],
-            'norm_selection': [],
+            'block_selection': [],
+            'norm_selection': None,
             'logit_lens_selection': None,
             'family_name': None
         }
     
     # Find matching patterns in the available patterns
     attention_matches = []
-    mlp_matches = []
-    norm_matches = []
+    block_matches = []
+    norm_match = None
     logit_lens_match = None
     
     # Match attention patterns
@@ -249,17 +249,19 @@ def get_auto_selections(model_name: str, module_patterns: Dict[str, List[str]],
         if _pattern_matches_template(pattern_key, attention_template):
             attention_matches.append(pattern_key)
     
-    # Match MLP patterns
-    mlp_template = config['templates'].get('mlp_pattern', '')
+    # Match block patterns (full layer outputs - residual stream)
+    block_template = config['templates'].get('block_pattern', '')
     for pattern_key in module_patterns.keys():
-        if _pattern_matches_template(pattern_key, mlp_template):
-            mlp_matches.append(pattern_key)
+        if _pattern_matches_template(pattern_key, block_template):
+            block_matches.append(pattern_key)
     
-    # Match normalization patterns
-    for norm_pattern in config.get('norm_patterns', []):
+    # Match normalization parameter
+    norm_parameter = config.get('norm_parameter', '')
+    if norm_parameter:
         for pattern_key in param_patterns.keys():
-            if _pattern_matches_template(pattern_key, norm_pattern):
-                norm_matches.append(pattern_key)
+            if _pattern_matches_template(pattern_key, norm_parameter):
+                norm_match = pattern_key
+                break
     
     # Match logit lens pattern - check both parameters AND modules
     logit_pattern = config.get('logit_lens_pattern', '')
@@ -277,8 +279,8 @@ def get_auto_selections(model_name: str, module_patterns: Dict[str, List[str]],
     
     return {
         'attention_selection': attention_matches,
-        'mlp_selection': mlp_matches,
-        'norm_selection': norm_matches,
+        'block_selection': block_matches,
+        'norm_selection': norm_match,
         'logit_lens_selection': logit_lens_match,
         'family_name': family,
         'family_description': config.get('description', '')
