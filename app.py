@@ -39,6 +39,10 @@ app.layout = html.Div([
     dcc.Store(id='session-patterns-store', storage_type='session'),
     # Sidebar collapse state (default: collapsed = True)
     dcc.Store(id='sidebar-collapse-store', storage_type='session', data=True),
+    # Comparison mode state (default: not comparing)
+    dcc.Store(id='comparison-mode-store', storage_type='session', data=False),
+    # Second prompt activation data
+    dcc.Store(id='session-activation-store-2', storage_type='session'),
     
     # Main container
     html.Div([
@@ -257,11 +261,14 @@ def show_analysis_loading_spinner(n_clicks):
 # Callback to run analysis and generate visualization
 @app.callback(
     [Output('model-flow-graph', 'elements'),
+     Output('model-flow-graph-2', 'elements'),
      Output('session-activation-store', 'data', allow_duplicate=True),
+     Output('session-activation-store-2', 'data'),
      Output('analysis-loading-indicator', 'children')],
     [Input('run-analysis-btn', 'n_clicks')],
     [State('model-dropdown', 'value'),
      State('prompt-input', 'value'),
+     State('prompt-input-2', 'value'),
      State('attention-modules-dropdown', 'value'),
      State('block-modules-dropdown', 'value'),
      State('norm-params-dropdown', 'value'), 
@@ -269,16 +276,16 @@ def show_analysis_loading_spinner(n_clicks):
      State('session-patterns-store', 'data')],
     prevent_initial_call=True
 )
-def run_analysis(n_clicks, model_name, prompt, attn_patterns, block_patterns, norm_patterns, logit_pattern, patterns_data):
-    """Run forward pass and generate cytoscape visualization."""
+def run_analysis(n_clicks, model_name, prompt, prompt2, attn_patterns, block_patterns, norm_patterns, logit_pattern, patterns_data):
+    """Run forward pass and generate cytoscape visualization (handles 1 or 2 prompts)."""
     print(f"\n=== DEBUG: run_analysis START ===")
-    print(f"DEBUG: n_clicks={n_clicks}, model_name={model_name}, prompt='{prompt}'")
+    print(f"DEBUG: n_clicks={n_clicks}, model_name={model_name}, prompt='{prompt}', prompt2='{prompt2}'")
     print(f"DEBUG: block_patterns={block_patterns}")
     print(f"DEBUG: logit_pattern={logit_pattern}")
     
     if not n_clicks or not model_name or not prompt or not block_patterns:
         print("DEBUG: Missing required inputs, returning empty")
-        return [], {}, None
+        return [], [], {}, {}, None
     
     try:
         # Load model for execution
@@ -302,30 +309,43 @@ def run_analysis(n_clicks, model_name, prompt, attn_patterns, block_patterns, no
         
         print(f"DEBUG: config = {config}")
         
-        # Execute forward pass
+        # Execute forward pass for first prompt
         activation_data = execute_forward_pass(model, tokenizer, prompt, config)
-        
-        # Format for cytoscape
         elements = format_data_for_cytoscape(activation_data, model, tokenizer)
         
-        print(f"DEBUG: Created {len(elements)} elements for cytoscape")
+        print(f"DEBUG: Created {len(elements)} elements for cytoscape (prompt 1)")
         
-        # Store only essential data to avoid quota issues
+        # Store essential data for first prompt
         essential_data = {
-            'model': model_name,  # Fix: use 'model' key that BertViz expects
+            'model': model_name,
             'prompt': prompt,
             'attention_outputs': activation_data.get('attention_outputs', {}),
             'input_ids': activation_data.get('input_ids', [])
         }
         
+        # Process second prompt if provided
+        elements2 = []
+        essential_data2 = {}
+        if prompt2 and prompt2.strip():
+            activation_data2 = execute_forward_pass(model, tokenizer, prompt2, config)
+            elements2 = format_data_for_cytoscape(activation_data2, model, tokenizer)
+            print(f"DEBUG: Created {len(elements2)} elements for cytoscape (prompt 2)")
+            
+            essential_data2 = {
+                'model': model_name,
+                'prompt': prompt2,
+                'attention_outputs': activation_data2.get('attention_outputs', {}),
+                'input_ids': activation_data2.get('input_ids', [])
+            }
+        
         # Show success message
         success_message = html.Div([
             html.I(className="fas fa-check-circle", style={'color': '#28a745', 'marginRight': '8px'}),
-            "Analysis completed successfully!"
+            "Analysis completed successfully!" + (" (2 prompts)" if prompt2 else "")
         ], className="status-success")
         
         print(f"=== DEBUG: run_analysis END ===\n")
-        return elements, essential_data, success_message
+        return elements, elements2, essential_data, essential_data2, success_message
         
     except Exception as e:
         print(f"Analysis error: {e}")
@@ -338,7 +358,7 @@ def run_analysis(n_clicks, model_name, prompt, attn_patterns, block_patterns, no
             f"Analysis error: {str(e)}"
         ], className="status-error")
         
-        return [], {}, error_message
+        return [], [], {}, {}, error_message
 
 # Enable Run Analysis button when requirements are met
 @app.callback(
@@ -371,6 +391,26 @@ def toggle_sidebar(n_clicks, is_collapsed):
     style = {'display': 'none'} if new_collapsed else {'display': 'block'}
     
     return new_collapsed, style
+
+# Toggle comparison mode (show/hide second prompt)
+@app.callback(
+    [Output('comparison-mode-store', 'data'),
+     Output('second-prompt-container', 'style'),
+     Output('second-visualization-section', 'style')],
+    [Input('compare-prompts-btn', 'n_clicks')],
+    [State('comparison-mode-store', 'data')],
+    prevent_initial_call=True
+)
+def toggle_comparison_mode(n_clicks, is_comparing):
+    """Toggle comparison mode and show/hide second prompt input and visualization."""
+    if not n_clicks:
+        return False, {'display': 'none'}, {'display': 'none'}
+    
+    # Toggle comparison mode
+    new_comparing = not is_comparing
+    style = {'display': 'block'} if new_comparing else {'display': 'none'}
+    
+    return new_comparing, style, style
 
 # Node click callback for analysis results  
 @app.callback(

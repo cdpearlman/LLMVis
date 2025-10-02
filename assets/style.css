@@ -272,6 +272,25 @@ body {
     background-color: #cbd5e0;
 }
 
+.compare-button {
+    padding: 0.5rem 1rem;
+    background-color: #48bb78;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+}
+
+.compare-button:hover {
+    background-color: #38a169;
+    transform: translateY(-1px);
+}
+
 /* Sections */
 .config-section {
     margin-bottom: 3rem;

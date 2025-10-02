@@ -46,7 +46,15 @@ def create_model_selector():
         
         # Prompt input
         html.Div([
-            html.Label("Enter Prompt:", className="input-label"),
+            html.Div([
+                html.Label("Enter Prompt:", className="input-label", style={"display": "inline-block", "marginRight": "10px"}),
+                html.Button(
+                    [html.I(className="fas fa-plus", style={"marginRight": "5px"}), "Compare"],
+                    id="compare-prompts-btn",
+                    className="compare-button",
+                    title="Add a second prompt for comparison"
+                )
+            ], style={"display": "flex", "alignItems": "center", "marginBottom": "0.5rem"}),
             dcc.Textarea(
                 id='prompt-input',
                 placeholder="Enter text prompt for analysis...",
@@ -59,6 +67,22 @@ def create_model_selector():
                 className="prompt-input"
             )
         ], className="input-container"),
+        
+        # Second prompt input (initially hidden)
+        html.Div([
+            html.Label("Second Prompt (for comparison):", className="input-label"),
+            dcc.Textarea(
+                id='prompt-input-2',
+                placeholder="Enter second text prompt for comparison...",
+                value="",
+                style={
+                    "width": "100%", 
+                    "height": "100px",
+                    "resize": "vertical"
+                },
+                className="prompt-input"
+            )
+        ], id="second-prompt-container", className="input-container", style={"display": "none"}),
         
         # Status indicator
         html.Div([

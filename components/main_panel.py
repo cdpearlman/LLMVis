@@ -23,7 +23,7 @@ def create_main_panel():
         # Analysis loading indicator
         html.Div(id="analysis-loading-indicator", className="loading-container"),
         
-        # Visualization section
+        # Visualization section (first prompt)
         html.Div([
             html.H3("Model Flow Visualization", className="section-title"),
             cyto.Cytoscape(
@@ -83,6 +83,67 @@ def create_main_panel():
                 ]
             )
         ], className="visualization-section"),
+        
+        # Second visualization (for comparison - initially hidden)
+        html.Div([
+            html.H3("Model Flow Visualization (Prompt 2)", className="section-title"),
+            cyto.Cytoscape(
+                id='model-flow-graph-2',
+                elements=[],
+                layout={'name': 'preset'},
+                style={'width': '100%', 'height': '400px'},
+                zoom=1.0,
+                pan={'x': 100, 'y': 200},
+                stylesheet=[
+                    # Node styles
+                    {
+                        'selector': 'node',
+                        'style': {
+                            'width': '60px',
+                            'height': '60px',
+                            'background-color': '#667eea',
+                            'border-color': '#5a67d8',
+                            'border-width': '2px',
+                            'label': 'data(label)',
+                            'text-valign': 'center',
+                            'color': 'white',
+                            'font-size': '10px',
+                            'text-wrap': 'wrap'
+                        }
+                    },
+                    # Output node style (distinct from layer nodes)
+                    {
+                        'selector': 'node[id="output_node"]',
+                        'style': {
+                            'width': '80px',
+                            'height': '80px',
+                            'background-color': '#48bb78',
+                            'border-color': '#38a169',
+                            'border-width': '3px',
+                            'label': 'data(label)',
+                            'text-valign': 'center',
+                            'color': 'white',
+                            'font-size': '11px',
+                            'font-weight': 'bold',
+                            'text-wrap': 'wrap',
+                            'shape': 'round-rectangle'
+                        }
+                    },
+                    # Edge styles
+                    {
+                        'selector': 'edge',
+                        'style': {
+                            'width': 'data(width)',
+                            'opacity': 'data(opacity)',
+                            'line-color': 'data(color)',
+                            'target-arrow-color': 'data(color)',
+                            'target-arrow-shape': 'triangle',
+                            'curve-style': 'bezier'
+                        }
+                    }
+                ]
+            )
+        ], id="second-visualization-section", className="visualization-section", style={'display': 'none'}),
         
         # Results section (placeholder)
         html.Div([
