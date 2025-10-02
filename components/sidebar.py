@@ -15,7 +15,7 @@ def create_sidebar():
     return html.Div([
         # Toggle button for collapsing/expanding sidebar
         html.Button(
-            html.I(className="fas fa-bars"),
+            html.I(className="fas fa-chevron-right"),  # Start with right chevron (collapsed)
             id="sidebar-toggle-btn",
             className="sidebar-toggle-button",
             title="Toggle sidebar"

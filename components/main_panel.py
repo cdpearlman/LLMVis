@@ -26,16 +26,24 @@ def create_main_panel():
         # Check Token input (for 4th edge visualization)
         html.Div([
             html.Label("Check Token (optional):", className="input-label"),
-            dcc.Input(
-                id='check-token-input',
-                type='text',
-                placeholder="Enter a token to track its probability...",
-                value="",
-                style={"width": "300px"},
-                className="prompt-input"
-            ),
-            html.Span(" (Adds a 4th edge showing this token's probability at each layer)", 
-                     style={"fontSize": "12px", "color": "#6c757d", "marginLeft": "10px"})
+            html.Div([
+                dcc.Input(
+                    id='check-token-input',
+                    type='text',
+                    placeholder="Enter a token to track its probability...",
+                    value="",
+                    style={"width": "300px", "display": "inline-block", "marginRight": "10px"},
+                    className="prompt-input"
+                ),
+                html.Button(
+                    "Submit",
+                    id="submit-check-token-btn",
+                    className="action-button primary-button",
+                    style={"display": "inline-block", "padding": "0.5rem 1rem", "fontSize": "13px"}
+                ),
+                html.Span(" (Adds a 4th edge showing this token's probability at each layer)", 
+                         style={"fontSize": "12px", "color": "#6c757d", "marginLeft": "10px"})
+            ], style={"display": "flex", "alignItems": "center"})
         ], className="input-container", style={"marginBottom": "1.5rem"}),
         
         # Visualization section (first prompt)

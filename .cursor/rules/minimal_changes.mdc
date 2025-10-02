@@ -1,0 +1,46 @@
+---
+description:
+globs:
+  - "**/*.py"
+  - "**/*.md"
+  - "app.py"
+  - "components/**/*.py"
+  - "utils/**/*.py"
+alwaysApply: true
+---
+
+# Minimal Change Rules
+
+- Plan first:
+  - Update `todo.md` with the smallest next actions tied to `plans.md`.
+  - Keep tasks atomic and check them off as you go.
+
+- Keep edits minimal:
+  - Prefer small, surgical changes over refactors.
+  - Reuse existing files: `app.py`, `components/sidebar.py`, `components/main_panel.py`, `utils/*`.
+  - Remove or simplify clearly unnecessary code only when it reduces complexity.
+
+- Comments & style:
+  - Add concise comments explaining intent where the change is non-obvious.
+  - Do not reformat unrelated code or alter indentation styles.
+
+- Git workflow:
+  - After each coherent set of changes:
+    - git commit -am "[helpful message about what was done]"
+  - Between features:
+    - git push
+    - git checkout -b feature/<short-name>
+  - Never merge branches.
+
+- Ongoing planning:
+  - Keep `todo.md` current before/after each change.
+  - Update `plans.md` if scope/ideas evolve.
+
+- Research as needed:
+  - If details are unclear (e.g., detection thresholds), research your options and make a minimal reasonable choice and note it in `todo.md`.
+
+  # Guardrails
+
+- Avoid adding new dependencies unless strictly needed.
+- Avoid creating new modules/components unless existing ones cannot be cleanly extended.
+- Ensure Dash callbacks remain responsive; avoid heavy sync work in callbacks without feedback indicators.

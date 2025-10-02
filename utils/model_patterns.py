@@ -330,27 +330,33 @@ def _get_check_token_probability(activation_data: Dict[str, Any], module_name: s
         # Tokenize the check token
         token_ids = tokenizer.encode(check_token, add_special_tokens=False)
         if not token_ids:
+            print(f"Warning: check_token '{check_token}' produced no token IDs")
             return None
         
         # Use last sub-token if multiple (as per plans.md)
         target_token_id = token_ids[-1]
         token_str = tokenizer.decode([target_token_id], skip_special_tokens=False)
         
+        print(f"DEBUG check_token: '{check_token}' -> token_ids={token_ids}, using target_token_id={target_token_id}, decoded='{token_str}'")
+        
         # Get block output
         if module_name not in activation_data.get('block_outputs', {}):
+            print(f"Warning: module_name '{module_name}' not in block_outputs")
             return None
         
         layer_output = activation_data['block_outputs'][module_name]['output']
         
-        # Apply logit lens transformation
+        # Get norm parameter (same as _get_top_tokens)
+        norm_params = activation_data.get('norm_parameters', [])
+        norm_parameter = norm_params[0] if norm_params else None
+        
+        # Apply logit lens transformation (same logic as logit_lens_transformation function)
         with torch.no_grad():
             hidden = torch.tensor(layer_output) if not isinstance(layer_output, torch.Tensor) else layer_output
             if hidden.dim() == 4:
                 hidden = hidden.squeeze(0)
             
             # Apply final norm
-            norm_params = activation_data.get('norm_parameters', [])
-            norm_parameter = norm_params[0] if norm_params else None
             final_norm = get_norm_layer_from_parameter(model, norm_parameter)
             if final_norm is not None:
                 hidden = final_norm(hidden)
@@ -363,9 +369,13 @@ def _get_check_token_probability(activation_data: Dict[str, Any], module_name: s
             # Get probability for target token
             prob = probs[target_token_id].item()
             
+            print(f"DEBUG check_token prob for {module_name}: token_id={target_token_id}, prob={prob:.6f}")
+            
             return (token_str, prob)
     except Exception as e:
         print(f"Warning: Could not compute check token probability for {module_name}: {e}")
+        import traceback
+        traceback.print_exc()
         return None
 
 
@@ -374,7 +384,7 @@ def _create_node(layer_num: int, module_name: str, x_pos: int, top_token: Option
     label = f'L{layer_num}'
     if top_token:
         token, prob = top_token
-        label = f'L{layer_num}\n{token[:6]}\n{prob:.2f}'
+        label = f'L{layer_num}\n{token}\n{prob:.2f}'
     
     return {
         'data': {'id': f'layer_{layer_num}', 'label': label, 'layer_num': layer_num, 'module_name': module_name},
@@ -447,11 +457,11 @@ def format_data_for_cytoscape(activation_data: Dict[str, Any], model, tokenizer,
                 check_result = _get_check_token_probability(activation_data, curr_module, model, tokenizer, check_token.strip())
                 if check_result:
                     token, prob = check_result
-                    # Enforce minimum opacity of 0.25 for visibility
-                    prob_display = max(prob, 0.25)
-                    # Create edge with rank=3 (4th edge) and enforced minimum opacity
+                    # Create edge with rank=3 (4th edge)
+                    # Use actual probability for edge data, but enforce minimum opacity for visibility
                     edge = _create_edge(curr_layer_num, next_layer_num, token, prob, rank=3)
-                    edge['data']['opacity'] = max(0.25, prob_display)  # Override opacity with minimum
+                    # Override opacity with minimum of 0.25 for visibility (even if prob is 0)
+                    edge['data']['opacity'] = max(0.25, prob)
                     elements.append(edge)
     
     # Add final output node

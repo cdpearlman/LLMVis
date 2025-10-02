@@ -57,7 +57,13 @@ body {
     background-color: #f8f9fa;
     border-right: 1px solid #e9ecef;
     padding: 2rem;
-    transition: width 0.3s ease;
+    transition: all 0.3s ease;
+    position: relative;
+}
+
+.sidebar.collapsed {
+    width: 50px;
+    padding: 1rem 0.5rem;
 }
 
 .sidebar-toggle-button {
@@ -74,6 +80,11 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
+}
+
+.sidebar.collapsed .sidebar-toggle-button {
+    padding: 0.5rem;
+    font-size: 1rem;
 }
 
 .sidebar-toggle-button:hover {
@@ -289,6 +300,14 @@ body {
 .compare-button:hover {
     background-color: #38a169;
     transform: translateY(-1px);
+}
+
+.compare-button.remove {
+    background-color: #e53e3e;
+}
+
+.compare-button.remove:hover {
+    background-color: #c53030;
 }
 
 /* Sections */

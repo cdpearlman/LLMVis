@@ -43,6 +43,8 @@ app.layout = html.Div([
     dcc.Store(id='comparison-mode-store', storage_type='session', data=False),
     # Second prompt activation data
     dcc.Store(id='session-activation-store-2', storage_type='session'),
+    # Submitted check token (updated on Submit button click)
+    dcc.Store(id='submitted-check-token-store', storage_type='session', data=''),
     
     # Main container
     html.Div([
@@ -59,7 +61,7 @@ app.layout = html.Div([
             # Left sidebar
             html.Div([
                 create_sidebar()
-            ], className="sidebar"),
+            ], id="sidebar-container", className="sidebar collapsed"),  # Start collapsed
             
             # Right main panel
             html.Div([
@@ -258,18 +260,32 @@ def show_analysis_loading_spinner(n_clicks):
         "Collecting Data..."
     ], className="status-loading")
 
+# Callback to update submitted check token
+@app.callback(
+    Output('submitted-check-token-store', 'data'),
+    [Input('submit-check-token-btn', 'n_clicks')],
+    [State('check-token-input', 'value')],
+    prevent_initial_call=True
+)
+def submit_check_token(n_clicks, check_token):
+    """Store the check token when Submit is clicked."""
+    if not n_clicks:
+        return ''
+    return check_token if check_token else ''
+
 # Callback to run analysis and generate visualization
 @app.callback(
     [Output('model-flow-graph', 'elements'),
      Output('model-flow-graph-2', 'elements'),
      Output('session-activation-store', 'data', allow_duplicate=True),
      Output('session-activation-store-2', 'data'),
-     Output('analysis-loading-indicator', 'children')],
+     Output('analysis-loading-indicator', 'children'),
+     Output('second-visualization-section', 'style', allow_duplicate=True)],
     [Input('run-analysis-btn', 'n_clicks')],
     [State('model-dropdown', 'value'),
      State('prompt-input', 'value'),
      State('prompt-input-2', 'value'),
-     State('check-token-input', 'value'),
+     State('submitted-check-token-store', 'data'),  # Use submitted token instead of input
      State('attention-modules-dropdown', 'value'),
      State('block-modules-dropdown', 'value'),
      State('norm-params-dropdown', 'value'), 
@@ -286,7 +302,7 @@ def run_analysis(n_clicks, model_name, prompt, prompt2, check_token, attn_patter
     
     if not n_clicks or not model_name or not prompt or not block_patterns:
         print("DEBUG: Missing required inputs, returning empty")
-        return [], [], {}, {}, None
+        return [], [], {}, {}, None, {'display': 'none'}
     
     try:
         # Load model for execution
@@ -327,6 +343,8 @@ def run_analysis(n_clicks, model_name, prompt, prompt2, check_token, attn_patter
         # Process second prompt if provided
         elements2 = []
         essential_data2 = {}
+        second_viz_style = {'display': 'none'}  # Default: hide second viz
+        
         if prompt2 and prompt2.strip():
             activation_data2 = execute_forward_pass(model, tokenizer, prompt2, config)
             elements2 = format_data_for_cytoscape(activation_data2, model, tokenizer, check_token)
@@ -338,15 +356,19 @@ def run_analysis(n_clicks, model_name, prompt, prompt2, check_token, attn_patter
                 'attention_outputs': activation_data2.get('attention_outputs', {}),
                 'input_ids': activation_data2.get('input_ids', [])
             }
+            
+            # Show second visualization if we have data
+            if elements2:
+                second_viz_style = {'display': 'block'}
         
         # Show success message
         success_message = html.Div([
             html.I(className="fas fa-check-circle", style={'color': '#28a745', 'marginRight': '8px'}),
-            "Analysis completed successfully!" + (" (2 prompts)" if prompt2 else "")
+            "Analysis completed successfully!" + (" (2 prompts)" if prompt2 and prompt2.strip() else "")
         ], className="status-success")
         
         print(f"=== DEBUG: run_analysis END ===\n")
-        return elements, elements2, essential_data, essential_data2, success_message
+        return elements, elements2, essential_data, essential_data2, success_message, second_viz_style
         
     except Exception as e:
         print(f"Analysis error: {e}")
@@ -359,7 +381,7 @@ def run_analysis(n_clicks, model_name, prompt, prompt2, check_token, attn_patter
             f"Analysis error: {str(e)}"
         ], className="status-error")
         
-        return [], [], {}, {}, error_message
+        return [], [], {}, {}, error_message, {'display': 'none'}
 
 # Enable Run Analysis button when requirements are met
 @app.callback(
@@ -375,7 +397,9 @@ def enable_run_button(model, prompt, block_modules):
 # Sidebar collapse toggle
 @app.callback(
     [Output('sidebar-collapse-store', 'data'),
-     Output('sidebar-content', 'style')],
+     Output('sidebar-content', 'style'),
+     Output('sidebar-container', 'className'),
+     Output('sidebar-toggle-btn', 'children')],
     [Input('sidebar-toggle-btn', 'n_clicks')],
     [State('sidebar-collapse-store', 'data')],
     prevent_initial_call=False
@@ -385,19 +409,24 @@ def toggle_sidebar(n_clicks, is_collapsed):
     # On initial load, is_collapsed is True (default)
     if n_clicks is None:
         # Initial render: collapsed
-        return True, {'display': 'none'}
+        return True, {'display': 'none'}, 'sidebar collapsed', html.I(className="fas fa-chevron-right")
     
     # Toggle state
     new_collapsed = not is_collapsed
     style = {'display': 'none'} if new_collapsed else {'display': 'block'}
+    class_name = 'sidebar collapsed' if new_collapsed else 'sidebar'
+    # Icon changes: chevron-right when collapsed, chevron-left when expanded
+    icon = html.I(className="fas fa-chevron-right") if new_collapsed else html.I(className="fas fa-chevron-left")
     
-    return new_collapsed, style
+    return new_collapsed, style, class_name, icon
 
 # Toggle comparison mode (show/hide second prompt)
 @app.callback(
     [Output('comparison-mode-store', 'data'),
      Output('second-prompt-container', 'style'),
-     Output('second-visualization-section', 'style')],
+     Output('second-visualization-section', 'style'),
+     Output('compare-prompts-btn', 'children'),
+     Output('compare-prompts-btn', 'className')],
     [Input('compare-prompts-btn', 'n_clicks')],
     [State('comparison-mode-store', 'data')],
     prevent_initial_call=True
@@ -405,13 +434,23 @@ def toggle_sidebar(n_clicks, is_collapsed):
 def toggle_comparison_mode(n_clicks, is_comparing):
     """Toggle comparison mode and show/hide second prompt input and visualization."""
     if not n_clicks:
-        return False, {'display': 'none'}, {'display': 'none'}
+        return False, {'display': 'none'}, {'display': 'none'}, [html.I(className="fas fa-plus", style={"marginRight": "5px"}), "Compare"], 'compare-button'
     
     # Toggle comparison mode
     new_comparing = not is_comparing
     style = {'display': 'block'} if new_comparing else {'display': 'none'}
     
-    return new_comparing, style, style
+    # Update button text and styling
+    if new_comparing:
+        # When comparing, show "Remove -" button in red
+        button_content = [html.I(className="fas fa-minus", style={"marginRight": "5px"}), "Remove"]
+        button_class = 'compare-button remove'
+    else:
+        # When not comparing, show "Compare +" button in green
+        button_content = [html.I(className="fas fa-plus", style={"marginRight": "5px"}), "Compare"]
+        button_class = 'compare-button'
+    
+    return new_comparing, style, style, button_content, button_class
 
 # Node click callback for analysis results  
 @app.callback(
