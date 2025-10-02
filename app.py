@@ -53,9 +53,11 @@ def _highlight_divergent_layers(elements, divergent_layer_nums):
     
     return updated_elements
 
-# Helper function for creating category detail view
-def _create_category_detail_view(categorized_heads):
-    """Create a formatted view of categorized heads by category."""
+# Helper function for creating category detail view with BertViz visualizations
+def _create_category_detail_view(categorized_heads, activation_data):
+    """Create BertViz visualizations organized by attention head category."""
+    from utils import generate_category_bertviz_html
+    
     category_colors = {
         'previous_token': '#ff7979',
         'first_token': '#74b9ff',
@@ -78,7 +80,7 @@ def _create_category_detail_view(categorized_heads):
         heads = categorized_heads.get(category_key, [])
         color = category_colors.get(category_key, '#dfe6e9')
         
-        # Create head badges
+        # Create head badges for summary
         head_badges = []
         for head_info in heads:
             badge = html.Span(
@@ -95,12 +97,24 @@ def _create_category_detail_view(categorized_heads):
             )
             head_badges.append(badge)
         
-        # Create category section
+        # Generate BertViz visualization for this category
+        if heads and activation_data:
+            bertviz_html = generate_category_bertviz_html(activation_data, heads)
+            viz_content = html.Iframe(
+                srcDoc=bertviz_html,
+                style={'width': '100%', 'height': '400px', 'border': '1px solid #ddd', 'borderRadius': '4px', 'marginTop': '10px'}
+            )
+        else:
+            viz_content = html.P("No heads in this category.", style={'color': '#6c757d', 'fontSize': '13px', 'fontStyle': 'italic'})
+        
+        # Create category section with badges and visualization
         section = html.Div([
-            html.H5(f"{display_name} ({len(heads)})", style={'marginBottom': '0.5rem', 'color': '#495057'}),
+            html.H5(f"{display_name} ({len(heads)})", 
+                   style={'marginBottom': '0.5rem', 'color': '#495057', 'borderLeft': f'4px solid {color}', 'paddingLeft': '10px'}),
             html.Div(head_badges if head_badges else html.P("None", style={'color': '#6c757d', 'fontSize': '13px'}),
-                    style={'marginBottom': '1rem'})
-        ])
+                    style={'marginBottom': '0.5rem'}),
+            viz_content
+        ], style={'marginBottom': '2rem', 'padding': '1rem', 'backgroundColor': '#f8f9fa', 'borderRadius': '8px'})
         
         sections.append(section)
     
@@ -420,8 +434,8 @@ def run_analysis(n_clicks, model_name, prompt, prompt2, check_token, attn_patter
             html.Pre(category_summary, style={'whiteSpace': 'pre-wrap', 'fontFamily': 'monospace', 'fontSize': '13px'}),
             html.Hr(),
             html.Div([
-                html.H4("Category Details", style={'marginTop': '1rem'}),
-                _create_category_detail_view(categorized_heads)
+                html.H4("Category Details with BertViz Visualizations", style={'marginTop': '1rem'}),
+                _create_category_detail_view(categorized_heads, activation_data)
             ])
         ])
         

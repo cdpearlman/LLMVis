@@ -572,3 +572,86 @@ def generate_bertviz_html(activation_data: Dict[str, Any], layer_index: int, vie
         import traceback
         traceback.print_exc()
         return f"<p>Error generating visualization: {str(e)}</p>"
+
+
+def generate_category_bertviz_html(activation_data: Dict[str, Any], category_heads: List[Dict[str, Any]]) -> str:
+    """
+    Generate BertViz attention visualization HTML for a specific category of heads.
+    
+    Shows only the attention patterns for heads in the specified category.
+    
+    Args:
+        activation_data: Output from execute_forward_pass
+        category_heads: List of head info dicts for this category (from categorize_all_heads)
+    
+    Returns:
+        HTML string for the visualization
+    """
+    try:
+        from bertviz import head_view
+        from transformers import AutoTokenizer
+        
+        if not category_heads:
+            return "<p>No heads in this category.</p>"
+        
+        # Extract attention modules and sort by layer
+        attention_outputs = activation_data.get('attention_outputs', {})
+        if not attention_outputs:
+            return "<p>No attention data available</p>"
+        
+        # Build a map of layer -> head indices for this category
+        category_map = {}  # layer_num -> list of head indices
+        for head_info in category_heads:
+            layer = head_info['layer']
+            head = head_info['head']
+            if layer not in category_map:
+                category_map[layer] = []
+            category_map[layer].append(head)
+        
+        # Sort attention modules by layer number and filter heads
+        layer_attention_pairs = []
+        for module_name in attention_outputs.keys():
+            numbers = re.findall(r'\d+', module_name)
+            if numbers:
+                layer_num = int(numbers[0])
+                
+                # Skip layers not in this category
+                if layer_num not in category_map:
+                    continue
+                
+                attention_output = attention_outputs[module_name]['output']
+                if isinstance(attention_output, list) and len(attention_output) >= 2:
+                    # Get attention weights (element 1 of the output tuple)
+                    full_attention = torch.tensor(attention_output[1])  # [batch, heads, seq, seq]
+                    
+                    # Filter to only include heads in this category
+                    head_indices = category_map[layer_num]
+                    filtered_attention = full_attention[:, head_indices, :, :]  # Select specific heads
+                    
+                    layer_attention_pairs.append((layer_num, filtered_attention))
+        
+        if not layer_attention_pairs:
+            return "<p>No valid attention data found for this category.</p>"
+        
+        # Sort by layer number and extract attention tensors
+        layer_attention_pairs.sort(key=lambda x: x[0])
+        attentions = tuple(attn for _, attn in layer_attention_pairs)
+        
+        # Get tokens
+        input_ids = torch.tensor(activation_data['input_ids'])
+        model_name = activation_data.get('model', 'unknown')
+        
+        # Load tokenizer and convert to tokens
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        raw_tokens = tokenizer.convert_ids_to_tokens(input_ids[0])
+        # Clean up tokens (remove special tokenizer artifacts like Ġ for GPT-2)
+        tokens = [token.replace('Ġ', ' ') if token.startswith('Ġ') else token for token in raw_tokens]
+        
+        # Generate visualization using head_view (better for showing specific heads)
+        html_result = head_view(attentions, tokens, html_action='return')
+        return html_result.data if hasattr(html_result, 'data') else str(html_result)
+            
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return f"<p>Error generating category visualization: {str(e)}</p>"
