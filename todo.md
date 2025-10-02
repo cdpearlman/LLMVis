@@ -69,3 +69,8 @@ Feature Updates:
 [x] Check Token words needs to be checked with a leading space character in addition to token with no spaces. 'Washington' is a different token id than ' Washington'
 [x] Attention classification updates: Remove Attention Head Categorization section. Instead, extract sections of the BertViz model view and organize it into categorized sections. For example, the previous-token heads should have the model view graphs associated with the heads that belong to that section, not just a list of heads.
 ✅ All feature updates complete!
+
+## Bug Fixes
+[x] Fix tensor stacking error in category BertViz visualization (duplicate layer entries with different sequence lengths)
+[x] Add head index legend to category visualizations (maps Head 0, 1, 2... to L{layer}-H{head} labels)
+✅ Bug fixes complete!

@@ -609,7 +609,10 @@ def generate_category_bertviz_html(activation_data: Dict[str, Any], category_hea
             category_map[layer].append(head)
         
         # Sort attention modules by layer number and filter heads
+        # Track which layers we've already processed to avoid duplicates
         layer_attention_pairs = []
+        processed_layers = set()
+        
         for module_name in attention_outputs.keys():
             numbers = re.findall(r'\d+', module_name)
             if numbers:
@@ -617,6 +620,10 @@ def generate_category_bertviz_html(activation_data: Dict[str, Any], category_hea
                 
                 # Skip layers not in this category
                 if layer_num not in category_map:
+                    continue
+                
+                # Skip if we've already processed this layer (prevents duplicate/mismatched tensors)
+                if layer_num in processed_layers:
                     continue
                 
                 attention_output = attention_outputs[module_name]['output']
@@ -629,6 +636,7 @@ def generate_category_bertviz_html(activation_data: Dict[str, Any], category_hea
                     filtered_attention = full_attention[:, head_indices, :, :]  # Select specific heads
                     
                     layer_attention_pairs.append((layer_num, filtered_attention))
+                    processed_layers.add(layer_num)
         
         if not layer_attention_pairs:
             return "<p>No valid attention data found for this category.</p>"
@@ -649,7 +657,28 @@ def generate_category_bertviz_html(activation_data: Dict[str, Any], category_hea
         
         # Generate visualization using head_view (better for showing specific heads)
         html_result = head_view(attentions, tokens, html_action='return')
-        return html_result.data if hasattr(html_result, 'data') else str(html_result)
+        base_html = html_result.data if hasattr(html_result, 'data') else str(html_result)
+        
+        # Create a legend mapping head indices to their actual layer-head labels
+        legend_items = []
+        head_counter = 0
+        for layer_num, _ in layer_attention_pairs:
+            head_indices = category_map[layer_num]
+            for head_idx in head_indices:
+                legend_items.append(f"Head {head_counter}: L{layer_num}-H{head_idx}")
+                head_counter += 1
+        
+        legend_html = """
+        <div style="background-color: #f8f9fa; padding: 10px; margin-bottom: 10px; border-radius: 5px; border: 1px solid #dee2e6;">
+            <strong style="color: #495057;">Head Index Reference:</strong><br/>
+            <div style="font-size: 12px; color: #6c757d; margin-top: 5px; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 5px;">
+                {items}
+            </div>
+        </div>
+        """.format(items=''.join(f'<span>{item}</span>' for item in legend_items))
+        
+        # Prepend legend to the visualization
+        return legend_html + base_html
             
     except Exception as e:
         import traceback
