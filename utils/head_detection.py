@@ -333,12 +333,94 @@ def categorize_all_heads(activation_data: Dict[str, Any],
     return categorized
 
 
+def categorize_single_layer_heads(activation_data: Dict[str, Any], 
+                                   layer_num: int,
+                                   config: Optional[HeadCategorizationConfig] = None) -> Dict[str, List[Dict[str, Any]]]:
+    """
+    Categorize attention heads for a single layer.
+    
+    Args:
+        activation_data: Output from execute_forward_pass with attention data
+        layer_num: The specific layer number to categorize
+        config: Configuration object (uses defaults if None)
+    
+    Returns:
+        Dictionary mapping category names to lists of head info dicts for this layer only:
+        {
+            'previous_token': [...],
+            'first_token': [...],
+            'bow': [...],
+            'syntactic': [...],
+            'other': [...]
+        }
+    """
+    if config is None:
+        config = HeadCategorizationConfig()
+    
+    # Initialize result dict
+    categorized = {
+        'previous_token': [],
+        'first_token': [],
+        'bow': [],
+        'syntactic': [],
+        'other': []
+    }
+    
+    attention_outputs = activation_data.get('attention_outputs', {})
+    if not attention_outputs:
+        return categorized
+    
+    # Find the attention output for the requested layer
+    target_module = None
+    for module_name, output_dict in attention_outputs.items():
+        # Extract layer number from module name
+        numbers = re.findall(r'\d+', module_name)
+        if not numbers:
+            continue
+        
+        if int(numbers[0]) == layer_num:
+            target_module = module_name
+            break
+    
+    if not target_module:
+        return categorized
+    
+    output_dict = attention_outputs[target_module]
+    attention_output = output_dict.get('output')
+    
+    if not isinstance(attention_output, list) or len(attention_output) < 2:
+        return categorized
+    
+    # Get attention weights: [batch, heads, seq_len, seq_len]
+    attention_weights = torch.tensor(attention_output[1])
+    
+    # Process each head
+    num_heads = attention_weights.shape[1]
+    seq_len = attention_weights.shape[2]
+    
+    if seq_len < config.min_seq_len:
+        return categorized
+    
+    for head_idx in range(num_heads):
+        # Extract attention matrix for this head: [seq_len, seq_len]
+        head_attention = attention_weights[0, head_idx, :, :]
+        
+        # Categorize this head
+        head_info = categorize_attention_head(head_attention, layer_num, head_idx, config)
+        
+        # Add to appropriate category list
+        category = head_info['category']
+        categorized[category].append(head_info)
+    
+    return categorized
+
+
 def format_categorization_summary(categorized_heads: Dict[str, List[Dict[str, Any]]]) -> str:
     """
     Format categorization results as a human-readable summary.
     
     Args:
-        categorized_heads: Output from categorize_all_heads
+        categorized_heads: Output from categorize_all_heads or categorize_single_layer_heads
     
     Returns:
         Formatted string summary

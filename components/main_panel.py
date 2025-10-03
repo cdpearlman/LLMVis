@@ -195,23 +195,12 @@ def create_main_panel():
             ], id="comparison-container", className="results-area")
         ], id="comparison-section", className="results-section", style={'display': 'none'}),
         
-        # Head Categorization section
+        # Analysis Results section (layer-specific analysis on node click)
         html.Div([
-            html.H3("Attention Head Categorization", className="section-title"),
+            html.H3("Analysis Results", className="section-title"),
             html.Div([
                 html.P(
-                    "Head categorization will appear here after running analysis.",
-                    className="placeholder-text"
-                )
-            ], id="head-categorization-container", className="results-area")
-        ], className="results-section"),
-        
-        # Results section (BertViz visualization on node click)
-        html.Div([
-            html.H3("Layer Analysis (BertViz)", className="section-title"),
-            html.Div([
-                html.P(
-                    "Click a layer node to see detailed attention analysis.",
+                    "Click a layer node to see detailed attention analysis and head categorization.",
                     className="placeholder-text"
                 )
             ], id="results-container", className="results-area")

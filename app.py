@@ -9,7 +9,7 @@ import dash
 from dash import html, dcc, Input, Output, State, callback, no_update
 import dash_cytoscape as cyto
 from utils import (load_model_and_get_patterns, execute_forward_pass, format_data_for_cytoscape, 
-                   categorize_all_heads, format_categorization_summary,
+                   categorize_single_layer_heads, format_categorization_summary,
                    compare_attention_layers, compare_output_probabilities, format_comparison_summary)
 from utils.model_config import get_auto_selections, get_model_family
 
@@ -369,7 +369,6 @@ def submit_check_token(n_clicks, check_token):
      Output('session-activation-store-2', 'data'),
      Output('analysis-loading-indicator', 'children'),
      Output('second-visualization-section', 'style', allow_duplicate=True),
-     Output('head-categorization-container', 'children'),
      Output('comparison-section', 'style'),
      Output('comparison-container', 'children')],
     [Input('run-analysis-btn', 'n_clicks')],
@@ -393,9 +392,8 @@ def run_analysis(n_clicks, model_name, prompt, prompt2, check_token, attn_patter
     
     if not n_clicks or not model_name or not prompt or not block_patterns:
         print("DEBUG: Missing required inputs, returning empty")
-        placeholder_text = html.P("Head categorization will appear here after running analysis.", className="placeholder-text")
         comparison_placeholder = html.P("Comparison analysis will appear here when two prompts are provided.", className="placeholder-text")
-        return [], [], {}, {}, None, {'display': 'none'}, placeholder_text, {'display': 'none'}, comparison_placeholder
+        return [], [], {}, {}, None, {'display': 'none'}, {'display': 'none'}, comparison_placeholder
     
     try:
         # Load model for execution
@@ -424,20 +422,6 @@ def run_analysis(n_clicks, model_name, prompt, prompt2, check_token, attn_patter
         elements = format_data_for_cytoscape(activation_data, model, tokenizer, check_token)
         
         print(f"DEBUG: Created {len(elements)} elements for cytoscape (prompt 1)")
-        
-        # Categorize attention heads (only for first prompt)
-        categorized_heads = categorize_all_heads(activation_data)
-        category_summary = format_categorization_summary(categorized_heads)
-        
-        # Create formatted display for head categorization
-        head_categorization_display = html.Div([
-            html.Pre(category_summary, style={'whiteSpace': 'pre-wrap', 'fontFamily': 'monospace', 'fontSize': '13px'}),
-            html.Hr(),
-            html.Div([
-                html.H4("Category Details with BertViz Visualizations", style={'marginTop': '1rem'}),
-                _create_category_detail_view(categorized_heads, activation_data)
-            ])
-        ])
         
         # Store essential data for first prompt
         essential_data = {
@@ -505,7 +489,7 @@ def run_analysis(n_clicks, model_name, prompt, prompt2, check_token, attn_patter
         ], className="status-success")
         
         print(f"=== DEBUG: run_analysis END ===\n")
-        return elements, elements2, essential_data, essential_data2, success_message, second_viz_style, head_categorization_display, comparison_style, comparison_display
+        return elements, elements2, essential_data, essential_data2, success_message, second_viz_style, comparison_style, comparison_display
         
     except Exception as e:
         print(f"Analysis error: {e}")
@@ -518,9 +502,8 @@ def run_analysis(n_clicks, model_name, prompt, prompt2, check_token, attn_patter
             f"Analysis error: {str(e)}"
         ], className="status-error")
         
-        placeholder_text = html.P("Error generating head categorization.", className="placeholder-text")
         comparison_placeholder = html.P("Comparison analysis will appear here when two prompts are provided.", className="placeholder-text")
-        return [], [], {}, {}, error_message, {'display': 'none'}, placeholder_text, {'display': 'none'}, comparison_placeholder
+        return [], [], {}, {}, error_message, {'display': 'none'}, {'display': 'none'}, comparison_placeholder
 
 # Enable Run Analysis button when requirements are met
 @app.callback(
@@ -599,23 +582,36 @@ def toggle_comparison_mode(n_clicks, is_comparing):
     prevent_initial_call=True
 )
 def show_layer_analysis(node_data, activation_data):
-    """Show BertViz analysis when a layer node is clicked."""
+    """Show BertViz analysis and head categorization when a layer node is clicked."""
     if not node_data or not activation_data:
-        return html.P("Click a layer node to see detailed analysis.", className="placeholder-text")
+        return html.P("Click a layer node to see detailed attention analysis and head categorization.", className="placeholder-text")
     
     try:
         from utils import generate_bertviz_html
         layer_num = node_data['layer_num']
         
-        # Generate BertViz HTML for this layer
+        # Generate BertViz HTML for this layer (full model_view)
         bertviz_html = generate_bertviz_html(activation_data, layer_num, 'full')
         
+        # Categorize heads for this specific layer
+        categorized_heads = categorize_single_layer_heads(activation_data, layer_num)
+        category_summary = format_categorization_summary(categorized_heads)
+        
+        # Create category detail view with BertViz visualizations
+        category_detail = _create_category_detail_view(categorized_heads, activation_data)
+        
         return html.Div([
-            html.H4(f"Layer {layer_num} Analysis"),
+            html.H4(f"Layer {layer_num} - Full Model View"),
             html.Iframe(
                 srcDoc=bertviz_html,
-                style={'width': '100%', 'height': '500px', 'border': 'none'}
-            )
+                style={'width': '100%', 'height': '500px', 'border': 'none', 'marginBottom': '2rem'}
+            ),
+            html.Hr(),
+            html.H4(f"Layer {layer_num} - Attention Head Categorization"),
+            html.Pre(category_summary, style={'whiteSpace': 'pre-wrap', 'fontFamily': 'monospace', 'fontSize': '13px', 'marginTop': '1rem'}),
+            html.Hr(),
+            html.H4("Category Details with BertViz Visualizations", style={'marginTop': '1rem'}),
+            category_detail
         ])
         
     except Exception as e:

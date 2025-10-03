@@ -74,3 +74,13 @@ Feature Updates:
 [x] Fix tensor stacking error in category BertViz visualization (duplicate layer entries with different sequence lengths)
 [x] Add head index legend to category visualizations (maps Head 0, 1, 2... to L{layer}-H{head} labels)
 ✅ Bug fixes complete!
+
+## Feature 7: On-Demand Layer-Specific Head Categorization
+Goal: Remove automatic head categorization display. Make it work per-layer on node click instead.
+
+Steps:
+[x] 1. Remove "Attention Head Categorization" section from main_panel.py
+[x] 2. Create function to categorize heads for a single layer only (in head_detection.py)
+[x] 3. Update run_analysis callback to NOT compute head categorization automatically
+[x] 4. Update node click callback to compute layer-specific categorization and show in Analysis Results
+[ ] 5. Test: Click node, verify categorization appears in Analysis Results section
