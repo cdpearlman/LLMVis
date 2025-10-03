@@ -83,4 +83,5 @@ Steps:
 [x] 2. Create function to categorize heads for a single layer only (in head_detection.py)
 [x] 3. Update run_analysis callback to NOT compute head categorization automatically
 [x] 4. Update node click callback to compute layer-specific categorization and show in Analysis Results
-[ ] 5. Test: Click node, verify categorization appears in Analysis Results section
+[x] 5. Add categorize_single_layer_heads to utils/__init__.py exports
+[ ] 6. Test: Click node, verify categorization appears in Analysis Results section
