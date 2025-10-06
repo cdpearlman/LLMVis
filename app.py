@@ -522,7 +522,7 @@ def update_check_token_graph(check_token_data):
         layout=go.Layout(
             title=f"Token: {check_token_data['token']}",
             xaxis={'title': 'Layer'},
-            yaxis={'title': 'Probability'}
+            yaxis={'title': 'Probability', 'nticks': 8}
         )
     )
     
