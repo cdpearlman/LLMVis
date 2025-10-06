@@ -132,8 +132,6 @@ app.layout = html.Div([
     dcc.Store(id='comparison-mode-store', storage_type='session', data=False),
     # Second prompt activation data
     dcc.Store(id='session-activation-store-2', storage_type='session'),
-    # Submitted check token (updated on Submit button click)
-    dcc.Store(id='submitted-check-token-store', storage_type='session', data=''),
     # Check token graph data
     dcc.Store(id='check-token-graph-store', storage_type='session'),
     
@@ -351,19 +349,6 @@ def show_analysis_loading_spinner(n_clicks):
         "Collecting Data..."
     ], className="status-loading")
 
-# Callback to update submitted check token
-@app.callback(
-    Output('submitted-check-token-store', 'data'),
-    [Input('submit-check-token-btn', 'n_clicks')],
-    [State('check-token-input', 'value')],
-    prevent_initial_call=True
-)
-def submit_check_token(n_clicks, check_token):
-    """Store the check token when Submit is clicked."""
-    if not n_clicks:
-        return ''
-    return check_token if check_token else ''
-
 # Callback to run analysis and generate visualization
 @app.callback(
     [Output('model-flow-graph', 'elements'),
@@ -379,7 +364,7 @@ def submit_check_token(n_clicks, check_token):
     [State('model-dropdown', 'value'),
      State('prompt-input', 'value'),
      State('prompt-input-2', 'value'),
-     State('submitted-check-token-store', 'data'),
+     State('check-token-input', 'value'),
      State('attention-modules-dropdown', 'value'),
      State('block-modules-dropdown', 'value'),
      State('norm-params-dropdown', 'value'), 
@@ -536,12 +521,8 @@ def update_check_token_graph(check_token_data):
         )],
         layout=go.Layout(
             title=f"Token: {check_token_data['token']}",
-            xaxis={'title': 'Layer', 'gridcolor': '#e9ecef'},
-            yaxis={'title': 'Probability', 'gridcolor': '#e9ecef', 'range': [0, 1]},
-            margin={'l': 50, 'r': 20, 't': 40, 'b': 40},
-            paper_bgcolor='#f8f9fa',
-            plot_bgcolor='white',
-            font={'size': 11}
+            xaxis={'title': 'Layer'},
+            yaxis={'title': 'Probability'}
         )
     )
     

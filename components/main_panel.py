@@ -27,22 +27,14 @@ def create_main_panel():
         html.Div([
             html.Div([
                 html.Label("Check Token (optional):", className="input-label"),
-                html.Div([
-                    dcc.Input(
-                        id='check-token-input',
-                        type='text',
-                        placeholder="Enter a token to track its probability...",
-                        value="",
-                        style={"width": "300px", "marginRight": "10px"},
-                        className="prompt-input"
-                    ),
-                    html.Button(
-                        "Submit",
-                        id="submit-check-token-btn",
-                        className="action-button primary-button",
-                        style={"padding": "0.5rem 1rem", "fontSize": "13px"}
-                    )
-                ], style={"display": "flex", "alignItems": "center", "marginBottom": "0.5rem"})
+                dcc.Input(
+                    id='check-token-input',
+                    type='text',
+                    placeholder="Enter a token to track its probability...",
+                    value="",
+                    style={"width": "300px"},
+                    className="prompt-input"
+                )
             ], style={"flex": "0 0 auto"}),
             html.Div([
                 dcc.Graph(
