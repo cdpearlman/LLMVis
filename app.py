@@ -617,5 +617,70 @@ def show_layer_analysis(node_data, activation_data):
     except Exception as e:
         return html.P(f"Error loading analysis: {str(e)}", className="placeholder-text")
 
+# Edge hover tooltips
+@app.callback(
+    Output('edge-tooltip', 'children'),
+    Output('edge-tooltip', 'style'),
+    [Input('model-flow-graph', 'mouseoverEdgeData'),
+     Input('model-flow-graph', 'mouseoverNodeData')]
+)
+def show_edge_tooltip(edge_data, node_data):
+    """Show tooltip when hovering over edges in first visualization."""
+    if edge_data and 'token' in edge_data:
+        token = edge_data['token']
+        prob = edge_data['probability']
+        return (
+            f"{token} | {prob:.3f}",
+            {
+                'position': 'absolute',
+                'top': '10px',
+                'left': '50%',
+                'transform': 'translateX(-50%)',
+                'backgroundColor': 'rgba(0, 0, 0, 0.85)',
+                'color': 'white',
+                'padding': '8px 12px',
+                'borderRadius': '6px',
+                'fontSize': '13px',
+                'fontWeight': '500',
+                'whiteSpace': 'nowrap',
+                'zIndex': '1000',
+                'pointerEvents': 'none',
+                'boxShadow': '0 2px 8px rgba(0,0,0,0.3)'
+            }
+        )
+    return '', {'display': 'none'}
+
+@app.callback(
+    Output('edge-tooltip-2', 'children'),
+    Output('edge-tooltip-2', 'style'),
+    [Input('model-flow-graph-2', 'mouseoverEdgeData'),
+     Input('model-flow-graph-2', 'mouseoverNodeData')]
+)
+def show_edge_tooltip_2(edge_data, node_data):
+    """Show tooltip when hovering over edges in second visualization."""
+    if edge_data and 'token' in edge_data:
+        token = edge_data['token']
+        prob = edge_data['probability']
+        return (
+            f"{token} | {prob:.3f}",
+            {
+                'position': 'absolute',
+                'top': '10px',
+                'left': '50%',
+                'transform': 'translateX(-50%)',
+                'backgroundColor': 'rgba(0, 0, 0, 0.85)',
+                'color': 'white',
+                'padding': '8px 12px',
+                'borderRadius': '6px',
+                'fontSize': '13px',
+                'fontWeight': '500',
+                'whiteSpace': 'nowrap',
+                'zIndex': '1000',
+                'pointerEvents': 'none',
+                'boxShadow': '0 2px 8px rgba(0,0,0,0.3)'
+            }
+        )
+    return '', {'display': 'none'}
+
 if __name__ == '__main__':
     app.run(debug=True, port=8050)

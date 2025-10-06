@@ -88,4 +88,5 @@ Steps:
 
 ## Feature Updates:
 [x] Replace edge hover info (displayed above visualization) with tooltip bubbles on edges
+[x] Fix tooltip implementation - use callback-driven floating tooltip divs for proper UX
 ✅ Update complete!

@@ -49,13 +49,14 @@ def create_main_panel():
         # Visualization section (first prompt)
         html.Div([
             html.H3("Model Flow Visualization", className="section-title"),
-            cyto.Cytoscape(
-                id='model-flow-graph',
-                elements=[],
-                layout={'name': 'preset'},
-                style={'width': '100%', 'height': '400px'},
-                zoom=1.0,
-                pan={'x': 100, 'y': 200},
+            html.Div([
+                cyto.Cytoscape(
+                    id='model-flow-graph',
+                    elements=[],
+                    layout={'name': 'preset'},
+                    style={'width': '100%', 'height': '400px'},
+                    zoom=1.0,
+                    pan={'x': 100, 'y': 200},
                 stylesheet=[
                     # Node styles
                     {
@@ -112,19 +113,23 @@ def create_main_panel():
                         }
                     }
                 ]
-            )
+                ),
+                # Tooltip for edge hover
+                html.Div(id='edge-tooltip', style={'display': 'none'})
+            ], style={'position': 'relative'})
         ], className="visualization-section"),
         
         # Second visualization (for comparison - initially hidden)
         html.Div([
             html.H3("Model Flow Visualization (Prompt 2)", className="section-title"),
-            cyto.Cytoscape(
-                id='model-flow-graph-2',
-                elements=[],
-                layout={'name': 'preset'},
-                style={'width': '100%', 'height': '400px'},
-                zoom=1.0,
-                pan={'x': 100, 'y': 200},
+            html.Div([
+                cyto.Cytoscape(
+                    id='model-flow-graph-2',
+                    elements=[],
+                    layout={'name': 'preset'},
+                    style={'width': '100%', 'height': '400px'},
+                    zoom=1.0,
+                    pan={'x': 100, 'y': 200},
                 stylesheet=[
                     # Node styles
                     {
@@ -181,7 +186,10 @@ def create_main_panel():
                         }
                     }
                 ]
-            )
+                ),
+                # Tooltip for edge hover
+                html.Div(id='edge-tooltip-2', style={'display': 'none'})
+            ], style={'position': 'relative'})
         ], id="second-visualization-section", className="visualization-section", style={'display': 'none'}),
         
         # Two-Prompt Comparison section (shown when comparing)
