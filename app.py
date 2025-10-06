@@ -617,21 +617,5 @@ def show_layer_analysis(node_data, activation_data):
     except Exception as e:
         return html.P(f"Error loading analysis: {str(e)}", className="placeholder-text")
 
-# Edge hover callback for token information
-@app.callback(
-    Output('model-status', 'children'),
-    [Input('model-flow-graph', 'mouseoverEdgeData')]
-)
-def show_edge_info(hover_data):
-    """Show token and probability info when hovering over edges."""
-    if hover_data and 'token' in hover_data:
-        token = hover_data['token']
-        prob = hover_data['probability']
-        return html.Div([
-            html.Span(f"Token: {token} | Probability: {prob:.3f}", 
-                     style={'font-size': '14px', 'color': '#495057'})
-        ])
-    return None
-
 if __name__ == '__main__':
     app.run(debug=True, port=8050)

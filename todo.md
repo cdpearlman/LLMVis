@@ -85,3 +85,7 @@ Steps:
 [x] 4. Update node click callback to compute layer-specific categorization and show in Analysis Results
 [x] 5. Add categorize_single_layer_heads to utils/__init__.py exports
 [ ] 6. Test: Click node, verify categorization appears in Analysis Results section
+
+## Feature Updates:
+[x] Replace edge hover info (displayed above visualization) with tooltip bubbles on edges
+✅ Update complete!

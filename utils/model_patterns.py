@@ -419,6 +419,7 @@ def _create_edge(src_layer: int, tgt_layer: int, token: str, prob: float, rank: 
             'target': f'layer_{tgt_layer}' if isinstance(tgt_layer, int) else tgt_layer,
             'token': token,
             'probability': prob,
+            'label': f"{token} | {prob:.3f}",  # Tooltip on hover
             'width': max(2, prob * 10),
             'opacity': max(0.3, prob),
             'color': token_to_color(token)
