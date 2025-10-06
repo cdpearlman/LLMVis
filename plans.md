@@ -27,16 +27,16 @@ Implement UX changes and new analysis features for the Dash + Cytoscape transfor
   - Two independent graphs appear (top: prompt 1, bottom: prompt 2) with consistent styling and controls.
   - No interference between graphs’ hover/click callbacks.
 
-### 3) “Check Token” input (adds 4th edge)
-- Description: Above “Model Flow Visualization”, add “Check Token:” with a text input. If a word/token is provided, add a 4th edge between consecutive nodes representing that token’s probability.
+### 3) "Check Token" input (shows probability graph)
+- Description: Above "Model Flow Visualization", add "Check Token:" with a text input. If a word/token is provided, display a line graph showing that token's probability across all layers.
 - Steps:
-  1. Add “Check Token:” label + input above the graph.
-  2. On render, if input is non-empty, compute the probability of the provided token at each layer (using current logit lens path). 
-  3. Draw the token-specific edge as the 4th edge between each pair of consecutive nodes. Enforce a minimum opacity for 0 probability.
+  1. Add "Check Token:" label + input with Submit button above the graph.
+  2. On submit, compute the probability of the provided token at each layer (using current logit lens path). 
+  3. Display a line graph next to the input showing probability vs layer.
 - Acceptance criteria:
-  - A distinct 4th edge for the user-specified token appears between each consecutive layer node pair.
-  - Opacity has a minimum floor (visible even at 0 probability).
-  - Works with single- and two-prompt modes.
+  - Token input with Submit button triggers probability computation.
+  - Line graph appears next to input showing token probability across all layers.
+  - Handles tokenization with/without leading space (uses variant with valid token IDs).
 
 ## New Features
 
@@ -83,13 +83,13 @@ Implement UX changes and new analysis features for the Dash + Cytoscape transfor
 - No new dependencies unless strictly required.
 
 ## Implementation Notes
-- Graph edges: current top-3 token edges remain. The “Check Token” edge is additive (4th edge) with minimum opacity.
-- Token input: treat user input as raw text; tokenize with the model tokenizer. If multiple sub-tokens arise, use the last sub-token for next-token prediction comparison (configurable later).
+- Graph edges: current top-3 token edges remain unchanged.
+- Check Token: displays probability graph next to input. Tries tokenization with/without leading space and uses variant with valid token IDs. If multiple sub-tokens arise, uses the last sub-token for next-token prediction comparison.
 
 ## Acceptance Test Checklist
 - Sidebar toggles and defaults to collapsed.
-- “Compare With Another Prompt” reveals input and renders two graphs.
-- “Check Token” adds a visible 4th edge with minimum opacity.
+- "Compare With Another Prompt" reveals input and renders two graphs.
+- "Check Token" displays probability line graph next to input.
 - Node-click opens BertViz `model_view` without errors.
 - Head categories rendered with labels by section.
 - With two prompts, layers with large differences are highlighted.

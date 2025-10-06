@@ -10,7 +10,8 @@ from dash import html, dcc, Input, Output, State, callback, no_update
 import dash_cytoscape as cyto
 from utils import (load_model_and_get_patterns, execute_forward_pass, format_data_for_cytoscape, 
                    categorize_single_layer_heads, format_categorization_summary,
-                   compare_attention_layers, compare_output_probabilities, format_comparison_summary)
+                   compare_attention_layers, compare_output_probabilities, format_comparison_summary,
+                   get_check_token_probabilities)
 from utils.model_config import get_auto_selections, get_model_family
 
 # Import modular components
@@ -133,6 +134,8 @@ app.layout = html.Div([
     dcc.Store(id='session-activation-store-2', storage_type='session'),
     # Submitted check token (updated on Submit button click)
     dcc.Store(id='submitted-check-token-store', storage_type='session', data=''),
+    # Check token graph data
+    dcc.Store(id='check-token-graph-store', storage_type='session'),
     
     # Main container
     html.Div([
@@ -370,12 +373,13 @@ def submit_check_token(n_clicks, check_token):
      Output('analysis-loading-indicator', 'children'),
      Output('second-visualization-section', 'style', allow_duplicate=True),
      Output('comparison-section', 'style'),
-     Output('comparison-container', 'children')],
+     Output('comparison-container', 'children'),
+     Output('check-token-graph-store', 'data')],
     [Input('run-analysis-btn', 'n_clicks')],
     [State('model-dropdown', 'value'),
      State('prompt-input', 'value'),
      State('prompt-input-2', 'value'),
-     State('submitted-check-token-store', 'data'),  # Use submitted token instead of input
+     State('submitted-check-token-store', 'data'),
      State('attention-modules-dropdown', 'value'),
      State('block-modules-dropdown', 'value'),
      State('norm-params-dropdown', 'value'), 
@@ -393,7 +397,7 @@ def run_analysis(n_clicks, model_name, prompt, prompt2, check_token, attn_patter
     if not n_clicks or not model_name or not prompt or not block_patterns:
         print("DEBUG: Missing required inputs, returning empty")
         comparison_placeholder = html.P("Comparison analysis will appear here when two prompts are provided.", className="placeholder-text")
-        return [], [], {}, {}, None, {'display': 'none'}, {'display': 'none'}, comparison_placeholder
+        return [], [], {}, {}, None, {'display': 'none'}, {'display': 'none'}, comparison_placeholder, None
     
     try:
         # Load model for execution
@@ -419,9 +423,12 @@ def run_analysis(n_clicks, model_name, prompt, prompt2, check_token, attn_patter
         
         # Execute forward pass for first prompt
         activation_data = execute_forward_pass(model, tokenizer, prompt, config)
-        elements = format_data_for_cytoscape(activation_data, model, tokenizer, check_token)
+        elements = format_data_for_cytoscape(activation_data, model, tokenizer)
         
         print(f"DEBUG: Created {len(elements)} elements for cytoscape (prompt 1)")
+        
+        # Compute check token probabilities if provided
+        check_token_data = get_check_token_probabilities(activation_data, model, tokenizer, check_token) if check_token else None
         
         # Store essential data for first prompt
         essential_data = {
@@ -440,7 +447,7 @@ def run_analysis(n_clicks, model_name, prompt, prompt2, check_token, attn_patter
         
         if prompt2 and prompt2.strip():
             activation_data2 = execute_forward_pass(model, tokenizer, prompt2, config)
-            elements2 = format_data_for_cytoscape(activation_data2, model, tokenizer, check_token)
+            elements2 = format_data_for_cytoscape(activation_data2, model, tokenizer)
             print(f"DEBUG: Created {len(elements2)} elements for cytoscape (prompt 2)")
             
             essential_data2 = {
@@ -489,7 +496,7 @@ def run_analysis(n_clicks, model_name, prompt, prompt2, check_token, attn_patter
         ], className="status-success")
         
         print(f"=== DEBUG: run_analysis END ===\n")
-        return elements, elements2, essential_data, essential_data2, success_message, second_viz_style, comparison_style, comparison_display
+        return elements, elements2, essential_data, essential_data2, success_message, second_viz_style, comparison_style, comparison_display, check_token_data
         
     except Exception as e:
         print(f"Analysis error: {e}")
@@ -503,7 +510,42 @@ def run_analysis(n_clicks, model_name, prompt, prompt2, check_token, attn_patter
         ], className="status-error")
         
         comparison_placeholder = html.P("Comparison analysis will appear here when two prompts are provided.", className="placeholder-text")
-        return [], [], {}, {}, error_message, {'display': 'none'}, {'display': 'none'}, comparison_placeholder
+        return [], [], {}, {}, error_message, {'display': 'none'}, {'display': 'none'}, comparison_placeholder, None
+
+# Callback to update check token graph
+@app.callback(
+    [Output('check-token-graph', 'figure'),
+     Output('check-token-graph-container', 'style')],
+    [Input('check-token-graph-store', 'data')]
+)
+def update_check_token_graph(check_token_data):
+    """Update the check token probability graph."""
+    if not check_token_data:
+        return {}, {'flex': '1', 'minWidth': '300px', 'display': 'none'}
+    
+    import plotly.graph_objs as go
+    
+    figure = go.Figure(
+        data=[go.Scatter(
+            x=check_token_data['layers'],
+            y=check_token_data['probabilities'],
+            mode='lines+markers',
+            line={'color': '#667eea', 'width': 2},
+            marker={'size': 6},
+            name=check_token_data['token']
+        )],
+        layout=go.Layout(
+            title=f"Token: {check_token_data['token']}",
+            xaxis={'title': 'Layer', 'gridcolor': '#e9ecef'},
+            yaxis={'title': 'Probability', 'gridcolor': '#e9ecef', 'range': [0, 1]},
+            margin={'l': 50, 'r': 20, 't': 40, 'b': 40},
+            paper_bgcolor='#f8f9fa',
+            plot_bgcolor='white',
+            font={'size': 11}
+        )
+    )
+    
+    return figure, {'flex': '1', 'minWidth': '300px', 'display': 'block'}
 
 # Enable Run Analysis button when requirements are met
 @app.callback(

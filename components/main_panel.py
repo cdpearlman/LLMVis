@@ -23,28 +23,36 @@ def create_main_panel():
         # Analysis loading indicator
         html.Div(id="analysis-loading-indicator", className="loading-container"),
         
-        # Check Token input (for 4th edge visualization)
+        # Check Token input with probability graph
         html.Div([
-            html.Label("Check Token (optional):", className="input-label"),
             html.Div([
-                dcc.Input(
-                    id='check-token-input',
-                    type='text',
-                    placeholder="Enter a token to track its probability...",
-                    value="",
-                    style={"width": "300px", "display": "inline-block", "marginRight": "10px"},
-                    className="prompt-input"
-                ),
-                html.Button(
-                    "Submit",
-                    id="submit-check-token-btn",
-                    className="action-button primary-button",
-                    style={"display": "inline-block", "padding": "0.5rem 1rem", "fontSize": "13px"}
-                ),
-                html.Span(" (Adds a 4th edge showing this token's probability at each layer)", 
-                         style={"fontSize": "12px", "color": "#6c757d", "marginLeft": "10px"})
-            ], style={"display": "flex", "alignItems": "center"})
-        ], className="input-container", style={"marginBottom": "1.5rem"}),
+                html.Label("Check Token (optional):", className="input-label"),
+                html.Div([
+                    dcc.Input(
+                        id='check-token-input',
+                        type='text',
+                        placeholder="Enter a token to track its probability...",
+                        value="",
+                        style={"width": "300px", "marginRight": "10px"},
+                        className="prompt-input"
+                    ),
+                    html.Button(
+                        "Submit",
+                        id="submit-check-token-btn",
+                        className="action-button primary-button",
+                        style={"padding": "0.5rem 1rem", "fontSize": "13px"}
+                    )
+                ], style={"display": "flex", "alignItems": "center", "marginBottom": "0.5rem"})
+            ], style={"flex": "0 0 auto"}),
+            html.Div([
+                dcc.Graph(
+                    id='check-token-graph',
+                    figure={},
+                    style={'height': '180px', 'width': '100%'},
+                    config={'displayModeBar': False}
+                )
+            ], id='check-token-graph-container', style={'flex': '1', 'minWidth': '300px', 'display': 'none'})
+        ], className="input-container", style={"marginBottom": "1.5rem", "display": "flex", "gap": "1.5rem", "alignItems": "flex-start"}),
         
         # Visualization section (first prompt)
         html.Div([
