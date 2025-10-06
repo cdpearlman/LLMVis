@@ -133,7 +133,7 @@ app.layout = html.Div([
     # Second prompt activation data
     dcc.Store(id='session-activation-store-2', storage_type='session'),
     # Check token graph data
-    dcc.Store(id='check-token-graph-store', storage_type='session'),
+    dcc.Store(id='check-token-graph-store', storage_type='memory'),
     
     # Main container
     html.Div([
