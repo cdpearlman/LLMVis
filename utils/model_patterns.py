@@ -486,6 +486,50 @@ def format_data_for_cytoscape(activation_data: Dict[str, Any], model, tokenizer)
     return elements
 
 
+def extract_layer_data(activation_data: Dict[str, Any], model, tokenizer) -> List[Dict[str, Any]]:
+    """
+    Extract layer-by-layer data for accordion display.
+    
+    Returns:
+        List of dicts with: layer_num, top_token, top_prob, top_3_tokens (list of (token, prob))
+    """
+    layer_modules = activation_data.get('block_modules', [])
+    if not layer_modules:
+        return []
+    
+    # Extract and sort layers by layer number
+    layer_info = sorted(
+        [(int(re.findall(r'\d+', name)[0]), name) 
+         for name in layer_modules if re.findall(r'\d+', name)]
+    )
+    
+    logit_lens_enabled = activation_data.get('logit_lens_parameter') is not None
+    layer_data = []
+    
+    for layer_num, module_name in layer_info:
+        top_tokens = _get_top_tokens(activation_data, module_name, model, tokenizer) if logit_lens_enabled else None
+        
+        if top_tokens:
+            top_token, top_prob = top_tokens[0]
+            layer_data.append({
+                'layer_num': layer_num,
+                'module_name': module_name,
+                'top_token': top_token,
+                'top_prob': top_prob,
+                'top_3_tokens': top_tokens[:3]  # Get top 3 for chips
+            })
+        else:
+            layer_data.append({
+                'layer_num': layer_num,
+                'module_name': module_name,
+                'top_token': None,
+                'top_prob': None,
+                'top_3_tokens': []
+            })
+    
+    return layer_data
+
+
 def generate_bertviz_html(activation_data: Dict[str, Any], layer_index: int, view_type: str = 'full') -> str:
     """
     Generate BertViz attention visualization HTML using model_view.

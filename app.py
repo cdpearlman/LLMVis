@@ -9,7 +9,7 @@ import dash
 from dash import html, dcc, Input, Output, State, callback, no_update
 import dash_cytoscape as cyto
 from utils import (load_model_and_get_patterns, execute_forward_pass, format_data_for_cytoscape, 
-                   categorize_single_layer_heads, format_categorization_summary,
+                   extract_layer_data, categorize_single_layer_heads, format_categorization_summary,
                    compare_attention_layers, compare_output_probabilities, format_comparison_summary,
                    get_check_token_probabilities)
 from utils.model_config import get_auto_selections, get_model_family
@@ -527,6 +527,69 @@ def update_check_token_graph(check_token_data):
     )
     
     return figure, {'flex': '1', 'minWidth': '300px', 'display': 'block'}
+
+# Callback to create accordion panels from layer data
+@app.callback(
+    Output('layer-accordions-container', 'children'),
+    [Input('session-activation-store', 'data')],
+    [State('model-dropdown', 'value')]
+)
+def create_layer_accordions(activation_data, model_name):
+    """Create accordion panels for each layer."""
+    if not activation_data or not model_name:
+        return html.P("Run analysis to see layer-by-layer predictions.", className="placeholder-text")
+    
+    try:
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+        model = AutoModelForCausalLM.from_pretrained(model_name, attn_implementation='eager')
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        
+        # Extract layer data
+        layer_data = extract_layer_data(activation_data, model, tokenizer)
+        
+        if not layer_data:
+            return html.P("No layer data available.", className="placeholder-text")
+        
+        # Create accordion panels
+        accordions = []
+        for i, layer in enumerate(layer_data):
+            layer_num = layer['layer_num']
+            top_token = layer.get('top_token', 'N/A')
+            top_prob = layer.get('top_prob', 0.0)
+            top_3 = layer.get('top_3_tokens', [])
+            
+            # Create summary header
+            if top_token:
+                summary_text = f"Layer L{layer_num}: likely '{top_token}' (p={top_prob:.3f})"
+            else:
+                summary_text = f"Layer L{layer_num}: (no prediction)"
+            
+            # Create accordion panel
+            panel = html.Details([
+                html.Summary(summary_text, className="layer-summary"),
+                html.Div([
+                    html.P(f"Layer {layer_num} details (placeholder for future content)")
+                ], className="layer-content")
+            ], className="layer-accordion")
+            
+            accordions.append(panel)
+            
+            # Add token chips between adjacent layers (not after last layer)
+            if i < len(layer_data) - 1 and top_3:
+                chips = html.Div([
+                    html.Span("→", className="token-arrow"),
+                    *[html.Span(f"{tok} ({prob:.2f})", className="token-chip") 
+                      for tok, prob in top_3]
+                ], className="token-chips-row")
+                accordions.append(chips)
+        
+        return html.Div(accordions)
+        
+    except Exception as e:
+        print(f"Error creating accordions: {e}")
+        import traceback
+        traceback.print_exc()
+        return html.P(f"Error creating layer view: {str(e)}", className="placeholder-text")
 
 # Enable Run Analysis button when requirements are met
 @app.callback(

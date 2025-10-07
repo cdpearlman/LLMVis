@@ -3,11 +3,11 @@
 Note: Minimal-change approach. Reuse existing files (`app.py`, `components/main_panel.py`, `utils/*`). Avoid new dependencies; use native `html.Details`/`html.Summary`, existing `dcc.Graph`, and current BertViz integration.
 
 ## Feature: Switch to panels with plain-language headers
-- [ ] Replace per-layer node display with `html.Details` (accordion) per layer in `components/main_panel.py`
-- [ ] Use `html.Summary` as header: `Layer L{N}: likely '{token}' (p={prob})`
-- [ ] Truncate long tokens in header with CSS (ellipsis); keep one-line summary
-- [ ] Add lightweight top-3 tokens “chips/arrows” between adjacent panel headers (no Cytoscape)
-- [ ] Gate old Cytoscape graph behind a feature flag (keep code path but hidden by default)
+- [x] Replace per-layer node display with `html.Details` (accordion) per layer in `components/main_panel.py`
+- [x] Use `html.Summary` as header: `Layer L{N}: likely '{token}' (p={prob})`
+- [x] Truncate long tokens in header with CSS (ellipsis); keep one-line summary
+- [x] Add lightweight top-3 tokens "chips/arrows" between adjacent panel headers (no Cytoscape)
+- [x] Gate old Cytoscape graph behind a feature flag (keep code path but hidden by default)
 
 ## Feature: Keep initial panels small to preserve flow view
 - [ ] Style summary rows compactly (single-line, small font, consistent height)

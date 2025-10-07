@@ -11,6 +11,9 @@ from dash import html, dcc
 import dash_cytoscape as cyto
 from .model_selector import create_model_selector
 
+# Feature flag: set to True to show legacy Cytoscape graph
+USE_LEGACY_CYTOSCAPE = False
+
 def create_main_panel():
     """Create the main content panel."""
     return html.Div([
@@ -49,6 +52,9 @@ def create_main_panel():
         # Visualization section (first prompt)
         html.Div([
             html.H3("Model Flow Visualization", className="section-title"),
+            # New accordion-based layer view
+            html.Div(id='layer-accordions-container', className="layer-accordions"),
+            # Legacy Cytoscape graph (gated by feature flag)
             html.Div([
                 cyto.Cytoscape(
                     id='model-flow-graph',
@@ -116,10 +122,10 @@ def create_main_panel():
                 ),
                 # Tooltip for edge hover
                 html.Div(id='edge-tooltip', style={'display': 'none'})
-            ], style={'position': 'relative'})
+            ], id='legacy-cytoscape-container', style={'position': 'relative', 'display': 'block' if USE_LEGACY_CYTOSCAPE else 'none'})
         ], className="visualization-section"),
         
-        # Second visualization (for comparison - initially hidden)
+        # Second visualization (for comparison - initially hidden, gated by feature flag)
         html.Div([
             html.H3("Model Flow Visualization (Prompt 2)", className="section-title"),
             html.Div([
@@ -190,7 +196,7 @@ def create_main_panel():
                 # Tooltip for edge hover
                 html.Div(id='edge-tooltip-2', style={'display': 'none'})
             ], style={'position': 'relative'})
-        ], id="second-visualization-section", className="visualization-section", style={'display': 'none'}),
+        ], id="second-visualization-section", className="visualization-section", style={'display': 'none' if not USE_LEGACY_CYTOSCAPE else 'none'}),
         
         # Two-Prompt Comparison section (shown when comparing)
         html.Div([
@@ -214,4 +220,4 @@ def create_main_panel():
             ], id="results-container", className="results-area")
         ], className="results-section")
         
-    ], className="main-panel-content")
+    ], className="main-panel-content")

@@ -434,6 +434,87 @@ body {
 }
 
 
+/* Layer accordion styles */
+.layer-accordions {
+    margin-top: 1rem;
+}
+
+.layer-accordion {
+    margin-bottom: 0.5rem;
+    border: 1px solid #e9ecef;
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.layer-summary {
+    padding: 0.75rem 1rem;
+    background-color: #f8f9fa;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    color: #495057;
+    list-style: none;
+    transition: background-color 0.2s ease;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    user-select: none;
+}
+
+.layer-summary:hover {
+    background-color: #e9ecef;
+}
+
+.layer-summary::-webkit-details-marker {
+    display: none;
+}
+
+.layer-summary::before {
+    content: '▶';
+    display: inline-block;
+    margin-right: 0.5rem;
+    transition: transform 0.2s ease;
+    font-size: 0.8em;
+}
+
+details[open] .layer-summary::before {
+    transform: rotate(90deg);
+}
+
+.layer-content {
+    padding: 1rem;
+    background-color: white;
+    border-top: 1px solid #e9ecef;
+}
+
+/* Token chips between layers */
+.token-chips-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    margin: 0.25rem 0;
+    background-color: #f8f9fa;
+    border-left: 3px solid #667eea;
+}
+
+.token-arrow {
+    color: #667eea;
+    font-size: 1.2em;
+    font-weight: bold;
+}
+
+.token-chip {
+    display: inline-block;
+    padding: 0.25rem 0.5rem;
+    background-color: white;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    font-size: 12px;
+    color: #495057;
+    white-space: nowrap;
+}
+
 /* Responsive design */
 @media (max-width: 768px) {
     .content-container {
@@ -452,5 +533,9 @@ body {
     
     .header-title {
         font-size: 2rem;
+    }
+    
+    .token-chips-row {
+        flex-wrap: wrap;
     }
 }
