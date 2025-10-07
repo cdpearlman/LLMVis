@@ -7,9 +7,8 @@ Components are organized for easy understanding and maintenance.
 
 import dash
 from dash import html, dcc, Input, Output, State, callback, no_update
-import dash_cytoscape as cyto
-from utils import (load_model_and_get_patterns, execute_forward_pass, format_data_for_cytoscape, 
-                   extract_layer_data, categorize_single_layer_heads, format_categorization_summary,
+from utils import (load_model_and_get_patterns, execute_forward_pass, extract_layer_data,
+                   categorize_single_layer_heads, format_categorization_summary,
                    compare_attention_layers, compare_output_probabilities, format_comparison_summary,
                    get_check_token_probabilities)
 from utils.model_config import get_auto_selections, get_model_family
@@ -34,25 +33,6 @@ AVAILABLE_MODELS = [
     "Qwen/Qwen2.5-0.5B",
     "gpt2"
 ]
-
-# Helper function for highlighting divergent layers
-def _highlight_divergent_layers(elements, divergent_layer_nums):
-    """Add red border styling to divergent layer nodes."""
-    if not divergent_layer_nums:
-        return elements
-    
-    # Create a set of divergent layer IDs
-    divergent_ids = set(f'layer_{num}' for num in divergent_layer_nums)
-    
-    # Update elements with divergent styling
-    updated_elements = []
-    for element in elements:
-        if element.get('data', {}).get('id') in divergent_ids:
-            # Add classes or style to indicate divergence
-            element['classes'] = 'divergent-layer'
-        updated_elements.append(element)
-    
-    return updated_elements
 
 # Helper function for creating category detail view with BertViz visualizations
 def _create_category_detail_view(categorized_heads, activation_data):
@@ -349,14 +329,11 @@ def show_analysis_loading_spinner(n_clicks):
         "Collecting Data..."
     ], className="status-loading")
 
-# Callback to run analysis and generate visualization
+# Callback to run analysis
 @app.callback(
-    [Output('model-flow-graph', 'elements'),
-     Output('model-flow-graph-2', 'elements'),
-     Output('session-activation-store', 'data', allow_duplicate=True),
+    [Output('session-activation-store', 'data', allow_duplicate=True),
      Output('session-activation-store-2', 'data'),
      Output('analysis-loading-indicator', 'children'),
-     Output('second-visualization-section', 'style', allow_duplicate=True),
      Output('comparison-section', 'style'),
      Output('comparison-container', 'children'),
      Output('check-token-graph-store', 'data')],
@@ -373,7 +350,7 @@ def show_analysis_loading_spinner(n_clicks):
     prevent_initial_call=True
 )
 def run_analysis(n_clicks, model_name, prompt, prompt2, check_token, attn_patterns, block_patterns, norm_patterns, logit_pattern, patterns_data):
-    """Run forward pass and generate cytoscape visualization (handles 1 or 2 prompts)."""
+    """Run forward pass and store activation data (handles 1 or 2 prompts)."""
     print(f"\n=== DEBUG: run_analysis START ===")
     print(f"DEBUG: n_clicks={n_clicks}, model_name={model_name}, prompt='{prompt}', prompt2='{prompt2}'")
     print(f"DEBUG: block_patterns={block_patterns}")
@@ -382,7 +359,7 @@ def run_analysis(n_clicks, model_name, prompt, prompt2, check_token, attn_patter
     if not n_clicks or not model_name or not prompt or not block_patterns:
         print("DEBUG: Missing required inputs, returning empty")
         comparison_placeholder = html.P("Comparison analysis will appear here when two prompts are provided.", className="placeholder-text")
-        return [], [], {}, {}, None, {'display': 'none'}, {'display': 'none'}, comparison_placeholder, None
+        return {}, {}, None, {'display': 'none'}, comparison_placeholder, None
     
     try:
         # Load model for execution
@@ -408,43 +385,43 @@ def run_analysis(n_clicks, model_name, prompt, prompt2, check_token, attn_patter
         
         # Execute forward pass for first prompt
         activation_data = execute_forward_pass(model, tokenizer, prompt, config)
-        elements = format_data_for_cytoscape(activation_data, model, tokenizer)
         
-        print(f"DEBUG: Created {len(elements)} elements for cytoscape (prompt 1)")
+        print(f"DEBUG: Executed forward pass for prompt 1")
         
         # Compute check token probabilities if provided
         check_token_data = get_check_token_probabilities(activation_data, model, tokenizer, check_token) if check_token else None
         
-        # Store essential data for first prompt
+        # Store data needed for accordion display and analysis
         essential_data = {
             'model': model_name,
             'prompt': prompt,
             'attention_outputs': activation_data.get('attention_outputs', {}),
-            'input_ids': activation_data.get('input_ids', [])
+            'input_ids': activation_data.get('input_ids', []),
+            'block_modules': activation_data.get('block_modules', []),
+            'block_outputs': activation_data.get('block_outputs', {}),
+            'logit_lens_parameter': activation_data.get('logit_lens_parameter'),
+            'norm_parameters': activation_data.get('norm_parameters', [])
         }
         
         # Process second prompt if provided
-        elements2 = []
         essential_data2 = {}
-        second_viz_style = {'display': 'none'}  # Default: hide second viz
         comparison_style = {'display': 'none'}  # Default: hide comparison
         comparison_display = html.P("Comparison analysis will appear here when two prompts are provided.", className="placeholder-text")
         
         if prompt2 and prompt2.strip():
             activation_data2 = execute_forward_pass(model, tokenizer, prompt2, config)
-            elements2 = format_data_for_cytoscape(activation_data2, model, tokenizer)
-            print(f"DEBUG: Created {len(elements2)} elements for cytoscape (prompt 2)")
+            print(f"DEBUG: Executed forward pass for prompt 2")
             
             essential_data2 = {
                 'model': model_name,
                 'prompt': prompt2,
                 'attention_outputs': activation_data2.get('attention_outputs', {}),
-                'input_ids': activation_data2.get('input_ids', [])
+                'input_ids': activation_data2.get('input_ids', []),
+                'block_modules': activation_data2.get('block_modules', []),
+                'block_outputs': activation_data2.get('block_outputs', {}),
+                'logit_lens_parameter': activation_data2.get('logit_lens_parameter'),
+                'norm_parameters': activation_data2.get('norm_parameters', [])
             }
-            
-            # Show second visualization if we have data
-            if elements2:
-                second_viz_style = {'display': 'block'}
             
             # Compute comparison between two prompts
             comparison_results = compare_attention_layers(activation_data, activation_data2)
@@ -454,10 +431,6 @@ def run_analysis(n_clicks, model_name, prompt, prompt2, check_token, attn_patter
             # Get divergent layer numbers for highlighting
             divergent_layer_nums = set(ld['layer'] for ld in comparison_results['divergent_layers'])
             
-            # Highlight divergent layers in both visualizations
-            elements = _highlight_divergent_layers(elements, divergent_layer_nums)
-            elements2 = _highlight_divergent_layers(elements2, divergent_layer_nums)
-            
             # Create comparison display
             comparison_display = html.Div([
                 html.Pre(comparison_summary, style={'whiteSpace': 'pre-wrap', 'fontFamily': 'monospace', 'fontSize': '13px'}),
@@ -465,8 +438,6 @@ def run_analysis(n_clicks, model_name, prompt, prompt2, check_token, attn_patter
                 html.Div([
                     html.H4("Divergent Layers", style={'marginTop': '1rem', 'color': '#e53e3e'}),
                     html.P(f"{len(divergent_layer_nums)} layers show significant differences between prompts.", 
-                          style={'color': '#6c757d', 'fontSize': '14px'}),
-                    html.P("These layers are highlighted with red borders in the visualizations above.",
                           style={'color': '#6c757d', 'fontSize': '14px'})
                 ])
             ])
@@ -481,7 +452,7 @@ def run_analysis(n_clicks, model_name, prompt, prompt2, check_token, attn_patter
         ], className="status-success")
         
         print(f"=== DEBUG: run_analysis END ===\n")
-        return elements, elements2, essential_data, essential_data2, success_message, second_viz_style, comparison_style, comparison_display, check_token_data
+        return essential_data, essential_data2, success_message, comparison_style, comparison_display, check_token_data
         
     except Exception as e:
         print(f"Analysis error: {e}")
@@ -495,7 +466,7 @@ def run_analysis(n_clicks, model_name, prompt, prompt2, check_token, attn_patter
         ], className="status-error")
         
         comparison_placeholder = html.P("Comparison analysis will appear here when two prompts are provided.", className="placeholder-text")
-        return [], [], {}, {}, error_message, {'display': 'none'}, {'display': 'none'}, comparison_placeholder, None
+        return {}, {}, error_message, {'display': 'none'}, comparison_placeholder, None
 
 # Callback to update check token graph
 @app.callback(
@@ -702,71 +673,6 @@ def show_layer_analysis(node_data, activation_data):
         
     except Exception as e:
         return html.P(f"Error loading analysis: {str(e)}", className="placeholder-text")
-
-# Edge hover tooltips
-@app.callback(
-    Output('edge-tooltip', 'children'),
-    Output('edge-tooltip', 'style'),
-    [Input('model-flow-graph', 'mouseoverEdgeData'),
-     Input('model-flow-graph', 'mouseoverNodeData')]
-)
-def show_edge_tooltip(edge_data, node_data):
-    """Show tooltip when hovering over edges in first visualization."""
-    if edge_data and 'token' in edge_data:
-        token = edge_data['token']
-        prob = edge_data['probability']
-        return (
-            f"{token} | {prob:.3f}",
-            {
-                'position': 'absolute',
-                'top': '10px',
-                'left': '50%',
-                'transform': 'translateX(-50%)',
-                'backgroundColor': 'rgba(0, 0, 0, 0.85)',
-                'color': 'white',
-                'padding': '8px 12px',
-                'borderRadius': '6px',
-                'fontSize': '13px',
-                'fontWeight': '500',
-                'whiteSpace': 'nowrap',
-                'zIndex': '1000',
-                'pointerEvents': 'none',
-                'boxShadow': '0 2px 8px rgba(0,0,0,0.3)'
-            }
-        )
-    return '', {'display': 'none'}
-
-@app.callback(
-    Output('edge-tooltip-2', 'children'),
-    Output('edge-tooltip-2', 'style'),
-    [Input('model-flow-graph-2', 'mouseoverEdgeData'),
-     Input('model-flow-graph-2', 'mouseoverNodeData')]
-)
-def show_edge_tooltip_2(edge_data, node_data):
-    """Show tooltip when hovering over edges in second visualization."""
-    if edge_data and 'token' in edge_data:
-        token = edge_data['token']
-        prob = edge_data['probability']
-        return (
-            f"{token} | {prob:.3f}",
-            {
-                'position': 'absolute',
-                'top': '10px',
-                'left': '50%',
-                'transform': 'translateX(-50%)',
-                'backgroundColor': 'rgba(0, 0, 0, 0.85)',
-                'color': 'white',
-                'padding': '8px 12px',
-                'borderRadius': '6px',
-                'fontSize': '13px',
-                'fontWeight': '500',
-                'whiteSpace': 'nowrap',
-                'zIndex': '1000',
-                'pointerEvents': 'none',
-                'boxShadow': '0 2px 8px rgba(0,0,0,0.3)'
-            }
-        )
-    return '', {'display': 'none'}
 
 if __name__ == '__main__':
     app.run(debug=True, port=8050)

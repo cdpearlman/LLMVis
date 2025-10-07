@@ -288,14 +288,6 @@ def get_norm_layer_from_parameter(model, norm_parameter: Optional[str]) -> Optio
     return None
 
 
-def token_to_color(token: str) -> str:
-    """Convert token to consistent color using hash."""
-    import hashlib
-    hash_val = int(hashlib.md5(token.encode()).hexdigest()[:6], 16)
-    hue = hash_val % 360
-    return f'hsl({hue}, 70%, 50%)'
-
-
 def _get_top_tokens(activation_data: Dict[str, Any], module_name: str, model, tokenizer) -> Optional[List[Tuple[str, float]]]:
     """
     Helper: Get top 3 tokens for a layer's block output.
@@ -394,96 +386,6 @@ def get_check_token_probabilities(activation_data: Dict[str, Any], model, tokeni
     except Exception as e:
         print(f"Error computing check token probabilities: {e}")
         return None
-
-
-def _create_node(layer_num: int, module_name: str, x_pos: int, top_token: Optional[Tuple[str, float]] = None) -> Dict[str, Any]:
-    """Helper: Create a Cytoscape node."""
-    label = f'L{layer_num}'
-    if top_token:
-        token, prob = top_token
-        label = f'L{layer_num}\n{token}\n{prob:.2f}'
-    
-    return {
-        'data': {'id': f'layer_{layer_num}', 'label': label, 'layer_num': layer_num, 'module_name': module_name},
-        'position': {'x': x_pos, 'y': 200}
-    }
-
-
-def _create_edge(src_layer: int, tgt_layer: int, token: str, prob: float, rank: int = 0) -> Dict[str, Any]:
-    """Helper: Create a Cytoscape edge."""
-    edge_id = f'edge_{src_layer}_{tgt_layer}_{rank}' if rank else f'edge_{src_layer}_{tgt_layer}'
-    return {
-        'data': {
-            'id': edge_id,
-            'source': f'layer_{src_layer}',
-            'target': f'layer_{tgt_layer}' if isinstance(tgt_layer, int) else tgt_layer,
-            'token': token,
-            'probability': prob,
-            'width': max(2, prob * 10),
-            'opacity': max(0.3, prob),
-            'color': token_to_color(token)
-        }
-    }
-
-
-def format_data_for_cytoscape(activation_data: Dict[str, Any], model, tokenizer) -> List[Dict[str, Any]]:
-    """
-    Convert activation data to Cytoscape format with nodes (layers) and edges (top-3 tokens).
-    
-    Uses block outputs (full layer outputs / residual stream) for logit lens visualization.
-    
-    Args:
-        activation_data: Output from execute_forward_pass
-        model: The transformer model
-        tokenizer: The tokenizer
-    """
-    # Get block modules (full layer outputs)
-    layer_modules = activation_data.get('block_modules', [])
-    if not layer_modules:
-        return []
-    
-    # Extract and sort layers by layer number
-    layer_info = sorted(
-        [(int(re.findall(r'\d+', name)[0]), name) 
-         for name in layer_modules if re.findall(r'\d+', name)]
-    )
-    
-    elements = []
-    logit_lens_enabled = activation_data.get('logit_lens_parameter') is not None
-    
-    # Create layer nodes
-    for i, (layer_num, module_name) in enumerate(layer_info):
-        top_tokens = _get_top_tokens(activation_data, module_name, model, tokenizer) if logit_lens_enabled else None
-        top_token = top_tokens[0] if top_tokens else None
-        elements.append(_create_node(layer_num, module_name, i * 120 + 60, top_token))
-    
-    # Create edges between consecutive layers
-    if logit_lens_enabled:
-        for i in range(len(layer_info) - 1):
-            curr_layer_num, curr_module = layer_info[i]
-            next_layer_num = layer_info[i + 1][0]
-            
-            top_tokens = _get_top_tokens(activation_data, curr_module, model, tokenizer)
-            if top_tokens:
-                for rank, (token, prob) in enumerate(top_tokens):
-                    elements.append(_create_edge(curr_layer_num, next_layer_num, token, prob, rank))
-    
-    # Add final output node
-    actual_output = activation_data.get('actual_output')
-    if actual_output and layer_info:
-        last_layer_num = layer_info[-1][0]
-        output_token, output_prob = actual_output['token'], actual_output['probability']
-        
-        # Output node
-        elements.append({
-            'data': {'id': 'output_node', 'label': f'Output\n{output_token[:8]}\n{output_prob:.2f}'},
-            'position': {'x': len(layer_info) * 120 + 60, 'y': 200}
-        })
-        
-        # Edge to output
-        elements.append(_create_edge(last_layer_num, 'output_node', output_token, output_prob))
-    
-    return elements
 
 
 def extract_layer_data(activation_data: Dict[str, Any], model, tokenizer) -> List[Dict[str, Any]]:
