@@ -531,7 +531,7 @@ def create_layer_accordions(activation_data, model_name):
             
             # Create summary header
             if top_token:
-                summary_text = f"Layer L{layer_num}: likely '{top_token}' (p={top_prob:.3f})"
+                summary_text = f"Layer L{layer_num}: '{top_token}' (p={top_prob:.3f})"
             else:
                 summary_text = f"Layer L{layer_num}: (no prediction)"
             
