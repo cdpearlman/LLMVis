@@ -40,7 +40,7 @@ def create_main_panel():
                 dcc.Graph(
                     id='check-token-graph',
                     figure={},
-                    style={'height': '180px', 'width': '100%'},
+                    style={'height': '450px', 'width': '100%'},
                     config={'displayModeBar': False}
                 )
             ], id='check-token-graph-container', style={'flex': '1', 'minWidth': '300px', 'display': 'none'})
@@ -214,4 +214,4 @@ def create_main_panel():
             ], id="results-container", className="results-area")
         ], className="results-section")
         
-    ], className="main-panel-content")
+    ], className="main-panel-content")

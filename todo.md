@@ -1,91 +1,71 @@
-## Feature 1: Collapsible Sidebar (default collapsed)
-[x] Add dcc.Store for sidebar collapse state in app.py
-[x] Add toggle button (icon) to sidebar.py
-[x] Add callback in app.py to handle sidebar toggle
-[x] Update sidebar layout to support collapsed state (conditional rendering)
-[x] Test: Sidebar defaults to collapsed on load
-[x] Test: Toggle expands/collapses without breaking Cytoscape
-✅ Feature 1 complete!
+# UI Refactor: Panel-Based Layers (Accordion) — Actionable Tasks
 
-## Feature 2: Compare With Another Prompt
-[x] Read model_selector.py to understand current prompt input structure
-[x] Add "Compare" button next to prompt input in model_selector.py
-[x] Add second prompt input (initially hidden) in model_selector.py
-[x] Add dcc.Store for comparison mode state in app.py
-[x] Add callback to show/hide second prompt on button click
-[x] Duplicate cytoscape graph component for second visualization
-[x] Update run_analysis callback to process both prompts
-[x] Add rendering logic for second graph (below first)
-[x] Test: Button reveals/hides second prompt input
-[x] Test: Two graphs render independently with correct data
-✅ Feature 2 complete!
+Note: Minimal-change approach. Reuse existing files (`app.py`, `components/main_panel.py`, `utils/*`). Avoid new dependencies; use native `html.Details`/`html.Summary`, existing `dcc.Graph`, and current BertViz integration.
 
-## Feature 3: "Check Token" input (shows probability graph)
-[x] Add "Check Token:" input above first visualization in main_panel.py
-[x] Create function to collect token probabilities across all layers
-[x] Add line graph component next to check token input
-[x] Update run_analysis callback to compute and return check token data
-[x] Handle tokenization (if multi-token, use last sub-token; try with/without leading space)
-[x] Remove old 4th edge implementation completely
+## Feature: Switch to panels with plain-language headers
+- [ ] Replace per-layer node display with `html.Details` (accordion) per layer in `components/main_panel.py`
+- [ ] Use `html.Summary` as header: `Layer L{N}: likely '{token}' (p={prob})`
+- [ ] Truncate long tokens in header with CSS (ellipsis); keep one-line summary
+- [ ] Add lightweight top-3 tokens “chips/arrows” between adjacent panel headers (no Cytoscape)
+- [ ] Gate old Cytoscape graph behind a feature flag (keep code path but hidden by default)
 
-✅ Feature 3 complete! (Refactored to use line graph instead of 4th edge)
+## Feature: Keep initial panels small to preserve flow view
+- [ ] Style summary rows compactly (single-line, small font, consistent height)
+- [ ] Ensure `html.Details` closed by default for all layers
+- [ ] Add CSS utility classes for compact header + tokens chips row
 
-Feature Updates:
-[x] Collapsible Sidebar should minimize to the left and allow main dashboard to fill screen. Maximized size should remain as is, minimized should hide all the way to the left with still visible chevron to maximize.
-[x] The "Compare +" button should switch to a red button that says "Remove -". It should function exactly the same, removing the second prompt, just with a different visual.
-[x] The "Check Token" text box needs a "Submit" button to trigger probability graph generation.
-[x] Bug: When a second prompt is given and the "Run Analysis" button is clicked, only 1 graph is created when there should be 2 graphs: one above the other.
-[x] Bug: The token given in the Check Token box has a probability of 0 for every layer - added debug output to investigate
-✅ All feature updates complete!
+## Feature: Per-layer predictions (top-5), deltas, certainty meter
+- [ ] Extend forward pass outputs to include per-layer top-5 tokens + probs (reusing logit lens) in `utils/model_patterns.py`
+- [ ] Compute delta vs previous layer for overlapping tokens (prob change, signed)
+- [ ] Compute certainty meter using normalized entropy over top-5 probs (0–1)
+- [ ] Render a `dcc.Graph` horizontal bar chart (top-5) inside each panel body
+- [ ] Show per-token delta as small ▲/▼ with color next to bars
+- [ ] Add tooltip explaining certainty: "certainty = 1 − H(p_top5)/log(5)"
 
-## Feature 4: Replace BertViz head_view with model_view
-[x] Read current generate_bertviz_html implementation
-[x] Replace head_view call with model_view
-[x] Update to pass all layers' attention to model_view
-[x] Test with GPT-2 and Qwen2.5-0.5B models - ready for user testing
-[x] Verify model_view displays correctly in iframe - ready for user testing
-✅ Feature 4 complete! (Ready for user validation)
+## Feature: Simplified attention view + open full interactive view
+- [ ] From `activation_data['attention_outputs']`, compute top-3 attended input tokens for current position (per layer)
+- [ ] Render a simple list: token text + attention weight (rounded), most-to-least
+- [ ] Add button/link: "Open full interactive view" → shows existing BertViz `model_view` for that layer
+- [ ] Keep current BertViz plumbing; reuse callbacks to load the selected layer
 
-## Feature 5: Attention Head Detection and Categorization
-[x] Create utility module for head categorization (utils/head_detection.py)
-[x] Implement detection heuristics for Previous-Token heads
-[x] Implement detection heuristics for First/Positional heads
-[x] Implement detection heuristics for Bag-of-Words heads
-[x] Implement detection heuristics for Syntactic heads
-[x] Add UI section to display categorized heads
-[x] Make heuristics parameterized for tuning
-✅ Feature 5 complete!
+## Feature: Tokenization example of initial prompt (top of page)
+- [ ] Add a new section above panels: "How the tokenizer splits your prompt"
+- [ ] Tokenize only the main prompt; render chips with token text and hover for token id
+- [ ] Add one-line explainer tooltip: what a token is; note about spaces/subwords
 
-## Feature 6: Two-Prompt Difference Analysis
-[x] Compute attention distribution differences across layers/heads
-[x] Compute output probability differences at each layer
-[x] Highlight layers with significant differences (red border)
-[x] Add summary panel showing top-N divergent layers/heads
-[x] Make difference thresholds configurable
-✅ Feature 6 complete!
+## Feature: Second prompt comparison (bar chart becomes comparison)
+- [ ] When prompt 2 is present, render grouped bars (Prompt 1 vs Prompt 2) for top-5 in each layer
+- [ ] Reuse existing comparison utilities where possible (`utils/prompt_comparison.py`)
+- [ ] Add legend and consistent colors for the two prompts
 
-Feature Updates:
-[x] Check Token words needs to be checked with a leading space character in addition to token with no spaces. 'Washington' is a different token id than ' Washington'
-[x] Attention classification updates: Remove Attention Head Categorization section. Instead, extract sections of the BertViz model view and organize it into categorized sections. For example, the previous-token heads should have the model view graphs associated with the heads that belong to that section, not just a list of heads.
-✅ All feature updates complete!
+## Feature: Divergence badge in headers (if 2nd prompt)
+- [ ] Surface divergence result as a small badge in `html.Summary` (e.g., "Diverges")
+- [ ] Reuse existing divergent-layer detection; no new heuristics
 
-## Bug Fixes
-[x] Fix tensor stacking error in category BertViz visualization (duplicate layer entries with different sequence lengths)
-[x] Add head index legend to category visualizations (maps Head 0, 1, 2... to L{layer}-H{head} labels)
-✅ Bug fixes complete!
+## Feature: Tooltips + collapsible "How to read this" help
+- [ ] Add `title` tooltips for charts, certainty meter, deltas, and attention list
+- [ ] Add small `html.Details` blocks inside panel body: "How to read this section"
+- [ ] Keep content plain-language; 1–3 sentences each
 
-## Feature 7: On-Demand Layer-Specific Head Categorization
-Goal: Remove automatic head categorization display. Make it work per-layer on node click instead.
+## Feature: Expand/Collapse all controls
+- [ ] Add two buttons above panels: "Expand all" and "Collapse all"
+- [ ] Add callback to set all `html.Details` components `open` state accordingly
 
-Steps:
-[x] 1. Remove "Attention Head Categorization" section from main_panel.py
-[x] 2. Create function to categorize heads for a single layer only (in head_detection.py)
-[x] 3. Update run_analysis callback to NOT compute head categorization automatically
-[x] 4. Update node click callback to compute layer-specific categorization and show in Analysis Results
-[x] 5. Add categorize_single_layer_heads to utils/__init__.py exports
-[ ] 6. Test: Click node, verify categorization appears in Analysis Results section
+## Wiring & data plumbing
+- [ ] Add per-layer data structure to `activation_data`: {layer -> top5, deltas, certainty}
+- [ ] Ensure existing stores/callbacks pass required data to `components/main_panel.py`
+- [ ] Keep performance: avoid heavy per-layer recalcs in callbacks; precompute on forward pass
 
-## Feature Updates:
-[x] Replace edge hover info (displayed above visualization) with tooltip bubbles on edges
-[x] Fix tooltip implementation - use callback-driven floating tooltip divs for proper UX
-✅ Update complete!
+## Styling & accessibility
+- [ ] Use colorblind-safe palette; avoid color-only encodings (use ▲/▼ icons)
+- [ ] Keep consistent axis scales across layers; show exact values on hover
+- [ ] Ensure layout works on narrow screens (no horizontal scroll in headers)
+
+## QA checklist
+- [ ] Single prompt: panels render, bar charts show, certainty tooltips present
+- [ ] Two prompts: grouped bars render; divergence badges show on appropriate layers
+- [ ] "Open full interactive view" loads correct BertViz layer
+- [ ] Expand/Collapse all works; individual panel state remains clickable
+- [ ] Tokenization section matches tokenizer output; long tokens truncated safely
+
+
