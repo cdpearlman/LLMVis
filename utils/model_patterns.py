@@ -53,6 +53,9 @@ def load_model_and_get_patterns(model_name: str) -> Tuple[Dict[str, List[str]], 
 def safe_to_serializable(obj: Any) -> Any:
     """Convert tensors to lists recursively for JSON serialization."""
     if torch.is_tensor(obj):
+        # Check if tensor is a meta tensor (no data) and skip it
+        if obj.device.type == 'meta':
+            return None
         return obj.detach().cpu().tolist()
     if isinstance(obj, (list, tuple)):
         return [safe_to_serializable(x) for x in obj]
