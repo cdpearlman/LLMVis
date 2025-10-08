@@ -28,6 +28,7 @@ Note: Minimal-change approach. Reuse existing files (`app.py`, `components/main_
 - [x] Render a simple list: token text + attention weight (rounded), most-to-least
 - [x] Add button/link: "Open full interactive view" → shows existing BertViz `model_view` for that layer
 - [x] Keep current BertViz plumbing; reuse callbacks to load the selected layer
+- [x] Display BertViz attention visualizations under each attention head category (collapsible sections)
 
 ## Feature: Tokenization example of initial prompt (top of page)
 - [ ] Add a new section above panels: "How the tokenizer splits your prompt"

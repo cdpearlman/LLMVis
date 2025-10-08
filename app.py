@@ -619,6 +619,8 @@ def create_layer_accordions(activation_data, model_name):
                 # Categorize attention heads for this layer
                 total_heads = 0
                 try:
+                    from utils import generate_category_bertviz_html
+                    
                     categorized_heads = categorize_single_layer_heads(activation_data, layer_num)
                     total_heads = sum(len(heads) for heads in categorized_heads.values())
                     
@@ -648,29 +650,51 @@ def create_layer_accordions(activation_data, model_name):
                             'other': 'Other'
                         }
                         
-                        # Create compact category badges
-                        category_badges = []
+                        # Create expandable category sections with BertViz visualizations
                         for cat_key, display_name in category_names.items():
                             heads = categorized_heads.get(cat_key, [])
                             if heads:
-                                badge = html.Span([
-                                    html.Strong(f"{display_name}: "),
-                                    f"{len(heads)}"
-                                ], style={
-                                    'display': 'inline-block',
-                                    'padding': '4px 10px',
-                                    'margin': '4px 4px 4px 0',
-                                    'backgroundColor': category_colors.get(cat_key, '#dfe6e9'),
-                                    'borderRadius': '4px',
-                                    'fontSize': '12px',
-                                    'fontWeight': '500',
-                                    'color': '#2d3748'
-                                })
-                                category_badges.append(badge)
+                                color = category_colors.get(cat_key, '#dfe6e9')
+                                
+                                # Generate BertViz visualization for this category
+                                bertviz_html = generate_category_bertviz_html(activation_data, heads)
+                                
+                                # Create collapsible category section
+                                category_section = html.Details([
+                                    html.Summary([
+                                        html.Span([
+                                            html.Strong(f"{display_name}: "),
+                                            f"{len(heads)} heads"
+                                        ], style={
+                                            'display': 'inline-block',
+                                            'padding': '4px 10px',
+                                            'backgroundColor': color,
+                                            'borderRadius': '4px',
+                                            'fontSize': '12px',
+                                            'fontWeight': '500',
+                                            'color': '#2d3748'
+                                        })
+                                    ], style={'cursor': 'pointer', 'padding': '4px 0'}),
+                                    html.Div([
+                                        html.Iframe(
+                                            srcDoc=bertviz_html,
+                                            style={
+                                                'width': '100%',
+                                                'height': '400px',
+                                                'border': '1px solid #ddd',
+                                                'borderRadius': '4px',
+                                                'marginTop': '10px'
+                                            }
+                                        )
+                                    ])
+                                ], style={'marginBottom': '8px'})
+                                
+                                content_items.append(category_section)
                         
-                        content_items.append(html.Div(category_badges, style={'marginBottom': '10px'}))
                 except Exception as e:
                     print(f"Warning: Could not categorize heads for layer {layer_num}: {e}")
+                    import traceback
+                    traceback.print_exc()
                 
                 content_items.append(html.Hr(style={'margin': '10px 0'}))
             
