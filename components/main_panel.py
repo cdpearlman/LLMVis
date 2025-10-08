@@ -45,10 +45,19 @@ def create_main_panel():
             ], id='check-token-graph-container', style={'flex': '1', 'minWidth': '300px', 'display': 'none'})
         ], className="input-container", style={"marginBottom": "1.5rem", "display": "flex", "gap": "1.5rem", "alignItems": "flex-start"}),
         
-        # Layer-based visualization section
+        # Layer-based visualization section with loading spinner
         html.Div([
             html.H3("Layer-by-Layer Predictions", className="section-title"),
-            html.Div(id='layer-accordions-container', className="layer-accordions")
+            dcc.Loading(
+                id="layer-accordions-loading",
+                type="default",
+                children=html.Div(id='layer-accordions-container', className="layer-accordions"),
+                overlay_style={"visibility":"visible", "opacity": .7, "backgroundColor": "white"},
+                custom_spinner=html.Div([
+                    html.I(className="fas fa-spinner fa-spin", style={'fontSize': '24px', 'color': '#667eea', 'marginRight': '10px'}),
+                    html.Span("Loading visuals...", style={'fontSize': '16px', 'color': '#495057'})
+                ], style={'display': 'flex', 'alignItems': 'center', 'justifyContent': 'center', 'padding': '2rem'})
+            )
         ], className="visualization-section"),
         
         # Two-Prompt Comparison section (shown when comparing)

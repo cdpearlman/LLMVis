@@ -203,9 +203,9 @@ def execute_forward_pass(model, tokenizer, prompt: str, config: Dict[str, Any]) 
     return result
 
 
-def logit_lens_transformation(layer_output: Any, norm_data: List[Any], model, logit_lens_parameter: str, tokenizer, norm_parameter: Optional[str] = None) -> List[Tuple[str, float]]:
+def logit_lens_transformation(layer_output: Any, norm_data: List[Any], model, logit_lens_parameter: str, tokenizer, norm_parameter: Optional[str] = None, top_k: int = 5) -> List[Tuple[str, float]]:
     """
-    Transform layer output to top 3 token probabilities using logit lens.
+    Transform layer output to top K token probabilities using logit lens.
     
     For standard logit lens, use block/layer outputs (residual stream), not component outputs.
     The residual stream contains the full hidden state with all accumulated information.
@@ -220,9 +220,10 @@ def logit_lens_transformation(layer_output: Any, norm_data: List[Any], model, lo
         logit_lens_parameter: Not used (deprecated)
         tokenizer: Tokenizer for decoding
         norm_parameter: Parameter path for final norm layer (e.g., "model.norm.weight")
+        top_k: Number of top tokens to return (default: 5)
     
     Returns:
-        List of (token_string, probability) tuples for top 3 tokens
+        List of (token_string, probability) tuples for top K tokens
     """
     with torch.no_grad():
         # Convert to tensor and ensure proper shape [batch, seq_len, hidden_dim]
@@ -242,8 +243,8 @@ def logit_lens_transformation(layer_output: Any, norm_data: List[Any], model, lo
         # Step 3: Get probabilities via softmax
         probs = F.softmax(logits[0, -1, :], dim=-1)
         
-        # Step 4: Extract top 3 tokens
-        top_probs, top_indices = torch.topk(probs, k=3)
+        # Step 4: Extract top K tokens
+        top_probs, top_indices = torch.topk(probs, k=top_k)
         
         return [
             (tokenizer.decode([idx.item()], skip_special_tokens=False), prob.item())
@@ -288,9 +289,9 @@ def get_norm_layer_from_parameter(model, norm_parameter: Optional[str]) -> Optio
     return None
 
 
-def _get_top_tokens(activation_data: Dict[str, Any], module_name: str, model, tokenizer) -> Optional[List[Tuple[str, float]]]:
+def _get_top_tokens(activation_data: Dict[str, Any], module_name: str, model, tokenizer, top_k: int = 5) -> Optional[List[Tuple[str, float]]]:
     """
-    Helper: Get top 3 tokens for a layer's block output.
+    Helper: Get top K tokens for a layer's block output.
     
     Uses block outputs (residual stream) which represent the full hidden state
     after all layer computations (attention + feedforward + residuals).
@@ -306,7 +307,7 @@ def _get_top_tokens(activation_data: Dict[str, Any], module_name: str, model, to
         norm_params = activation_data.get('norm_parameters', [])
         norm_parameter = norm_params[0] if norm_params else None
         
-        return logit_lens_transformation(layer_output, [], model, None, tokenizer, norm_parameter)
+        return logit_lens_transformation(layer_output, [], model, None, tokenizer, norm_parameter, top_k=top_k)
     except Exception as e:
         print(f"Warning: Could not compute logit lens for {module_name}: {e}")
         return None
@@ -388,12 +389,43 @@ def get_check_token_probabilities(activation_data: Dict[str, Any], model, tokeni
         return None
 
 
-def extract_layer_data(activation_data: Dict[str, Any], model, tokenizer) -> List[Dict[str, Any]]:
+def _compute_certainty(probs: List[float]) -> float:
     """
-    Extract layer-by-layer data for accordion display.
+    Compute normalized certainty from probability distribution.
+    Formula: certainty = 1 - H(p)/log(K) where H is Shannon entropy.
+    
+    Args:
+        probs: List of probabilities (top-K)
     
     Returns:
-        List of dicts with: layer_num, top_token, top_prob, top_3_tokens (list of (token, prob))
+        Certainty score in [0, 1] where 1 = completely certain
+    """
+    import math
+    if not probs or len(probs) == 0:
+        return 0.0
+    
+    # Compute Shannon entropy: H = -Σ(p_i * log(p_i))
+    entropy = 0.0
+    for p in probs:
+        if p > 0:
+            entropy -= p * math.log(p)
+    
+    # Normalize by max entropy (log(K))
+    max_entropy = math.log(len(probs))
+    if max_entropy == 0:
+        return 1.0
+    
+    # Certainty = 1 - normalized_entropy
+    certainty = 1.0 - (entropy / max_entropy)
+    return max(0.0, min(1.0, certainty))  # Clamp to [0, 1]
+
+
+def extract_layer_data(activation_data: Dict[str, Any], model, tokenizer) -> List[Dict[str, Any]]:
+    """
+    Extract layer-by-layer data for accordion display with top-5, deltas, and certainty.
+    
+    Returns:
+        List of dicts with: layer_num, top_token, top_prob, top_5_tokens, deltas, certainty
     """
     layer_modules = activation_data.get('block_modules', [])
     if not layer_modules:
@@ -407,26 +439,47 @@ def extract_layer_data(activation_data: Dict[str, Any], model, tokenizer) -> Lis
     
     logit_lens_enabled = activation_data.get('logit_lens_parameter') is not None
     layer_data = []
+    prev_token_probs = {}  # Track previous layer's token probabilities
     
     for layer_num, module_name in layer_info:
-        top_tokens = _get_top_tokens(activation_data, module_name, model, tokenizer) if logit_lens_enabled else None
+        top_tokens = _get_top_tokens(activation_data, module_name, model, tokenizer, top_k=5) if logit_lens_enabled else None
         
         if top_tokens:
             top_token, top_prob = top_tokens[0]
+            
+            # Compute deltas vs previous layer
+            deltas = {}
+            for token, prob in top_tokens:
+                prev_prob = prev_token_probs.get(token, 0.0)
+                deltas[token] = prob - prev_prob
+            
+            # Compute certainty from top-5 probabilities
+            probs = [prob for _, prob in top_tokens]
+            certainty = _compute_certainty(probs)
+            
             layer_data.append({
                 'layer_num': layer_num,
                 'module_name': module_name,
                 'top_token': top_token,
                 'top_prob': top_prob,
-                'top_3_tokens': top_tokens[:3]  # Get top 3 for chips
+                'top_3_tokens': top_tokens[:3],  # Keep for backward compatibility
+                'top_5_tokens': top_tokens[:5],  # New: top-5 for bar chart
+                'deltas': deltas,
+                'certainty': certainty
             })
+            
+            # Update previous layer probabilities
+            prev_token_probs = {token: prob for token, prob in top_tokens}
         else:
             layer_data.append({
                 'layer_num': layer_num,
                 'module_name': module_name,
                 'top_token': None,
                 'top_prob': None,
-                'top_3_tokens': []
+                'top_3_tokens': [],
+                'top_5_tokens': [],
+                'deltas': {},
+                'certainty': 0.0
             })
     
     return layer_data

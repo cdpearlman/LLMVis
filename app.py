@@ -506,12 +506,14 @@ def update_check_token_graph(check_token_data):
     [State('model-dropdown', 'value')]
 )
 def create_layer_accordions(activation_data, model_name):
-    """Create accordion panels for each layer."""
+    """Create accordion panels for each layer with top-5 bar charts, deltas, and certainty."""
     if not activation_data or not model_name:
         return html.P("Run analysis to see layer-by-layer predictions.", className="placeholder-text")
     
     try:
         from transformers import AutoModelForCausalLM, AutoTokenizer
+        import plotly.graph_objs as go
+        
         model = AutoModelForCausalLM.from_pretrained(model_name, attn_implementation='eager')
         tokenizer = AutoTokenizer.from_pretrained(model_name)
         
@@ -521,38 +523,98 @@ def create_layer_accordions(activation_data, model_name):
         if not layer_data:
             return html.P("No layer data available.", className="placeholder-text")
         
-        # Create accordion panels
+        # Create accordion panels (reversed to show final layer first)
         accordions = []
-        for i, layer in enumerate(layer_data):
+        for i, layer in enumerate(reversed(layer_data)):
             layer_num = layer['layer_num']
             top_token = layer.get('top_token', 'N/A')
             top_prob = layer.get('top_prob', 0.0)
-            top_3 = layer.get('top_3_tokens', [])
+            top_5 = layer.get('top_5_tokens', [])
+            deltas = layer.get('deltas', {})
+            certainty = layer.get('certainty', 0.0)
             
-            # Create summary header
+            # Create summary header with certainty
             if top_token:
-                summary_text = f"Layer L{layer_num}: '{top_token}' (p={top_prob:.3f})"
+                summary_text = f"Layer L{layer_num}: '{top_token}' (p={top_prob:.3f}, certainty={certainty:.2f})"
             else:
                 summary_text = f"Layer L{layer_num}: (no prediction)"
             
-            # Create accordion panel
+            # Create accordion panel content
+            content_items = []
+            
+            if top_5:
+                # Create horizontal bar chart for top-5 tokens
+                tokens = [tok for tok, _ in top_5]
+                probs = [prob for _, prob in top_5]
+                
+                # Create delta annotations (▲/▼ with color)
+                annotations = []
+                for idx, (token, prob) in enumerate(top_5):
+                    delta = deltas.get(token, 0.0)
+                    if abs(delta) > 0.001:  # Only show meaningful deltas
+                        symbol = '▲' if delta > 0 else '▼'
+                        color = '#28a745' if delta > 0 else '#dc3545'
+                        annotations.append({
+                            'x': prob,
+                            'y': idx,
+                            'text': f'{symbol} {abs(delta):.3f}',
+                            'showarrow': False,
+                            'xanchor': 'left',
+                            'xshift': 10,
+                            'font': {'size': 10, 'color': color}
+                        })
+                
+                # Create Plotly figure
+                fig = go.Figure(data=[
+                    go.Bar(
+                        x=probs,
+                        y=tokens,
+                        orientation='h',
+                        marker={'color': '#667eea'},
+                        text=[f'{p:.3f}' for p in probs],
+                        textposition='auto',
+                        hovertemplate='%{y}: %{x:.4f}<extra></extra>'
+                    )
+                ])
+                
+                fig.update_layout(
+                    title={
+                        'text': f'Top 5 Predictions (Certainty: {certainty:.2f})',
+                        'font': {'size': 14}
+                    },
+                    xaxis={'title': 'Probability', 'range': [0, max(probs) * 1.15]},
+                    yaxis={'title': '', 'autorange': 'reversed'},
+                    height=250,
+                    margin={'l': 100, 'r': 80, 't': 50, 'b': 40},
+                    annotations=annotations,
+                    hovermode='closest'
+                )
+                
+                content_items.append(
+                    dcc.Graph(
+                        figure=fig,
+                        config={'displayModeBar': False},
+                        style={'marginBottom': '10px'}
+                    )
+                )
+                
+                # Add certainty tooltip explanation
+                content_items.append(html.Div([
+                    html.Small([
+                        html.I(className="fas fa-info-circle", style={'marginRight': '5px', 'color': '#667eea'}),
+                        f"Certainty = 1 − H(p_top5)/log(5), where H is Shannon entropy. ",
+                        "Higher values indicate more confident predictions."
+                    ], style={'color': '#6c757d', 'fontStyle': 'italic'})
+                ], style={'marginTop': '5px'}))
+            else:
+                content_items.append(html.P("No predictions available"))
+            
             panel = html.Details([
                 html.Summary(summary_text, className="layer-summary"),
-                html.Div([
-                    html.P(f"Layer {layer_num} details (placeholder for future content)")
-                ], className="layer-content")
+                html.Div(content_items, className="layer-content")
             ], className="layer-accordion")
             
             accordions.append(panel)
-            
-            # Add token chips between adjacent layers (not after last layer)
-            if i < len(layer_data) - 1 and top_3:
-                chips = html.Div([
-                    html.Span("→", className="token-arrow"),
-                    *[html.Span(f"{tok} ({prob:.2f})", className="token-chip") 
-                      for tok, prob in top_3]
-                ], className="token-chips-row")
-                accordions.append(chips)
         
         return html.Div(accordions)
         

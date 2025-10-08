@@ -15,12 +15,13 @@ Note: Minimal-change approach. Reuse existing files (`app.py`, `components/main_
 - [ ] Add CSS utility classes for compact header + tokens chips row
 
 ## Feature: Per-layer predictions (top-5), deltas, certainty meter
-- [ ] Extend forward pass outputs to include per-layer top-5 tokens + probs (reusing logit lens) in `utils/model_patterns.py`
-- [ ] Compute delta vs previous layer for overlapping tokens (prob change, signed)
-- [ ] Compute certainty meter using normalized entropy over top-5 probs (0–1)
-- [ ] Render a `dcc.Graph` horizontal bar chart (top-5) inside each panel body
-- [ ] Show per-token delta as small ▲/▼ with color next to bars
-- [ ] Add tooltip explaining certainty: "certainty = 1 − H(p_top5)/log(5)"
+- [x] Extend forward pass outputs to include per-layer top-5 tokens + probs (reusing logit lens) in `utils/model_patterns.py`
+- [x] Compute delta vs previous layer for overlapping tokens (prob change, signed)
+- [x] Compute certainty meter using normalized entropy over top-5 probs (0–1)
+- [x] Render a `dcc.Graph` horizontal bar chart (top-5) inside each panel body
+- [x] Show per-token delta as small ▲/▼ with color next to bars
+- [x] Add tooltip explaining certainty: "certainty = 1 − H(p_top5)/log(5)"
+- [x] Add a spinning "Loading visuals..." after loading data until all the visualizations are loaded
 
 ## Feature: Simplified attention view + open full interactive view
 - [ ] From `activation_data['attention_outputs']`, compute top-3 attended input tokens for current position (per layer)
