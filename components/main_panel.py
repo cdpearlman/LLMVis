@@ -69,17 +69,6 @@ def create_main_panel():
                     className="placeholder-text"
                 )
             ], id="comparison-container", className="results-area")
-        ], id="comparison-section", className="results-section", style={'display': 'none'}),
-        
-        # Analysis Results section (layer-specific analysis on node click)
-        html.Div([
-            html.H3("Analysis Results", className="section-title"),
-            html.Div([
-                html.P(
-                    "Click a layer node to see detailed attention analysis and head categorization.",
-                    className="placeholder-text"
-                )
-            ], id="results-container", className="results-area")
-        ], className="results-section")
+        ], id="comparison-section", className="results-section", style={'display': 'none'})
         
     ], className="main-panel-content")

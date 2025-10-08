@@ -438,7 +438,10 @@ def _get_top_attended_tokens(activation_data: Dict[str, Any], layer_num: int, to
         attention_outputs = activation_data.get('attention_outputs', {})
         input_ids = activation_data.get('input_ids', [])
         
+        print(f"DEBUG _get_top_attended_tokens: layer_num={layer_num}, attention_outputs keys={list(attention_outputs.keys())}")
+        
         if not attention_outputs or not input_ids:
+            print(f"DEBUG _get_top_attended_tokens: Missing data - attention_outputs empty={not attention_outputs}, input_ids empty={not input_ids}")
             return None
         
         # Find attention output for this layer
@@ -493,6 +496,10 @@ def extract_layer_data(activation_data: Dict[str, Any], model, tokenizer) -> Lis
     layer_modules = activation_data.get('block_modules', [])
     if not layer_modules:
         return []
+    
+    # Debug: Check if attention outputs are present
+    attention_outputs = activation_data.get('attention_outputs', {})
+    print(f"DEBUG extract_layer_data: Found {len(attention_outputs)} attention modules")
     
     # Extract and sort layers by layer number
     layer_info = sorted(

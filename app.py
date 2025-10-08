@@ -611,7 +611,13 @@ def create_layer_accordions(activation_data, model_name):
             
             # Add attention view (top-3 attended tokens)
             top_attended = layer.get('top_attended_tokens', [])
+            
+            # Always show attention section
+            content_items.append(html.Hr(style={'margin': '15px 0'}))
+            content_items.append(html.H6("Attention (current position)", style={'marginBottom': '8px', 'fontSize': '14px', 'color': '#495057'}))
+            
             if top_attended:
+                # Show top-3 attended tokens
                 attention_items = []
                 for token, weight in top_attended:
                     attention_items.append(html.Div([
@@ -619,25 +625,31 @@ def create_layer_accordions(activation_data, model_name):
                         html.Span(f"{weight:.3f}", style={'color': '#6c757d', 'fontSize': '13px'})
                     ], style={'marginBottom': '4px'}))
                 
+                content_items.append(html.Div(attention_items, style={'marginBottom': '10px'}))
+                
+                # Add button to open full BertViz view
+                content_items.append(html.Button(
+                    [html.I(className="fas fa-expand", style={'marginRight': '5px'}), "Open full interactive view"],
+                    id={'type': 'bertviz-btn', 'layer': layer_num},
+                    className='bertviz-button',
+                    style={
+                        'padding': '6px 12px',
+                        'fontSize': '12px',
+                        'backgroundColor': '#667eea',
+                        'color': 'white',
+                        'border': 'none',
+                        'borderRadius': '4px',
+                        'cursor': 'pointer'
+                    }
+                ))
+                content_items.append(html.Div(id={'type': 'bertviz-container', 'layer': layer_num}, style={'marginTop': '10px'}))
+            else:
+                # Show message when no attention data is available
                 content_items.append(html.Div([
-                    html.Hr(style={'margin': '15px 0'}),
-                    html.H6("Attention (current position)", style={'marginBottom': '8px', 'fontSize': '14px', 'color': '#495057'}),
-                    html.Div(attention_items, style={'marginBottom': '10px'}),
-                    html.Button(
-                        [html.I(className="fas fa-expand", style={'marginRight': '5px'}), "Open full interactive view"],
-                        id={'type': 'bertviz-btn', 'layer': layer_num},
-                        className='bertviz-button',
-                        style={
-                            'padding': '6px 12px',
-                            'fontSize': '12px',
-                            'backgroundColor': '#667eea',
-                            'color': 'white',
-                            'border': 'none',
-                            'borderRadius': '4px',
-                            'cursor': 'pointer'
-                        }
-                    ),
-                    html.Div(id={'type': 'bertviz-container', 'layer': layer_num}, style={'marginTop': '10px'})
+                    html.Small([
+                        html.I(className="fas fa-info-circle", style={'marginRight': '5px', 'color': '#f0ad4e'}),
+                        "No attention data available. Select attention modules in the sidebar to see attention patterns."
+                    ], style={'color': '#6c757d', 'fontStyle': 'italic'})
                 ]))
             
             panel = html.Details([
@@ -756,48 +768,6 @@ def toggle_bertviz_view(n_clicks, activation_data, button_id):
     except Exception as e:
         return html.P(f"Error loading BertViz: {str(e)}", style={'color': '#dc3545', 'fontSize': '13px'})
 
-# Node click callback for analysis results  
-@app.callback(
-    Output('results-container', 'children'),
-    [Input('model-flow-graph', 'tapNodeData')],
-    [State('session-activation-store', 'data')],
-    prevent_initial_call=True
-)
-def show_layer_analysis(node_data, activation_data):
-    """Show BertViz analysis and head categorization when a layer node is clicked."""
-    if not node_data or not activation_data:
-        return html.P("Click a layer node to see detailed attention analysis and head categorization.", className="placeholder-text")
-    
-    try:
-        from utils import generate_bertviz_html
-        layer_num = node_data['layer_num']
-        
-        # Generate BertViz HTML for this layer (full model_view)
-        bertviz_html = generate_bertviz_html(activation_data, layer_num, 'full')
-        
-        # Categorize heads for this specific layer
-        categorized_heads = categorize_single_layer_heads(activation_data, layer_num)
-        category_summary = format_categorization_summary(categorized_heads)
-        
-        # Create category detail view with BertViz visualizations
-        category_detail = _create_category_detail_view(categorized_heads, activation_data)
-        
-        return html.Div([
-            html.H4(f"Layer {layer_num} - Full Model View"),
-            html.Iframe(
-                srcDoc=bertviz_html,
-                style={'width': '100%', 'height': '500px', 'border': 'none', 'marginBottom': '2rem'}
-            ),
-            html.Hr(),
-            html.H4(f"Layer {layer_num} - Attention Head Categorization"),
-            html.Pre(category_summary, style={'whiteSpace': 'pre-wrap', 'fontFamily': 'monospace', 'fontSize': '13px', 'marginTop': '1rem'}),
-            html.Hr(),
-            html.H4("Category Details with BertViz Visualizations", style={'marginTop': '1rem'}),
-            category_detail
-        ])
-        
-    except Exception as e:
-        return html.P(f"Error loading analysis: {str(e)}", className="placeholder-text")
 
 if __name__ == '__main__':
     app.run(debug=True, port=8050)
