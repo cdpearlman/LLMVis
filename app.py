@@ -609,11 +609,71 @@ def create_layer_accordions(activation_data, model_name):
             else:
                 content_items.append(html.P("No predictions available"))
             
-            # Add attention view (top-3 attended tokens)
+            # Add attention head categorization section
             top_attended = layer.get('top_attended_tokens', [])
             
             # Always show attention section
             content_items.append(html.Hr(style={'margin': '15px 0'}))
+            
+            if top_attended:
+                # Categorize attention heads for this layer
+                total_heads = 0
+                try:
+                    categorized_heads = categorize_single_layer_heads(activation_data, layer_num)
+                    total_heads = sum(len(heads) for heads in categorized_heads.values())
+                    
+                    if total_heads > 0:
+                        # Display head categorization with explanation
+                        content_items.append(html.Div([
+                            html.H6("Attention Head Categories", style={'marginBottom': '4px', 'fontSize': '14px', 'color': '#495057', 'display': 'inline-block'}),
+                            html.Small([
+                                html.I(className="fas fa-info-circle", style={'marginLeft': '8px', 'marginRight': '4px', 'color': '#667eea'}),
+                                f"({total_heads} heads total)"
+                            ], style={'color': '#6c757d', 'fontSize': '11px'})
+                        ], style={'marginBottom': '8px'}))
+                        
+                        category_colors = {
+                            'previous_token': '#ff7979',
+                            'first_token': '#74b9ff',
+                            'bow': '#ffeaa7',
+                            'syntactic': '#a29bfe',
+                            'other': '#dfe6e9'
+                        }
+                        
+                        category_names = {
+                            'previous_token': 'Previous-Token',
+                            'first_token': 'First/Positional',
+                            'bow': 'Bag-of-Words',
+                            'syntactic': 'Syntactic',
+                            'other': 'Other'
+                        }
+                        
+                        # Create compact category badges
+                        category_badges = []
+                        for cat_key, display_name in category_names.items():
+                            heads = categorized_heads.get(cat_key, [])
+                            if heads:
+                                badge = html.Span([
+                                    html.Strong(f"{display_name}: "),
+                                    f"{len(heads)}"
+                                ], style={
+                                    'display': 'inline-block',
+                                    'padding': '4px 10px',
+                                    'margin': '4px 4px 4px 0',
+                                    'backgroundColor': category_colors.get(cat_key, '#dfe6e9'),
+                                    'borderRadius': '4px',
+                                    'fontSize': '12px',
+                                    'fontWeight': '500',
+                                    'color': '#2d3748'
+                                })
+                                category_badges.append(badge)
+                        
+                        content_items.append(html.Div(category_badges, style={'marginBottom': '10px'}))
+                except Exception as e:
+                    print(f"Warning: Could not categorize heads for layer {layer_num}: {e}")
+                
+                content_items.append(html.Hr(style={'margin': '10px 0'}))
+            
             content_items.append(html.H6("Attention (current position)", style={'marginBottom': '8px', 'fontSize': '14px', 'color': '#495057'}))
             
             if top_attended:
@@ -628,10 +688,12 @@ def create_layer_accordions(activation_data, model_name):
                 content_items.append(html.Div(attention_items, style={'marginBottom': '10px'}))
                 
                 # Add button to open full BertViz view
+                button_text = f"View all {total_heads} heads interactively (BertViz)" if total_heads > 0 else "View attention heads interactively (BertViz)"
                 content_items.append(html.Button(
-                    [html.I(className="fas fa-expand", style={'marginRight': '5px'}), "Open full interactive view"],
+                    [html.I(className="fas fa-chart-network", style={'marginRight': '5px'}), button_text],
                     id={'type': 'bertviz-btn', 'layer': layer_num},
                     className='bertviz-button',
+                    title="Opens an interactive visualization showing attention patterns for all heads in this layer",
                     style={
                         'padding': '6px 12px',
                         'fontSize': '12px',
@@ -639,7 +701,8 @@ def create_layer_accordions(activation_data, model_name):
                         'color': 'white',
                         'border': 'none',
                         'borderRadius': '4px',
-                        'cursor': 'pointer'
+                        'cursor': 'pointer',
+                        'transition': 'background-color 0.2s'
                     }
                 ))
                 content_items.append(html.Div(id={'type': 'bertviz-container', 'layer': layer_num}, style={'marginTop': '10px'}))
