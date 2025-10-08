@@ -24,10 +24,10 @@ Note: Minimal-change approach. Reuse existing files (`app.py`, `components/main_
 - [x] Add a spinning "Loading visuals..." after loading data until all the visualizations are loaded
 
 ## Feature: Simplified attention view + open full interactive view
-- [ ] From `activation_data['attention_outputs']`, compute top-3 attended input tokens for current position (per layer)
-- [ ] Render a simple list: token text + attention weight (rounded), most-to-least
-- [ ] Add button/link: "Open full interactive view" → shows existing BertViz `model_view` for that layer
-- [ ] Keep current BertViz plumbing; reuse callbacks to load the selected layer
+- [x] From `activation_data['attention_outputs']`, compute top-3 attended input tokens for current position (per layer)
+- [x] Render a simple list: token text + attention weight (rounded), most-to-least
+- [x] Add button/link: "Open full interactive view" → shows existing BertViz `model_view` for that layer
+- [x] Keep current BertViz plumbing; reuse callbacks to load the selected layer
 
 ## Feature: Tokenization example of initial prompt (top of page)
 - [ ] Add a new section above panels: "How the tokenizer splits your prompt"

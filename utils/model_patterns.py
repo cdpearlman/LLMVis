@@ -420,12 +420,75 @@ def _compute_certainty(probs: List[float]) -> float:
     return max(0.0, min(1.0, certainty))  # Clamp to [0, 1]
 
 
-def extract_layer_data(activation_data: Dict[str, Any], model, tokenizer) -> List[Dict[str, Any]]:
+def _get_top_attended_tokens(activation_data: Dict[str, Any], layer_num: int, tokenizer, top_k: int = 3) -> Optional[List[Tuple[str, float]]]:
     """
-    Extract layer-by-layer data for accordion display with top-5, deltas, and certainty.
+    Get top-K attended input tokens for the current position (last token) in a layer.
+    Averages attention across all heads.
+    
+    Args:
+        activation_data: Output from execute_forward_pass
+        layer_num: Layer number to analyze
+        tokenizer: Tokenizer for decoding tokens
+        top_k: Number of top attended tokens to return
     
     Returns:
-        List of dicts with: layer_num, top_token, top_prob, top_5_tokens, deltas, certainty
+        List of (token_string, attention_weight) tuples, sorted by weight (highest first)
+    """
+    try:
+        attention_outputs = activation_data.get('attention_outputs', {})
+        input_ids = activation_data.get('input_ids', [])
+        
+        if not attention_outputs or not input_ids:
+            return None
+        
+        # Find attention output for this layer
+        target_module = None
+        for module_name in attention_outputs.keys():
+            numbers = re.findall(r'\d+', module_name)
+            if numbers and int(numbers[0]) == layer_num:
+                target_module = module_name
+                break
+        
+        if not target_module:
+            return None
+        
+        attention_output = attention_outputs[target_module]['output']
+        if not isinstance(attention_output, list) or len(attention_output) < 2:
+            return None
+        
+        # Get attention weights: [batch, heads, seq_len, seq_len]
+        attention_weights = torch.tensor(attention_output[1])
+        
+        # Average across heads: [seq_len, seq_len]
+        avg_attention = attention_weights[0].mean(dim=0)
+        
+        # Get attention from last position to all positions
+        last_pos_attention = avg_attention[-1, :]  # [seq_len]
+        
+        # Get top-K attended positions
+        top_values, top_indices = torch.topk(last_pos_attention, min(top_k, len(last_pos_attention)))
+        
+        # Convert to tokens
+        input_ids_tensor = torch.tensor(input_ids[0]) if isinstance(input_ids[0], list) else torch.tensor(input_ids)
+        result = []
+        for idx, weight in zip(top_indices, top_values):
+            token_id = input_ids_tensor[idx].item()
+            token_str = tokenizer.decode([token_id], skip_special_tokens=False)
+            result.append((token_str, weight.item()))
+        
+        return result
+        
+    except Exception as e:
+        print(f"Warning: Could not compute attended tokens for layer {layer_num}: {e}")
+        return None
+
+
+def extract_layer_data(activation_data: Dict[str, Any], model, tokenizer) -> List[Dict[str, Any]]:
+    """
+    Extract layer-by-layer data for accordion display with top-5, deltas, certainty, and attention.
+    
+    Returns:
+        List of dicts with: layer_num, top_token, top_prob, top_5_tokens, deltas, certainty, top_attended_tokens
     """
     layer_modules = activation_data.get('block_modules', [])
     if not layer_modules:
@@ -443,6 +506,9 @@ def extract_layer_data(activation_data: Dict[str, Any], model, tokenizer) -> Lis
     
     for layer_num, module_name in layer_info:
         top_tokens = _get_top_tokens(activation_data, module_name, model, tokenizer, top_k=5) if logit_lens_enabled else None
+        
+        # Get top-3 attended tokens for this layer
+        top_attended = _get_top_attended_tokens(activation_data, layer_num, tokenizer, top_k=3)
         
         if top_tokens:
             top_token, top_prob = top_tokens[0]
@@ -465,7 +531,8 @@ def extract_layer_data(activation_data: Dict[str, Any], model, tokenizer) -> Lis
                 'top_3_tokens': top_tokens[:3],  # Keep for backward compatibility
                 'top_5_tokens': top_tokens[:5],  # New: top-5 for bar chart
                 'deltas': deltas,
-                'certainty': certainty
+                'certainty': certainty,
+                'top_attended_tokens': top_attended  # New: attention view
             })
             
             # Update previous layer probabilities
@@ -479,7 +546,8 @@ def extract_layer_data(activation_data: Dict[str, Any], model, tokenizer) -> Lis
                 'top_3_tokens': [],
                 'top_5_tokens': [],
                 'deltas': {},
-                'certainty': 0.0
+                'certainty': 0.0,
+                'top_attended_tokens': top_attended
             })
     
     return layer_data

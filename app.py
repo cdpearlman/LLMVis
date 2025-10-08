@@ -609,6 +609,37 @@ def create_layer_accordions(activation_data, model_name):
             else:
                 content_items.append(html.P("No predictions available"))
             
+            # Add attention view (top-3 attended tokens)
+            top_attended = layer.get('top_attended_tokens', [])
+            if top_attended:
+                attention_items = []
+                for token, weight in top_attended:
+                    attention_items.append(html.Div([
+                        html.Span(f"'{token}'", style={'fontWeight': 'bold', 'marginRight': '8px'}),
+                        html.Span(f"{weight:.3f}", style={'color': '#6c757d', 'fontSize': '13px'})
+                    ], style={'marginBottom': '4px'}))
+                
+                content_items.append(html.Div([
+                    html.Hr(style={'margin': '15px 0'}),
+                    html.H6("Attention (current position)", style={'marginBottom': '8px', 'fontSize': '14px', 'color': '#495057'}),
+                    html.Div(attention_items, style={'marginBottom': '10px'}),
+                    html.Button(
+                        [html.I(className="fas fa-expand", style={'marginRight': '5px'}), "Open full interactive view"],
+                        id={'type': 'bertviz-btn', 'layer': layer_num},
+                        className='bertviz-button',
+                        style={
+                            'padding': '6px 12px',
+                            'fontSize': '12px',
+                            'backgroundColor': '#667eea',
+                            'color': 'white',
+                            'border': 'none',
+                            'borderRadius': '4px',
+                            'cursor': 'pointer'
+                        }
+                    ),
+                    html.Div(id={'type': 'bertviz-container', 'layer': layer_num}, style={'marginTop': '10px'})
+                ]))
+            
             panel = html.Details([
                 html.Summary(summary_text, className="layer-summary"),
                 html.Div(content_items, className="layer-content")
@@ -692,6 +723,38 @@ def toggle_comparison_mode(n_clicks, is_comparing):
         button_class = 'compare-button'
     
     return new_comparing, style, style, button_content, button_class
+
+# Callback to show BertViz visualization when button is clicked
+@app.callback(
+    Output({'type': 'bertviz-container', 'layer': dash.dependencies.MATCH}, 'children'),
+    [Input({'type': 'bertviz-btn', 'layer': dash.dependencies.MATCH}, 'n_clicks')],
+    [State('session-activation-store', 'data'),
+     State({'type': 'bertviz-btn', 'layer': dash.dependencies.MATCH}, 'id')],
+    prevent_initial_call=True
+)
+def toggle_bertviz_view(n_clicks, activation_data, button_id):
+    """Show/hide BertViz full model view when button is clicked."""
+    if not n_clicks or not activation_data:
+        return None
+    
+    try:
+        from utils import generate_bertviz_html
+        layer_num = button_id['layer']
+        
+        # Toggle: even clicks hide, odd clicks show
+        if n_clicks % 2 == 0:
+            return None
+        
+        # Generate BertViz HTML for this layer
+        bertviz_html = generate_bertviz_html(activation_data, layer_num, 'full')
+        
+        return html.Iframe(
+            srcDoc=bertviz_html,
+            style={'width': '100%', 'height': '500px', 'border': '1px solid #ddd', 'borderRadius': '4px', 'marginTop': '10px'}
+        )
+        
+    except Exception as e:
+        return html.P(f"Error loading BertViz: {str(e)}", style={'color': '#dc3545', 'fontSize': '13px'})
 
 # Node click callback for analysis results  
 @app.callback(
