@@ -795,7 +795,6 @@ def toggle_sidebar(n_clicks, is_collapsed):
 @app.callback(
     [Output('comparison-mode-store', 'data'),
      Output('second-prompt-container', 'style'),
-     Output('second-visualization-section', 'style'),
      Output('compare-prompts-btn', 'children'),
      Output('compare-prompts-btn', 'className')],
     [Input('compare-prompts-btn', 'n_clicks')],
@@ -805,7 +804,7 @@ def toggle_sidebar(n_clicks, is_collapsed):
 def toggle_comparison_mode(n_clicks, is_comparing):
     """Toggle comparison mode and show/hide second prompt input and visualization."""
     if not n_clicks:
-        return False, {'display': 'none'}, {'display': 'none'}, [html.I(className="fas fa-plus", style={"marginRight": "5px"}), "Compare"], 'compare-button'
+        return False, {'display': 'none'}, [html.I(className="fas fa-plus", style={"marginRight": "5px"}), "Compare"], 'compare-button'
     
     # Toggle comparison mode
     new_comparing = not is_comparing
@@ -821,7 +820,7 @@ def toggle_comparison_mode(n_clicks, is_comparing):
         button_content = [html.I(className="fas fa-plus", style={"marginRight": "5px"}), "Compare"]
         button_class = 'compare-button'
     
-    return new_comparing, style, style, button_content, button_class
+    return new_comparing, style, button_content, button_class
 
 # Callback to show BertViz visualization when button is clicked
 @app.callback(
