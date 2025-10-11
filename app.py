@@ -6,7 +6,7 @@ Components are organized for easy understanding and maintenance.
 """
 
 import dash
-from dash import html, dcc, Input, Output, State, callback, no_update
+from dash import html, dcc, Input, Output, State, callback, no_update, ALL
 from utils import (load_model_and_get_patterns, execute_forward_pass, extract_layer_data,
                    categorize_single_layer_heads, format_categorization_summary,
                    compare_attention_layers, compare_output_probabilities, format_comparison_summary,
