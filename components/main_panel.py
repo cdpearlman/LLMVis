@@ -81,8 +81,8 @@ def create_main_panel():
                         html.H4("Ablation Study", style={'marginTop': '0.5rem', 'marginBottom': '0.5rem'}),
                         html.P([
                             "Ablation experiments test the influence of individual layers by replacing their activations ",
-                            "with the mean activation across all tokens. This reveals how much each layer contributes ",
-                            "to the model's final prediction for the given prompt(s)."
+                            "with a meaningless mean activation computed across all layers and tokens. This reveals how much ",
+                            "each layer contributes to the model's final prediction for the given prompt(s)."
                         ], style={'fontSize': '14px', 'color': '#6c757d', 'marginBottom': '1rem'}),
                         html.P("Select a layer to ablate:", style={'fontSize': '14px', 'fontWeight': '500', 'marginBottom': '0.5rem'}),
                         html.Div(id='ablation-layer-buttons', className='ablation-buttons-grid'),

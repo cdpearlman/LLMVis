@@ -243,22 +243,27 @@ def execute_forward_pass_with_layer_ablation(model, tokenizer, prompt: str, conf
     if not target_module_name:
         return {"error": f"Could not find module for layer {ablate_layer_num}"}
     
-    # Get reference activation for mean computation
+    # Get reference activations from ALL layers for mean computation
     block_outputs = reference_activation_data.get('block_outputs', {})
-    if target_module_name not in block_outputs:
-        return {"error": f"No reference activation found for {target_module_name}"}
+    if not block_outputs:
+        return {"error": "No block outputs found in reference data"}
     
-    reference_output = block_outputs[target_module_name]['output']
+    # Collect all layer activations to compute global mean
+    all_layer_tensors = []
+    for mod_name, output_data in block_outputs.items():
+        output = output_data['output']
+        if isinstance(output, list):
+            tensor = torch.tensor(output)
+        else:
+            tensor = output
+        all_layer_tensors.append(tensor)
     
-    # Convert to tensor and compute mean across sequence dimension
-    if isinstance(reference_output, list):
-        ref_tensor = torch.tensor(reference_output)
-    else:
-        ref_tensor = reference_output
-    
-    # Shape is typically [batch, seq_len, hidden_dim]
-    # Compute mean over seq_len dimension
-    mean_activation = ref_tensor.mean(dim=1, keepdim=True)  # [batch, 1, hidden_dim]
+    # Stack all layers and compute mean across ALL layers and sequence positions
+    # This gives us a single mean vector that represents the average activation
+    stacked = torch.stack(all_layer_tensors, dim=0)  # [num_layers, batch, seq_len, hidden_dim]
+    # Compute mean across layers and sequence dimension
+    mean_activation = stacked.mean(dim=(0, 2), keepdim=True)  # [1, batch, 1, hidden_dim]
+    mean_activation = mean_activation.squeeze(0)  # [batch, 1, hidden_dim]
     
     # Prepare inputs
     inputs = tokenizer(prompt, return_tensors="pt")

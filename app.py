@@ -991,11 +991,12 @@ def create_layer_accordions(activation_data, activation_data2, model_name):
 # Show experiments section after analysis completes
 @app.callback(
     Output('experiments-section', 'style'),
-    [Input('session-activation-store', 'data')]
+    [Input('session-activation-store', 'data')],
+    prevent_initial_call=False
 )
 def show_experiments_section(activation_data):
     """Show experiments section after analysis is run."""
-    if activation_data and activation_data.get('block_modules'):
+    if activation_data and activation_data.get('block_modules') and len(activation_data.get('block_modules', [])) > 0:
         return {'display': 'block'}
     return {'display': 'none'}
 
