@@ -499,13 +499,220 @@ def update_check_token_graph(check_token_data):
     
     return figure, {'flex': '1', 'minWidth': '300px', 'display': 'block'}
 
+def _create_single_prompt_chart(layer_data):
+    """
+    Create a single prompt bar chart (existing functionality).
+    
+    Args:
+        layer_data: Layer data dict (with top_5_tokens, deltas, certainty)
+    
+    Returns:
+        Plotly Figure with horizontal bars
+    """
+    import plotly.graph_objs as go
+    
+    top_5 = layer_data.get('top_5_tokens', [])
+    deltas = layer_data.get('deltas', {})
+    certainty = layer_data.get('certainty', 0.0)
+    
+    if not top_5:
+        return go.Figure()
+    
+    tokens = [tok for tok, _ in top_5]
+    probs = [prob for _, prob in top_5]
+    
+    # Create delta annotations (▲/▼ with color)
+    annotations = []
+    for idx, (token, prob) in enumerate(top_5):
+        delta = deltas.get(token, 0.0)
+        if abs(delta) > 0.001:  # Only show meaningful deltas
+            symbol = '▲' if delta > 0 else '▼'
+            color = '#28a745' if delta > 0 else '#dc3545'
+            annotations.append({
+                'x': prob,
+                'y': idx,
+                'text': f'{symbol} {abs(delta):.3f}',
+                'showarrow': False,
+                'xanchor': 'left',
+                'xshift': 10,
+                'font': {'size': 10, 'color': color}
+            })
+    
+    # Create Plotly figure
+    fig = go.Figure(data=[
+        go.Bar(
+            x=probs,
+            y=tokens,
+            orientation='h',
+            marker={'color': '#667eea'},
+            text=[f'{p:.3f}' for p in probs],
+            textposition='auto',
+            hovertemplate='%{y}: %{x:.4f}<extra></extra>'
+        )
+    ])
+    
+    fig.update_layout(
+        title={
+            'text': f'Top 5 Predictions (Certainty: {certainty:.2f})',
+            'font': {'size': 14}
+        },
+        xaxis={'title': 'Probability', 'range': [0, max(probs) * 1.15]},
+        yaxis={'title': '', 'autorange': 'reversed'},
+        height=250,
+        margin={'l': 100, 'r': 80, 't': 50, 'b': 40},
+        annotations=annotations,
+        hovermode='closest'
+    )
+    
+    return fig
+
+
+def _create_comparison_bar_chart(layer_data1, layer_data2, layer_num):
+    """
+    Create a grouped bar chart comparing top-5 predictions from two prompts.
+    
+    Args:
+        layer_data1: Layer data dict for prompt 1 (with top_5_tokens, deltas, certainty)
+        layer_data2: Layer data dict for prompt 2 (with top_5_tokens, deltas, certainty)
+        layer_num: Layer number for title
+    
+    Returns:
+        Plotly Figure with grouped bars for overlapping tokens and separate bars for non-overlapping
+    """
+    import plotly.graph_objs as go
+    
+    top_5_1 = layer_data1.get('top_5_tokens', [])
+    top_5_2 = layer_data2.get('top_5_tokens', [])
+    deltas_1 = layer_data1.get('deltas', {})
+    deltas_2 = layer_data2.get('deltas', {})
+    certainty_1 = layer_data1.get('certainty', 0.0)
+    certainty_2 = layer_data2.get('certainty', 0.0)
+    
+    # Build token sets
+    tokens_1 = {tok: prob for tok, prob in top_5_1}
+    tokens_2 = {tok: prob for tok, prob in top_5_2}
+    
+    all_tokens = set(tokens_1.keys()) | set(tokens_2.keys())
+    overlapping_tokens = set(tokens_1.keys()) & set(tokens_2.keys())
+    
+    # Sort tokens: overlapping first (by max prob), then unique to prompt 1, then unique to prompt 2
+    def token_sort_key(token):
+        if token in overlapping_tokens:
+            return (0, -max(tokens_1.get(token, 0), tokens_2.get(token, 0)))
+        elif token in tokens_1:
+            return (1, -tokens_1[token])
+        else:
+            return (2, -tokens_2[token])
+    
+    sorted_tokens = sorted(all_tokens, key=token_sort_key)
+    
+    # Prepare data for grouped bars
+    tokens_list = []
+    probs_1_list = []
+    probs_2_list = []
+    
+    for token in sorted_tokens:
+        tokens_list.append(token)
+        probs_1_list.append(tokens_1.get(token, 0))
+        probs_2_list.append(tokens_2.get(token, 0))
+    
+    # Create annotations for deltas
+    annotations = []
+    for idx, token in enumerate(tokens_list):
+        # Prompt 1 delta (if token exists in prompt 1)
+        if token in tokens_1:
+            delta = deltas_1.get(token, 0.0)
+            if abs(delta) > 0.001:
+                symbol = '▲' if delta > 0 else '▼'
+                color = '#28a745' if delta > 0 else '#dc3545'
+                annotations.append({
+                    'x': tokens_1[token],
+                    'y': idx - 0.2,  # Offset for prompt 1 bar
+                    'text': f'{symbol}{abs(delta):.3f}',
+                    'showarrow': False,
+                    'xanchor': 'left',
+                    'xshift': 10,
+                    'font': {'size': 9, 'color': color}
+                })
+        
+        # Prompt 2 delta (if token exists in prompt 2)
+        if token in tokens_2:
+            delta = deltas_2.get(token, 0.0)
+            if abs(delta) > 0.001:
+                symbol = '▲' if delta > 0 else '▼'
+                color = '#28a745' if delta > 0 else '#dc3545'
+                annotations.append({
+                    'x': tokens_2[token],
+                    'y': idx + 0.2,  # Offset for prompt 2 bar
+                    'text': f'{symbol}{abs(delta):.3f}',
+                    'showarrow': False,
+                    'xanchor': 'left',
+                    'xshift': 10,
+                    'font': {'size': 9, 'color': color}
+                })
+    
+    # Create figure with grouped bars
+    fig = go.Figure()
+    
+    # Add Prompt 1 bars
+    fig.add_trace(go.Bar(
+        name='Prompt 1',
+        x=probs_1_list,
+        y=tokens_list,
+        orientation='h',
+        marker={'color': '#667eea'},
+        text=[f'{p:.3f}' if p > 0 else '' for p in probs_1_list],
+        textposition='auto',
+        hovertemplate='Prompt 1 - %{y}: %{x:.4f}<extra></extra>'
+    ))
+    
+    # Add Prompt 2 bars
+    fig.add_trace(go.Bar(
+        name='Prompt 2',
+        x=probs_2_list,
+        y=tokens_list,
+        orientation='h',
+        marker={'color': '#f59e42'},
+        text=[f'{p:.3f}' if p > 0 else '' for p in probs_2_list],
+        textposition='auto',
+        hovertemplate='Prompt 2 - %{y}: %{x:.4f}<extra></extra>'
+    ))
+    
+    # Update layout
+    max_prob = max(max(probs_1_list + [0]), max(probs_2_list + [0]))
+    
+    fig.update_layout(
+        title={
+            'text': f'Top 5 Predictions Comparison (Certainty: P1={certainty_1:.2f}, P2={certainty_2:.2f})',
+            'font': {'size': 14}
+        },
+        xaxis={'title': 'Probability', 'range': [0, max_prob * 1.2]},
+        yaxis={'title': '', 'autorange': 'reversed'},
+        barmode='group',
+        height=300,
+        margin={'l': 100, 'r': 100, 't': 50, 'b': 40},
+        annotations=annotations,
+        hovermode='closest',
+        legend={
+            'orientation': 'h',
+            'yanchor': 'bottom',
+            'y': 1.02,
+            'xanchor': 'right',
+            'x': 1
+        }
+    )
+    
+    return fig
+
+
 # Callback to create accordion panels from layer data
 @app.callback(
     Output('layer-accordions-container', 'children'),
-    [Input('session-activation-store', 'data')],
+    [Input('session-activation-store', 'data'),
+     Input('session-activation-store-2', 'data')],
     [State('model-dropdown', 'value')]
 )
-def create_layer_accordions(activation_data, model_name):
+def create_layer_accordions(activation_data, activation_data2, model_name):
     """Create accordion panels for each layer with top-5 bar charts, deltas, and certainty."""
     if not activation_data or not model_name:
         return html.P("Run analysis to see layer-by-layer predictions.", className="placeholder-text")
@@ -517,11 +724,23 @@ def create_layer_accordions(activation_data, model_name):
         model = AutoModelForCausalLM.from_pretrained(model_name, attn_implementation='eager')
         tokenizer = AutoTokenizer.from_pretrained(model_name)
         
-        # Extract layer data
+        # Extract layer data for first prompt
         layer_data = extract_layer_data(activation_data, model, tokenizer)
         
         if not layer_data:
             return html.P("No layer data available.", className="placeholder-text")
+        
+        # Check if second prompt exists and extract its layer data
+        layer_data2 = None
+        divergent_layers = set()
+        comparison_mode = activation_data2 and activation_data2.get('model') == model_name
+        
+        if comparison_mode:
+            layer_data2 = extract_layer_data(activation_data2, model, tokenizer)
+            
+            # Compute divergence between prompts
+            comparison_results = compare_attention_layers(activation_data, activation_data2)
+            divergent_layers = set(ld['layer'] for ld in comparison_results['divergent_layers'])
         
         # Create accordion panels (reversed to show final layer first)
         accordions = []
@@ -533,62 +752,52 @@ def create_layer_accordions(activation_data, model_name):
             deltas = layer.get('deltas', {})
             certainty = layer.get('certainty', 0.0)
             
-            # Create summary header with certainty
-            if top_token:
-                summary_text = f"Layer L{layer_num}: '{top_token}' (p={top_prob:.3f}, certainty={certainty:.2f})"
+            # Create summary header - different format for comparison mode
+            if comparison_mode and layer_data2:
+                # Find corresponding layer in second prompt
+                layer2 = next((l for l in layer_data2 if l['layer_num'] == layer_num), None)
+                if layer2:
+                    top_token2 = layer2.get('top_token', 'N/A')
+                    top_prob2 = layer2.get('top_prob', 0.0)
+                    
+                    # Determine if layers diverge
+                    is_divergent = layer_num in divergent_layers
+                    status = "diverges" if is_divergent else "similar"
+                    
+                    if top_token and top_token2:
+                        summary_text = f"Layer L{layer_num}: '{top_token}' vs '{top_token2}' ({status})"
+                    elif top_token:
+                        summary_text = f"Layer L{layer_num}: '{top_token}' vs (no prediction) ({status})"
+                    elif top_token2:
+                        summary_text = f"Layer L{layer_num}: (no prediction) vs '{top_token2}' ({status})"
+                    else:
+                        summary_text = f"Layer L{layer_num}: (no prediction) vs (no prediction) ({status})"
+                else:
+                    summary_text = f"Layer L{layer_num}: '{top_token}' vs (no data) (diverges)"
             else:
-                summary_text = f"Layer L{layer_num}: (no prediction)"
+                # Single prompt mode
+                if top_token:
+                    summary_text = f"Layer L{layer_num}: '{top_token}' (p={top_prob:.3f}, certainty={certainty:.2f})"
+                else:
+                    summary_text = f"Layer L{layer_num}: (no prediction)"
             
             # Create accordion panel content
             content_items = []
             
             if top_5:
-                # Create horizontal bar chart for top-5 tokens
-                tokens = [tok for tok, _ in top_5]
-                probs = [prob for _, prob in top_5]
-                
-                # Create delta annotations (▲/▼ with color)
-                annotations = []
-                for idx, (token, prob) in enumerate(top_5):
-                    delta = deltas.get(token, 0.0)
-                    if abs(delta) > 0.001:  # Only show meaningful deltas
-                        symbol = '▲' if delta > 0 else '▼'
-                        color = '#28a745' if delta > 0 else '#dc3545'
-                        annotations.append({
-                            'x': prob,
-                            'y': idx,
-                            'text': f'{symbol} {abs(delta):.3f}',
-                            'showarrow': False,
-                            'xanchor': 'left',
-                            'xshift': 10,
-                            'font': {'size': 10, 'color': color}
-                        })
-                
-                # Create Plotly figure
-                fig = go.Figure(data=[
-                    go.Bar(
-                        x=probs,
-                        y=tokens,
-                        orientation='h',
-                        marker={'color': '#667eea'},
-                        text=[f'{p:.3f}' for p in probs],
-                        textposition='auto',
-                        hovertemplate='%{y}: %{x:.4f}<extra></extra>'
-                    )
-                ])
-                
-                fig.update_layout(
-                    title={
-                        'text': f'Top 5 Predictions (Certainty: {certainty:.2f})',
-                        'font': {'size': 14}
-                    },
-                    xaxis={'title': 'Probability', 'range': [0, max(probs) * 1.15]},
-                    yaxis={'title': '', 'autorange': 'reversed'},
-                    height=250,
-                    margin={'l': 100, 'r': 80, 't': 50, 'b': 40},
-                    annotations=annotations,
-                    hovermode='closest'
-                )
+                # Create chart - either single prompt or comparison
+                if comparison_mode and layer_data2:
+                    # Find corresponding layer in second prompt
+                    layer2 = next((l for l in layer_data2 if l['layer_num'] == layer_num), None)
+                    if layer2 and layer2.get('top_5_tokens'):
+                        # Use comparison chart
+                        fig = _create_comparison_bar_chart(layer, layer2, layer_num)
+                    else:
+                        # Fallback to single prompt chart if no second prompt data
+                        fig = _create_single_prompt_chart(layer)
+                else:
+                    # Single prompt mode
+                    fig = _create_single_prompt_chart(layer)
                 
                 content_items.append(
                     dcc.Graph(
@@ -599,13 +808,33 @@ def create_layer_accordions(activation_data, model_name):
                 )
                 
                 # Add certainty tooltip explanation
-                content_items.append(html.Div([
-                    html.Small([
-                        html.I(className="fas fa-info-circle", style={'marginRight': '5px', 'color': '#667eea'}),
-                        f"Certainty = 1 − H(p_top5)/log(5), where H is Shannon entropy. ",
-                        "Higher values indicate more confident predictions."
-                    ], style={'color': '#6c757d', 'fontStyle': 'italic'})
-                ], style={'marginTop': '5px'}))
+                if comparison_mode and layer_data2:
+                    layer2 = next((l for l in layer_data2 if l['layer_num'] == layer_num), None)
+                    if layer2:
+                        certainty2 = layer2.get('certainty', 0.0)
+                        content_items.append(html.Div([
+                            html.Small([
+                                html.I(className="fas fa-info-circle", style={'marginRight': '5px', 'color': '#667eea'}),
+                                f"Certainty: P1={certainty:.2f}, P2={certainty2:.2f}. ",
+                                "Higher values indicate more confident predictions."
+                            ], style={'color': '#6c757d', 'fontStyle': 'italic'})
+                        ], style={'marginTop': '5px'}))
+                    else:
+                        content_items.append(html.Div([
+                            html.Small([
+                                html.I(className="fas fa-info-circle", style={'marginRight': '5px', 'color': '#667eea'}),
+                                f"Certainty = 1 − H(p_top5)/log(5), where H is Shannon entropy. ",
+                                "Higher values indicate more confident predictions."
+                            ], style={'color': '#6c757d', 'fontStyle': 'italic'})
+                        ], style={'marginTop': '5px'}))
+                else:
+                    content_items.append(html.Div([
+                        html.Small([
+                            html.I(className="fas fa-info-circle", style={'marginRight': '5px', 'color': '#667eea'}),
+                            f"Certainty = 1 − H(p_top5)/log(5), where H is Shannon entropy. ",
+                            "Higher values indicate more confident predictions."
+                        ], style={'color': '#6c757d', 'fontStyle': 'italic'})
+                    ], style={'marginTop': '5px'}))
             else:
                 content_items.append(html.P("No predictions available"))
             
