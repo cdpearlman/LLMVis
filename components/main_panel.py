@@ -60,17 +60,6 @@ def create_main_panel():
             )
         ], className="visualization-section"),
         
-        # Two-Prompt Comparison section (shown when comparing)
-        html.Div([
-            html.H3("Two-Prompt Comparison Analysis", className="section-title"),
-            html.Div([
-                html.P(
-                    "Comparison analysis will appear here when two prompts are provided.",
-                    className="placeholder-text"
-                )
-            ], id="comparison-container", className="results-area")
-        ], id="comparison-section", className="results-section", style={'display': 'none'}),
-        
         # Experiments section (shown after analysis)
         html.Div([
             html.Details([

@@ -36,13 +36,13 @@ Note: Minimal-change approach. Reuse existing files (`app.py`, `components/main_
 - [ ] Add one-line explainer tooltip: what a token is; note about spaces/subwords
 
 ## Feature: Second prompt comparison (bar chart becomes comparison)
-- [ ] When prompt 2 is present, render grouped bars (Prompt 1 vs Prompt 2) for top-5 in each layer
-- [ ] Reuse existing comparison utilities where possible (`utils/prompt_comparison.py`)
-- [ ] Add legend and consistent colors for the two prompts
+- [x] When prompt 2 is present, render grouped bars (Prompt 1 vs Prompt 2) for top-5 in each layer
+- [x] Reuse existing comparison utilities where possible (`utils/prompt_comparison.py`)
+- [x] Add legend and consistent colors for the two prompts
 
-## Feature: Divergence badge in headers (if 2nd prompt)
-- [ ] Surface divergence result as a small badge in `html.Summary` (e.g., "Diverges")
-- [ ] Reuse existing divergent-layer detection; no new heuristics
+## Cleanup (completed)
+- [x] Removed "Two-Prompt Comparison Analysis" section and associated computation code
+- [x] Removed (similar)/(diverges) tags from layer accordion headers
 
 ## Feature: Tooltips + collapsible "How to read this" help
 - [ ] Add `title` tooltips for charts, certainty meter, deltas, and attention list
