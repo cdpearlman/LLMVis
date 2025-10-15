@@ -60,15 +60,25 @@ def create_main_panel():
             )
         ], className="visualization-section"),
         
-        # Two-Prompt Comparison section (shown when comparing)
+        # Experiments section (shown after analysis)
         html.Div([
-            html.H3("Two-Prompt Comparison Analysis", className="section-title"),
-            html.Div([
-                html.P(
-                    "Comparison analysis will appear here when two prompts are provided.",
-                    className="placeholder-text"
-                )
-            ], id="comparison-container", className="results-area")
-        ], id="comparison-section", className="results-section", style={'display': 'none'})
+            html.Details([
+                html.Summary("Experiments", className="experiments-summary"),
+                html.Div([
+                    # Ablation experiment subsection
+                    html.Div([
+                        html.H4("Ablation Study", style={'marginTop': '0.5rem', 'marginBottom': '0.5rem'}),
+                        html.P([
+                            "Ablation experiments test the influence of individual layers by replacing their activations ",
+                            "with a meaningless mean activation computed across all layers and tokens. This reveals how much ",
+                            "each layer contributes to the model's final prediction for the given prompt(s)."
+                        ], style={'fontSize': '14px', 'color': '#6c757d', 'marginBottom': '1rem'}),
+                        html.P("Select a layer to ablate:", style={'fontSize': '14px', 'fontWeight': '500', 'marginBottom': '0.5rem'}),
+                        html.Div(id='ablation-layer-buttons', className='ablation-buttons-grid'),
+                        html.Button("Run Experiment", id='run-ablation-btn', className='run-experiment-btn', style={'marginTop': '1rem'})
+                    ], className='ablation-section')
+                ], className='experiments-content')
+            ], open=True)
+        ], id='experiments-section', className='experiments-section', style={'display': 'none'})
         
     ], className="main-panel-content")

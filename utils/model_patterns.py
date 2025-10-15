@@ -206,6 +206,172 @@ def execute_forward_pass(model, tokenizer, prompt: str, config: Dict[str, Any]) 
     return result
 
 
+def execute_forward_pass_with_layer_ablation(model, tokenizer, prompt: str, config: Dict[str, Any], 
+                                             ablate_layer_num: int, reference_activation_data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Execute forward pass with mean ablation on a specific layer.
+    
+    Args:
+        model: Loaded transformer model
+        tokenizer: Loaded tokenizer
+        prompt: Input text prompt
+        config: Dict with module lists like {"attention_modules": [...], "block_modules": [...], ...}
+        ablate_layer_num: Layer number to ablate
+        reference_activation_data: Original activation data containing the reference activations
+    
+    Returns:
+        JSON-serializable dict with captured activations (with ablated layer)
+    """
+    # Extract module lists from config
+    attention_modules = config.get("attention_modules", [])
+    block_modules = config.get("block_modules", [])
+    norm_parameters = config.get("norm_parameters", [])
+    logit_lens_parameter = config.get("logit_lens_parameter")
+    
+    all_modules = attention_modules + block_modules
+    if not all_modules:
+        return {"error": "No modules specified"}
+    
+    # Find the target module for the layer to ablate
+    target_module_name = None
+    for mod_name in block_modules:
+        layer_match = re.search(r'\.(\d+)(?:\.|$)', mod_name)
+        if layer_match and int(layer_match.group(1)) == ablate_layer_num:
+            target_module_name = mod_name
+            break
+    
+    if not target_module_name:
+        return {"error": f"Could not find module for layer {ablate_layer_num}"}
+    
+    # Get reference activations from ALL layers for mean computation
+    block_outputs = reference_activation_data.get('block_outputs', {})
+    if not block_outputs:
+        return {"error": "No block outputs found in reference data"}
+    
+    # Collect all layer activations to compute global mean
+    all_layer_tensors = []
+    for mod_name, output_data in block_outputs.items():
+        output = output_data['output']
+        if isinstance(output, list):
+            tensor = torch.tensor(output)
+        else:
+            tensor = output
+        all_layer_tensors.append(tensor)
+    
+    # Stack all layers and compute mean across ALL layers and sequence positions
+    # This gives us a single mean vector that represents the average activation
+    stacked = torch.stack(all_layer_tensors, dim=0)  # [num_layers, batch, seq_len, hidden_dim]
+    # Compute mean across layers and sequence dimension
+    mean_activation = stacked.mean(dim=(0, 2), keepdim=True)  # [1, batch, 1, hidden_dim]
+    mean_activation = mean_activation.squeeze(0)  # [batch, 1, hidden_dim]
+    
+    # Prepare inputs
+    inputs = tokenizer(prompt, return_tensors="pt")
+    seq_len = inputs['input_ids'].shape[1]
+    
+    # Broadcast mean to match sequence length
+    ablation_value = mean_activation.expand(-1, seq_len, -1)  # [batch, seq_len, hidden_dim]
+    
+    # Build IntervenableConfig from module names
+    intervenable_representations = []
+    for mod_name in all_modules:
+        layer_match = re.search(r'\.(\d+)(?:\.|$)', mod_name)
+        if not layer_match:
+            return {"error": f"Invalid module name format: {mod_name}"}
+        
+        if 'attn' in mod_name or 'attention' in mod_name:
+            component = 'attention_output'
+        else:
+            component = 'block_output'
+        
+        intervenable_representations.append(
+            RepresentationConfig(layer=int(layer_match.group(1)), component=component, unit="pos")
+        )
+    
+    intervenable_config = IntervenableConfig(
+        intervenable_representations=intervenable_representations
+    )
+    intervenable_model = IntervenableModel(intervenable_config, model)
+    
+    # Register hooks to capture activations
+    captured = {}
+    name_to_module = dict(intervenable_model.model.named_modules())
+    
+    def make_hook(mod_name: str):
+        return lambda module, inputs, output: captured.update({mod_name: {"output": safe_to_serializable(output)}})
+    
+    # Register ablation hook for target module
+    def ablation_hook(module, input, output):
+        # Replace output with mean activation
+        if isinstance(output, tuple):
+            # For modules that return tuples (hidden_states, ...), replace first element
+            ablated = (ablation_value,) + output[1:]
+            return ablated
+        else:
+            return ablation_value
+    
+    hooks = []
+    for mod_name in all_modules:
+        if mod_name in name_to_module:
+            if mod_name == target_module_name:
+                # Apply ablation hook
+                hooks.append(name_to_module[mod_name].register_forward_hook(ablation_hook))
+            else:
+                # Regular capture hook
+                hooks.append(name_to_module[mod_name].register_forward_hook(make_hook(mod_name)))
+    
+    # Execute forward pass
+    with torch.no_grad():
+        model_output = intervenable_model.model(**inputs, use_cache=False)
+    
+    # Remove hooks
+    for hook in hooks:
+        hook.remove()
+    
+    # Capture ablated layer output as well
+    captured[target_module_name] = {"output": safe_to_serializable(ablation_value)}
+    
+    # Separate outputs by type
+    attention_outputs = {}
+    block_outputs = {}
+    
+    for mod_name, output in captured.items():
+        if 'attn' in mod_name or 'attention' in mod_name:
+            attention_outputs[mod_name] = output
+        else:
+            block_outputs[mod_name] = output
+    
+    # Capture normalization parameters
+    all_params = dict(model.named_parameters())
+    norm_data = [safe_to_serializable(all_params[p]) for p in norm_parameters if p in all_params]
+    
+    # Extract predicted token from model output
+    actual_output = None
+    try:
+        output_token, output_prob = get_actual_model_output(model_output, tokenizer)
+        actual_output = {"token": output_token, "probability": output_prob}
+    except Exception as e:
+        print(f"Warning: Could not extract model output: {e}")
+    
+    # Build output dictionary
+    result = {
+        "model": getattr(model.config, "name_or_path", "unknown"),
+        "prompt": prompt,
+        "input_ids": safe_to_serializable(inputs["input_ids"]),
+        "attention_modules": list(attention_outputs.keys()),
+        "attention_outputs": attention_outputs,
+        "block_modules": list(block_outputs.keys()),
+        "block_outputs": block_outputs,
+        "norm_parameters": norm_parameters,
+        "norm_data": norm_data,
+        "logit_lens_parameter": logit_lens_parameter,
+        "actual_output": actual_output,
+        "ablated_layer": ablate_layer_num
+    }
+    
+    return result
+
+
 def logit_lens_transformation(layer_output: Any, norm_data: List[Any], model, logit_lens_parameter: str, tokenizer, norm_parameter: Optional[str] = None, top_k: int = 5) -> List[Tuple[str, float]]:
     """
     Transform layer output to top K token probabilities using logit lens.
