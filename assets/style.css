@@ -515,6 +515,73 @@ details[open] .layer-summary::before {
     white-space: nowrap;
 }
 
+/* Tokenization panel styles */
+.tokenization-section {
+    margin-bottom: 3rem;
+    padding: 1.5rem;
+    background-color: #f8f9fa;
+    border-radius: 8px;
+    border: 1px solid #dee2e6;
+}
+
+.tokenization-grid {
+    display: flex;
+    gap: 2rem;
+    align-items: flex-start;
+    margin-top: 1rem;
+}
+
+.tokenization-col {
+    flex: 1;
+    min-width: 0; /* Allow flex items to shrink */
+}
+
+.token-column {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.token-box {
+    position: relative;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    cursor: help;
+}
+
+.token-box:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+    z-index: 10;
+}
+
+/* Connecting lines between token columns (visual only) */
+.token-box-token::after,
+.token-box-id::after {
+    content: '';
+    position: absolute;
+    right: -1rem;
+    top: 50%;
+    width: 2rem;
+    height: 2px;
+    background-color: #dee2e6;
+    transform: translateY(-50%);
+    pointer-events: none;
+}
+
+/* Hide connector lines on hover for cleaner tooltip display */
+.token-box:hover::after {
+    opacity: 0.3;
+}
+
+/* Example diagram styling */
+.example-text {
+    transition: background-color 0.2s ease;
+}
+
+.example-text:hover {
+    background-color: #d4e3f7 !important;
+}
+
 /* Responsive design */
 @media (max-width: 768px) {
     .content-container {
@@ -537,5 +604,17 @@ details[open] .layer-summary::before {
     
     .token-chips-row {
         flex-wrap: wrap;
+    }
+    
+    /* Stack tokenization columns vertically on small screens */
+    .tokenization-grid {
+        flex-direction: column;
+        gap: 1rem;
+    }
+    
+    /* Hide connecting lines on mobile */
+    .token-box-token::after,
+    .token-box-id::after {
+        display: none;
     }
 }

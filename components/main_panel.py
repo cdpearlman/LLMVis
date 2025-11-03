@@ -3,12 +3,14 @@ Main panel component for the dashboard.
 
 This component contains:
 - Model selector and prompt input
+- Tokenization visualization
 - Layer accordion visualization
 - Status and results display
 """
 
 from dash import html, dcc
 from .model_selector import create_model_selector
+from .tokenization_panel import create_tokenization_panel
 
 def create_main_panel():
     """Create the main content panel."""
@@ -21,6 +23,9 @@ def create_main_panel():
         
         # Analysis loading indicator
         html.Div(id="analysis-loading-indicator", className="loading-container"),
+        
+        # Tokenization panel (shown after analysis)
+        create_tokenization_panel(),
         
         # Layer-based visualization section with loading spinner
         html.Div([

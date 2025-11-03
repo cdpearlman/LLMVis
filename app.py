@@ -834,6 +834,57 @@ def create_layer_accordions(activation_data, activation_data2, model_name):
         traceback.print_exc()
         return html.P(f"Error creating layer view: {str(e)}", className="placeholder-text")
 
+# Update tokenization display
+@app.callback(
+    [Output('tokenization-panel', 'style'),
+     Output('tokenization-display-container', 'children')],
+    [Input('session-activation-store', 'data'),
+     Input('session-activation-store-2', 'data')],
+    [State('model-dropdown', 'value')]
+)
+def update_tokenization_display(activation_data, activation_data2, model_name):
+    """Populate tokenization panel with actual token data from analysis."""
+    if not activation_data or not model_name:
+        # Hide panel if no analysis has been run
+        return {'display': 'none'}, []
+    
+    try:
+        from transformers import AutoTokenizer
+        from components.tokenization_panel import create_tokenization_display
+        
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        
+        # Decode tokens for first prompt
+        input_ids = activation_data['input_ids'][0]  # First batch element
+        tokens = [tokenizer.decode([token_id], skip_special_tokens=False) for token_id in input_ids]
+        
+        # Create first tokenization display
+        displays = []
+        displays.append(html.Div([
+            html.H4("Prompt 1:" if activation_data2 else "Your Prompt:", 
+                   style={'marginTop': '0', 'color': '#495057'}),
+            create_tokenization_display(tokens, input_ids)
+        ]))
+        
+        # Check for comparison mode
+        if activation_data2 and activation_data2.get('model') == model_name:
+            input_ids2 = activation_data2['input_ids'][0]
+            tokens2 = [tokenizer.decode([token_id], skip_special_tokens=False) for token_id in input_ids2]
+            displays.append(html.Div([
+                html.H4("Prompt 2:", 
+                       style={'marginTop': '2rem', 'color': '#495057'}),
+                create_tokenization_display(tokens2, input_ids2)
+            ]))
+        
+        # Show panel and return displays (stacked vertically)
+        return {'display': 'block'}, displays
+        
+    except Exception as e:
+        print(f"Error updating tokenization display: {e}")
+        import traceback
+        traceback.print_exc()
+        return {'display': 'none'}, []
+
 # Enable Run Analysis button when requirements are met
 @app.callback(
     Output('run-analysis-btn', 'disabled'),
