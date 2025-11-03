@@ -44,30 +44,30 @@
 
 ---
 
-## PHASE 2: UI Component Removal & Cleanup
+## PHASE 2: UI Component Removal & Cleanup ✅ COMPLETED
 
 ### 2.1 Remove Check Token Feature
-- [ ] Remove "Check Token" input field from `components/main_panel.py`
-- [ ] Remove `check-token-graph` and `check-token-graph-container` from main_panel.py
-- [ ] Remove `check-token-graph-store` from app.py stores
-- [ ] Remove `update_check_token_graph()` callback from app.py
-- [ ] Remove `get_check_token_probabilities()` calls from `run_analysis()` callback
-- [ ] Clean up any CSS related to check token feature in assets/style.css
+- [x] Remove "Check Token" input field from `components/main_panel.py`
+- [x] Remove `check-token-graph` and `check-token-graph-container` from main_panel.py
+- [x] Remove `check-token-graph-store` from app.py stores
+- [x] Remove `update_check_token_graph()` callback from app.py
+- [x] Remove `get_check_token_probabilities()` calls from `run_analysis()` callback
+- [x] Clean up any CSS related to check token feature in assets/style.css
 
 ### 2.2 Remove Bottom Experiments Section
-- [ ] Remove entire `experiments-section` div from `components/main_panel.py`
-- [ ] Remove `show_experiments_section()` callback from app.py
-- [ ] Remove `ablation-layer-buttons`, `ablation-selection-store`, `ablation-results-flag` stores from app.py
-- [ ] Remove `populate_ablation_buttons()` callback from app.py
-- [ ] Remove `handle_layer_selection()` callback from app.py
-- [ ] Remove `run_ablation_experiment()` callback from app.py (will be replaced with per-layer version)
-- [ ] Clean up any CSS related to experiments section in assets/style.css
+- [x] Remove entire `experiments-section` div from `components/main_panel.py`
+- [x] Remove `show_experiments_section()` callback from app.py
+- [x] Remove `ablation-layer-buttons`, `ablation-selection-store`, `ablation-results-flag` stores from app.py
+- [x] Remove `populate_ablation_buttons()` callback from app.py
+- [x] Remove `handle_layer_selection()` callback from app.py
+- [x] Remove `run_ablation_experiment()` callback from app.py (will be replaced with per-layer version)
+- [x] Clean up any CSS related to experiments section in assets/style.css
 
 ### 2.3 Update Layer Accordion Display
-- [ ] Remove certainty display from layer accordion summary in `create_layer_accordions()` callback
-- [ ] Remove certainty tooltip/explanation from layer accordion content
-- [ ] Remove "Attention (current position)" section and top_attended display from layer accordions
-- [ ] Keep attention head categorization section (will be enhanced in Phase 4)
+- [x] Remove certainty display from layer accordion summary in `create_layer_accordions()` callback
+- [x] Remove certainty tooltip/explanation from layer accordion content
+- [x] Remove "Attention (current position)" section and top_attended display from layer accordions
+- [x] Keep attention head categorization section (will be enhanced in Phase 4)
 
 ---
 
