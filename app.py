@@ -8,8 +8,7 @@ Components are organized for easy understanding and maintenance.
 import dash
 from dash import html, dcc, Input, Output, State, callback, no_update, ALL
 from utils import (load_model_and_get_patterns, execute_forward_pass, extract_layer_data,
-                   categorize_single_layer_heads, format_categorization_summary,
-                   get_check_token_probabilities, execute_forward_pass_with_layer_ablation)
+                   categorize_single_layer_heads, format_categorization_summary)
 from utils.model_config import get_auto_selections, get_model_family
 
 # Import modular components
@@ -111,11 +110,6 @@ app.layout = html.Div([
     dcc.Store(id='comparison-mode-store', storage_type='session', data=False),
     # Second prompt activation data
     dcc.Store(id='session-activation-store-2', storage_type='session'),
-    # Check token graph data
-    dcc.Store(id='check-token-graph-store', storage_type='memory'),
-    # Ablation experiment stores
-    dcc.Store(id='ablation-selection-store', storage_type='session'),
-    dcc.Store(id='ablation-results-flag', storage_type='session', data=False),
     
     # Main container
     html.Div([
@@ -335,13 +329,11 @@ def show_analysis_loading_spinner(n_clicks):
 @app.callback(
     [Output('session-activation-store', 'data', allow_duplicate=True),
      Output('session-activation-store-2', 'data'),
-     Output('analysis-loading-indicator', 'children'),
-     Output('check-token-graph-store', 'data')],
+     Output('analysis-loading-indicator', 'children')],
     [Input('run-analysis-btn', 'n_clicks')],
     [State('model-dropdown', 'value'),
      State('prompt-input', 'value'),
      State('prompt-input-2', 'value'),
-     State('check-token-input', 'value'),
      State('attention-modules-dropdown', 'value'),
      State('block-modules-dropdown', 'value'),
      State('norm-params-dropdown', 'value'), 
@@ -349,7 +341,7 @@ def show_analysis_loading_spinner(n_clicks):
      State('session-patterns-store', 'data')],
     prevent_initial_call=True
 )
-def run_analysis(n_clicks, model_name, prompt, prompt2, check_token, attn_patterns, block_patterns, norm_patterns, logit_pattern, patterns_data):
+def run_analysis(n_clicks, model_name, prompt, prompt2, attn_patterns, block_patterns, norm_patterns, logit_pattern, patterns_data):
     """Run forward pass and store activation data (handles 1 or 2 prompts)."""
     print(f"\n=== DEBUG: run_analysis START ===")
     print(f"DEBUG: n_clicks={n_clicks}, model_name={model_name}, prompt='{prompt}', prompt2='{prompt2}'")
@@ -386,9 +378,6 @@ def run_analysis(n_clicks, model_name, prompt, prompt2, check_token, attn_patter
         activation_data = execute_forward_pass(model, tokenizer, prompt, config)
         
         print(f"DEBUG: Executed forward pass for prompt 1")
-        
-        # Compute check token probabilities if provided
-        check_token_data = get_check_token_probabilities(activation_data, model, tokenizer, check_token) if check_token else None
         
         # Store data needed for accordion display and analysis
         essential_data = {
@@ -427,7 +416,7 @@ def run_analysis(n_clicks, model_name, prompt, prompt2, check_token, attn_patter
         ], className="status-success")
         
         print(f"=== DEBUG: run_analysis END ===\n")
-        return essential_data, essential_data2, success_message, check_token_data
+        return essential_data, essential_data2, success_message
         
     except Exception as e:
         print(f"Analysis error: {e}")
@@ -440,38 +429,7 @@ def run_analysis(n_clicks, model_name, prompt, prompt2, check_token, attn_patter
             f"Analysis error: {str(e)}"
         ], className="status-error")
         
-        return {}, {}, error_message, None
-
-# Callback to update check token graph
-@app.callback(
-    [Output('check-token-graph', 'figure'),
-     Output('check-token-graph-container', 'style')],
-    [Input('check-token-graph-store', 'data')]
-)
-def update_check_token_graph(check_token_data):
-    """Update the check token probability graph."""
-    if not check_token_data:
-        return {}, {'flex': '1', 'minWidth': '300px', 'display': 'none'}
-    
-    import plotly.graph_objs as go
-    
-    figure = go.Figure(
-        data=[go.Scatter(
-            x=check_token_data['layers'],
-            y=check_token_data['probabilities'],
-            mode='lines+markers',
-            line={'color': '#667eea', 'width': 2},
-            marker={'size': 6},
-            name=check_token_data['token']
-        )],
-        layout=go.Layout(
-            title=f"Token: {check_token_data['token']}",
-            xaxis={'title': 'Layer'},
-            yaxis={'title': 'Probability', 'nticks': 8}
-        )
-    )
-    
-    return figure, {'flex': '1', 'minWidth': '300px', 'display': 'block'}
+        return {}, {}, error_message
 
 def _create_single_prompt_chart(layer_data):
     """
@@ -691,9 +649,6 @@ def create_layer_accordions(activation_data, activation_data2, model_name):
     if not activation_data or not model_name:
         return html.P("Run analysis to see layer-by-layer predictions.", className="placeholder-text")
     
-    # Check if this is ablation results
-    ablated_layer = activation_data.get('ablated_layer')
-    
     try:
         from transformers import AutoModelForCausalLM, AutoTokenizer
         import plotly.graph_objs as go
@@ -745,7 +700,7 @@ def create_layer_accordions(activation_data, activation_data2, model_name):
             else:
                 # Single prompt mode
                 if top_token:
-                    summary_text = f"Layer L{layer_num}: '{top_token}' (p={top_prob:.3f}, certainty={certainty:.2f})"
+                    summary_text = f"Layer L{layer_num}: '{top_token}' (p={top_prob:.3f})"
                 else:
                     summary_text = f"Layer L{layer_num}: (no prediction)"
             
@@ -774,35 +729,6 @@ def create_layer_accordions(activation_data, activation_data2, model_name):
                         style={'marginBottom': '10px'}
                     )
                 )
-                
-                # Add certainty tooltip explanation
-                if comparison_mode and layer_data2:
-                    layer2 = next((l for l in layer_data2 if l['layer_num'] == layer_num), None)
-                    if layer2:
-                        certainty2 = layer2.get('certainty', 0.0)
-                        content_items.append(html.Div([
-                            html.Small([
-                                html.I(className="fas fa-info-circle", style={'marginRight': '5px', 'color': '#667eea'}),
-                                f"Certainty: P1={certainty:.2f}, P2={certainty2:.2f}. ",
-                                "Higher values indicate more confident predictions."
-                            ], style={'color': '#6c757d', 'fontStyle': 'italic'})
-                        ], style={'marginTop': '5px'}))
-                    else:
-                        content_items.append(html.Div([
-                            html.Small([
-                                html.I(className="fas fa-info-circle", style={'marginRight': '5px', 'color': '#667eea'}),
-                                f"Certainty = 1 − H(p_top5)/log(5), where H is Shannon entropy. ",
-                                "Higher values indicate more confident predictions."
-                            ], style={'color': '#6c757d', 'fontStyle': 'italic'})
-                        ], style={'marginTop': '5px'}))
-                else:
-                    content_items.append(html.Div([
-                        html.Small([
-                            html.I(className="fas fa-info-circle", style={'marginRight': '5px', 'color': '#667eea'}),
-                            f"Certainty = 1 − H(p_top5)/log(5), where H is Shannon entropy. ",
-                            "Higher values indicate more confident predictions."
-                        ], style={'color': '#6c757d', 'fontStyle': 'italic'})
-                    ], style={'marginTop': '5px'}))
             else:
                 content_items.append(html.P("No predictions available"))
             
@@ -892,59 +818,11 @@ def create_layer_accordions(activation_data, activation_data2, model_name):
                     print(f"Warning: Could not categorize heads for layer {layer_num}: {e}")
                     import traceback
                     traceback.print_exc()
-                
-                content_items.append(html.Hr(style={'margin': '10px 0'}))
-            
-            content_items.append(html.H6("Attention (current position)", style={'marginBottom': '8px', 'fontSize': '14px', 'color': '#495057'}))
-            
-            if top_attended:
-                # Show top-3 attended tokens
-                attention_items = []
-                for token, weight in top_attended:
-                    attention_items.append(html.Div([
-                        html.Span(f"'{token}'", style={'fontWeight': 'bold', 'marginRight': '8px'}),
-                        html.Span(f"{weight:.3f}", style={'color': '#6c757d', 'fontSize': '13px'})
-                    ], style={'marginBottom': '4px'}))
-                
-                content_items.append(html.Div(attention_items, style={'marginBottom': '10px'}))
-                
-                # Add button to open full BertViz view
-                button_text = f"View all {total_heads} heads interactively (BertViz)" if total_heads > 0 else "View attention heads interactively (BertViz)"
-                content_items.append(html.Button(
-                    [html.I(className="fas fa-chart-network", style={'marginRight': '5px'}), button_text],
-                    id={'type': 'bertviz-btn', 'layer': layer_num},
-                    className='bertviz-button',
-                    title="Opens an interactive visualization showing attention patterns for all heads in this layer",
-                    style={
-                        'padding': '6px 12px',
-                        'fontSize': '12px',
-                        'backgroundColor': '#667eea',
-                        'color': 'white',
-                        'border': 'none',
-                        'borderRadius': '4px',
-                        'cursor': 'pointer',
-                        'transition': 'background-color 0.2s'
-                    }
-                ))
-                content_items.append(html.Div(id={'type': 'bertviz-container', 'layer': layer_num}, style={'marginTop': '10px'}))
-            else:
-                # Show message when no attention data is available
-                content_items.append(html.Div([
-                    html.Small([
-                        html.I(className="fas fa-info-circle", style={'marginRight': '5px', 'color': '#f0ad4e'}),
-                        "No attention data available. Select attention modules in the sidebar to see attention patterns."
-                    ], style={'color': '#6c757d', 'fontStyle': 'italic'})
-                ]))
-            
-            # Determine if this layer is ablated
-            panel_class = "layer-accordion"
-            if ablated_layer is not None and layer_num == ablated_layer:
-                panel_class += " layer-ablated"
             
             panel = html.Details([
                 html.Summary(summary_text, className="layer-summary"),
                 html.Div(content_items, className="layer-content")
-            ], className=panel_class)
+            ], className="layer-accordion")
             
             accordions.append(panel)
         
@@ -955,208 +833,6 @@ def create_layer_accordions(activation_data, activation_data2, model_name):
         import traceback
         traceback.print_exc()
         return html.P(f"Error creating layer view: {str(e)}", className="placeholder-text")
-
-# Show experiments section after analysis completes
-@app.callback(
-    Output('experiments-section', 'style'),
-    [Input('session-activation-store', 'data')],
-    prevent_initial_call=False
-)
-def show_experiments_section(activation_data):
-    """Show experiments section after analysis is run."""
-    if activation_data and activation_data.get('block_modules') and len(activation_data.get('block_modules', [])) > 0:
-        return {'display': 'block'}
-    return {'display': 'none'}
-
-# Populate ablation layer buttons
-@app.callback(
-    Output('ablation-layer-buttons', 'children'),
-    [Input('session-activation-store', 'data')]
-)
-def populate_ablation_buttons(activation_data):
-    """Create layer buttons for ablation experiment."""
-    if not activation_data or not activation_data.get('block_modules'):
-        return html.P("Run analysis first to select layers.", style={'color': '#6c757d', 'fontSize': '14px'})
-    
-    # Extract layer numbers from block modules
-    import re
-    layer_modules = activation_data.get('block_modules', [])
-    layer_numbers = sorted([
-        int(re.findall(r'\d+', name)[0])
-        for name in layer_modules if re.findall(r'\d+', name)
-    ])
-    
-    if not layer_numbers:
-        return html.P("No layers found.", style={'color': '#6c757d', 'fontSize': '14px'})
-    
-    # Create buttons for each layer
-    buttons = []
-    for layer_num in layer_numbers:
-        buttons.append(
-            html.Button(
-                f"L{layer_num}",
-                id={'type': 'ablate-layer-btn', 'layer': layer_num},
-                className='ablation-layer-btn',
-                n_clicks=0
-            )
-        )
-    
-    return buttons
-
-# Handle layer button selection
-@app.callback(
-    [Output('ablation-selection-store', 'data'),
-     Output({'type': 'ablate-layer-btn', 'layer': ALL}, 'className')],
-    [Input({'type': 'ablate-layer-btn', 'layer': ALL}, 'n_clicks')],
-    [State('ablation-selection-store', 'data'),
-     State({'type': 'ablate-layer-btn', 'layer': ALL}, 'id')]
-)
-def handle_layer_selection(n_clicks_list, current_selection, button_ids):
-    """Handle layer button clicks and update selection state."""
-    from dash import callback_context
-    
-    if not callback_context.triggered or not button_ids:
-        # Initial render or no buttons
-        class_names = ['ablation-layer-btn'] * len(button_ids)
-        if current_selection is not None:
-            # Apply selected style to current selection
-            for i, btn_id in enumerate(button_ids):
-                if btn_id['layer'] == current_selection:
-                    class_names[i] = 'ablation-layer-btn selected'
-        return current_selection, class_names
-    
-    # Find which button was clicked
-    triggered_id = callback_context.triggered[0]['prop_id']
-    if 'ablate-layer-btn' not in triggered_id:
-        # Not a button click
-        class_names = ['ablation-layer-btn'] * len(button_ids)
-        if current_selection is not None:
-            for i, btn_id in enumerate(button_ids):
-                if btn_id['layer'] == current_selection:
-                    class_names[i] = 'ablation-layer-btn selected'
-        return current_selection, class_names
-    
-    # Parse the triggered button's layer
-    import json
-    triggered_dict = json.loads(triggered_id.split('.')[0])
-    clicked_layer = triggered_dict['layer']
-    
-    # Toggle selection: if already selected, deselect; otherwise select
-    new_selection = None if current_selection == clicked_layer else clicked_layer
-    
-    # Update button classes
-    class_names = []
-    for btn_id in button_ids:
-        if btn_id['layer'] == new_selection:
-            class_names.append('ablation-layer-btn selected')
-        else:
-            class_names.append('ablation-layer-btn')
-    
-    return new_selection, class_names
-
-# Run ablation experiment callback
-@app.callback(
-    [Output('session-activation-store', 'data', allow_duplicate=True),
-     Output('session-activation-store-2', 'data', allow_duplicate=True),
-     Output('ablation-results-flag', 'data'),
-     Output('analysis-loading-indicator', 'children', allow_duplicate=True)],
-    [Input('run-ablation-btn', 'n_clicks')],
-    [State('ablation-selection-store', 'data'),
-     State('session-activation-store', 'data'),
-     State('session-activation-store-2', 'data'),
-     State('model-dropdown', 'value'),
-     State('prompt-input', 'value'),
-     State('prompt-input-2', 'value'),
-     State('attention-modules-dropdown', 'value'),
-     State('block-modules-dropdown', 'value'),
-     State('norm-params-dropdown', 'value'),
-     State('logit-lens-dropdown', 'value'),
-     State('session-patterns-store', 'data')],
-    prevent_initial_call=True
-)
-def run_ablation_experiment(n_clicks, selected_layer, activation_data, activation_data2, 
-                            model_name, prompt, prompt2, attn_patterns, block_patterns, 
-                            norm_patterns, logit_pattern, patterns_data):
-    """Run ablation experiment on selected layer for both prompts."""
-    if not n_clicks or selected_layer is None or not activation_data:
-        return no_update, no_update, False, no_update
-    
-    try:
-        # Load model
-        from transformers import AutoModelForCausalLM, AutoTokenizer
-        model = AutoModelForCausalLM.from_pretrained(model_name, attn_implementation='eager')
-        tokenizer = AutoTokenizer.from_pretrained(model_name)
-        model.eval()
-        
-        # Build config from selected patterns
-        module_patterns = patterns_data.get('module_patterns', {})
-        param_patterns = patterns_data.get('param_patterns', {})
-        all_patterns = {**module_patterns, **param_patterns}
-        
-        config = {
-            'attention_modules': [mod for pattern in (attn_patterns or []) for mod in module_patterns.get(pattern, [])],
-            'block_modules': [mod for pattern in block_patterns for mod in module_patterns.get(pattern, [])],
-            'norm_parameters': param_patterns.get(norm_patterns, []) if norm_patterns else [],
-            'logit_lens_parameter': all_patterns.get(logit_pattern, [None])[0] if logit_pattern else None
-        }
-        
-        # Run ablation on first prompt
-        ablated_data = execute_forward_pass_with_layer_ablation(
-            model, tokenizer, prompt, config, selected_layer, activation_data
-        )
-        
-        # Build essential data for first prompt
-        essential_data = {
-            'model': ablated_data.get('model'),
-            'prompt': ablated_data.get('prompt'),
-            'input_ids': ablated_data.get('input_ids'),
-            'attention_modules': ablated_data.get('attention_modules'),
-            'attention_outputs': ablated_data.get('attention_outputs'),
-            'block_modules': ablated_data.get('block_modules'),
-            'block_outputs': ablated_data.get('block_outputs'),
-            'logit_lens_parameter': ablated_data.get('logit_lens_parameter'),
-            'actual_output': ablated_data.get('actual_output'),
-            'ablated_layer': selected_layer
-        }
-        
-        # Run ablation on second prompt if it exists
-        essential_data2 = {}
-        if activation_data2 and prompt2 and prompt2.strip():
-            ablated_data2 = execute_forward_pass_with_layer_ablation(
-                model, tokenizer, prompt2, config, selected_layer, activation_data2
-            )
-            
-            essential_data2 = {
-                'model': ablated_data2.get('model'),
-                'prompt': ablated_data2.get('prompt'),
-                'input_ids': ablated_data2.get('input_ids'),
-                'attention_modules': ablated_data2.get('attention_modules'),
-                'attention_outputs': ablated_data2.get('attention_outputs'),
-                'block_modules': ablated_data2.get('block_modules'),
-                'block_outputs': ablated_data2.get('block_outputs'),
-                'logit_lens_parameter': ablated_data2.get('logit_lens_parameter'),
-                'actual_output': ablated_data2.get('actual_output'),
-                'ablated_layer': selected_layer
-            }
-        
-        # Show success message
-        success_message = html.Div([
-            html.I(className="fas fa-check-circle", style={'color': '#28a745', 'marginRight': '8px'}),
-            f"Ablation complete for Layer L{selected_layer}!"
-        ], className="status-success")
-        
-        return essential_data, essential_data2, True, success_message
-        
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        
-        error_message = html.Div([
-            html.I(className="fas fa-exclamation-triangle", style={'color': '#dc3545', 'marginRight': '8px'}),
-            f"Ablation error: {str(e)}"
-        ], className="status-error")
-        
-        return no_update, no_update, False, error_message
 
 # Enable Run Analysis button when requirements are met
 @app.callback(
