@@ -487,6 +487,43 @@ details[open] .layer-summary::before {
     border-top: 1px solid #e9ecef;
 }
 
+/* Flow diagram boxes */
+.flow-box {
+    display: inline-block;
+    padding: 8px 12px;
+    border: 2px solid #667eea;
+    border-radius: 6px;
+    background-color: white;
+    font-size: 13px;
+    font-weight: 500;
+    color: #495057;
+    cursor: help;
+    transition: all 0.2s;
+}
+
+.flow-box:hover {
+    background-color: #667eea;
+    color: white;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(102, 126, 234, 0.3);
+}
+
+.attention-box {
+    border-color: #667eea;
+}
+
+.attention-box:hover {
+    background-color: #667eea;
+}
+
+.ffn-box {
+    border-color: #764ba2;
+}
+
+.ffn-box:hover {
+    background-color: #764ba2;
+}
+
 /* Token chips between layers */
 .token-chips-row {
     display: flex;

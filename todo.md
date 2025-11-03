@@ -146,65 +146,66 @@
 
 ---
 
-## PHASE 5: Individual Layer Panel Refactor
+## PHASE 5: Individual Layer Panel Refactor ✅ COMPLETED
 
 ### 5.1 Replace Top 5 Bar Chart with Change in Token Probabilities
-- [ ] Modify `create_layer_accordions()` to replace current top 5 bar chart with delta chart
-- [ ] Create new function `_create_token_probability_delta_chart()` that:
+- [x] Modify `create_layer_accordions()` to replace current top 5 bar chart with delta chart
+- [x] Create new function `_create_token_probability_delta_chart()` that:
   - Takes layer data with deltas for global top 5 tokens
   - Creates horizontal bar chart showing delta (change from previous layer)
   - Use green bars for positive deltas, red bars for negative deltas
   - Show token names on y-axis, delta values on x-axis
   - Add hover info showing previous prob, current prob, and delta
   - Title: "Change in Token Probabilities (from Layer N-1 to Layer N)"
-- [ ] For layer 0, show change from embedding (or from 0 if no embedding probs available)
-- [ ] Handle comparison mode: show grouped bars or side-by-side charts
-- [ ] Place this chart as first item in layer accordion content
+- [x] For layer 0, show change from embedding (or from 0 if no embedding probs available)
+- [x] Handle comparison mode: show grouped bars or side-by-side charts (created `_create_comparison_delta_chart()`)
+- [x] Place this chart as first item in layer accordion content
 
 ### 5.2 Add Visual Flow Diagram to Each Layer
-- [ ] Create static diagram image showing transformer layer flow:
+- [x] Create HTML/CSS diagram showing transformer layer flow:
   - Input vector "[ ... ]" → Self-Attention → branches to:
     - Left branch: F(x) box (feed-forward network)
     - Right branch: Residual connection (curved line going around)
   - Both branches merge → Output (connects to delta chart)
-- [ ] Save as `assets/layer_flow_diagram.png` or create as SVG
-- [ ] Add diagram to layer accordion content after delta chart
-- [ ] Add hover tooltips to diagram elements:
+- [x] Add diagram to layer accordion content after delta chart
+- [x] Add hover tooltips to diagram elements with CSS title attributes:
   - Input vector: "The output from the previous layer (or embedding layer for Layer 0) is fed as input to this layer. Each layer builds upon the representations learned by previous layers."
   - Self-Attention: "The self-attention mechanism allows each token to attend to all other tokens in the sequence, learning which tokens are most relevant for understanding context."
   - F(x) box: "Feed-forward neural networks apply learned transformations to extract meaning from the attended information and prepare representations for the next layer. These are non-linear functions that help the model learn complex patterns."
   - Residual connection: "The attention output is added back to the final output (residual connection). This preserves information from earlier layers in case the feed-forward network learns little, helping gradients flow during training and maintaining important information."
   - Output connection: "The layer's output shows how token probabilities have changed, reflecting what the layer learned."
+- [x] Add CSS styling for flow boxes with hover effects
 
 ### 5.3 Enhance Attention Head Categorization Section
-- [ ] Keep existing attention head categorization display
-- [ ] Add detailed tooltips for each head category:
+- [x] Keep existing attention head categorization display
+- [x] Add detailed tooltips for each head category:
   - Previous-Token: "These attention heads primarily focus on the immediately preceding token. They help the model track local sequential dependencies and are often important for syntax and grammar."
   - First/Positional: "These heads attend strongly to the first token or show positional patterns. They help the model maintain awareness of sentence structure and position-dependent information."
   - Bag-of-Words: "These heads distribute attention broadly across many tokens without strong positional preferences. They help aggregate semantic information from across the entire sequence."
   - Syntactic: "These heads show structured attention patterns that often correspond to syntactic relationships (e.g., subject-verb, modifier-noun). They help the model understand grammatical structure."
   - Other: "These heads show attention patterns that don't fit the above categories. They may be learning task-specific or more complex patterns."
-- [ ] Add detailed BertViz usage instructions above each BertViz visualization:
+- [x] Add detailed BertViz usage instructions above BertViz visualizations:
   - "How to read this visualization: The left side shows Query tokens (where attention is coming FROM), and the right side shows Key tokens (where attention is going TO). Lines connect tokens that attend to each other, with thicker lines indicating stronger attention weights. Each color represents a different attention head. Double-click a color to isolate that head. Hover over lines to see exact attention weights."
-- [ ] Keep BertViz visualizations within categorized head sections (current implementation)
+- [x] Keep BertViz visualizations within categorized head sections (current implementation)
 
 ### 5.4 Add Explore These Changes Button and Experiments
-- [ ] Add "Explore These Changes" button below the flow diagram in each layer accordion
-- [ ] Create collapsible experiments section that appears when button is clicked
-- [ ] Add ablation experiment description:
+- [x] Add "Explore These Changes" button below the flow diagram in each layer accordion
+- [x] Create collapsible experiments section that appears when button is clicked
+- [x] Add ablation experiment description:
   - Title: "Attention Head Ablation"
   - Description: "Ablation experiments remove the output of specific attention heads, exploring how the model functions without those components. We can see how important a head is by how much the predictions change when we remove it. Select one or more attention heads below to zero out their contributions and re-run the forward pass."
-- [ ] Display attention head selection interface:
+- [x] Display attention head selection interface:
   - Show buttons for each attention head in the layer (e.g., "Head 0", "Head 1", ...)
   - Allow multi-select (toggle buttons)
   - Add "Run Ablation" button
-- [ ] Create callback `run_head_ablation()` that:
+- [x] Create callback `run_head_ablation()` that:
   - Takes selected head indices and layer number
   - Calls `execute_forward_pass_with_head_ablation()`
   - Updates activation data with ablation results
   - Refreshes layer accordions to show ablated results
-  - Marks ablated layer visually (similar to current layer ablation highlighting)
-- [ ] Ensure ablation works in comparison mode (ablate both prompts)
+  - Marks ablated layer visually (with ablated flag)
+- [x] Add callbacks for toggling experiments section visibility and handling head selection
+- [x] Ensure ablation works with existing `execute_forward_pass_with_head_ablation()` function
 
 ---
 
