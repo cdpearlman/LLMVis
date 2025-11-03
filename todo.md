@@ -3,44 +3,44 @@
 ## PHASE 1: Backend Infrastructure Changes
 
 ### 1.1 Token Probability Utilities (utils/)
-- [ ] Create new utility function `merge_token_probabilities()` that:
+- [X] Create new utility function `merge_token_probabilities()` that:
   - Takes a token string and probability dictionary
   - Finds both versions of token (with and without leading space)
   - Sums their probabilities and returns merged result
   - Example: " cat" (0.15) + "cat" (0.05) = "cat" (0.20)
-- [ ] Update `extract_layer_data()` in utils to use merged token probabilities for all top-k calculations
-- [ ] Update `get_check_token_probabilities()` to use merged token probabilities
-- [ ] Add function `compute_global_top5_tokens()` that:
+- [X] Update `extract_layer_data()` in utils to use merged token probabilities for all top-k calculations
+- [X] Update `get_check_token_probabilities()` to use merged token probabilities
+- [X] Add function `compute_global_top5_tokens()` that:
   - Takes final layer output from forward pass
   - Returns the global top 5 tokens (with merged probabilities)
   - Stores these for use across all layer visualizations
 
 ### 1.2 Layer-wise Probability Tracking
-- [ ] Modify `extract_layer_data()` to track global top 5 tokens across all layers:
+- [X] Modify `extract_layer_data()` to track global top 5 tokens across all layers:
   - For each layer, compute probabilities of the global top 5 tokens
   - Calculate delta from previous layer (or from embedding for layer 0)
   - Store both absolute probabilities and deltas per layer
-- [ ] Add function `detect_significant_probability_increases()` that:
+- [X] Add function `detect_significant_probability_increases()` that:
   - Takes layer-wise probability data
   - Identifies layers where any top 5 token has ≥25% relative increase
   - Returns list of layer numbers with significant increases
   - Example: 0.20 → 0.25 is 25% increase, should be flagged
 
 ### 1.3 Attention Head Ablation
-- [ ] Create new function `execute_forward_pass_with_head_ablation()` in utils that:
+- [X] Create new function `execute_forward_pass_with_head_ablation()` in utils that:
   - Takes model, tokenizer, prompt, config, layer_num, and head_indices
   - Zeros out specified attention head(s) in the specified layer
   - Returns activation data with ablated results
   - Maintains same data structure as current layer ablation
-- [ ] Update ablation logic to support both layer-level and head-level ablation
+- [X] Update ablation logic to support both layer-level and head-level ablation
 
 ### 1.4 Data Structure Updates
-- [ ] Update activation data structure to include:
+- [X] Update activation data structure to include:
   - `global_top5_tokens`: List of 5 tokens from final layer
   - `layer_wise_top5_probs`: Dict mapping layer_num → {token: prob} for global top 5
   - `layer_wise_top5_deltas`: Dict mapping layer_num → {token: delta} for global top 5
   - `significant_layers`: List of layer numbers with ≥25% increases
-- [ ] Ensure all data needed for layer expansion is computed upfront but stored efficiently
+- [X] Ensure all data needed for layer expansion is computed upfront but stored efficiently
 
 ---
 

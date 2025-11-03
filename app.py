@@ -8,7 +8,8 @@ Components are organized for easy understanding and maintenance.
 import dash
 from dash import html, dcc, Input, Output, State, callback, no_update, ALL
 from utils import (load_model_and_get_patterns, execute_forward_pass, extract_layer_data,
-                   categorize_single_layer_heads, format_categorization_summary)
+                   categorize_single_layer_heads, format_categorization_summary,
+                   compute_layer_wise_probability_tracking)
 from utils.model_config import get_auto_selections, get_model_family
 
 # Import modular components
@@ -431,6 +432,66 @@ def run_analysis(n_clicks, model_name, prompt, prompt2, attn_patterns, block_pat
         
         return {}, {}, error_message
 
+def _create_top5_by_layer_graph(layer_wise_probs, significant_layers, global_top5_tokens):
+    """
+    Create line graph showing top 5 tokens' probabilities across layers.
+    
+    Args:
+        layer_wise_probs: Dict mapping layer_num -> {token: prob}
+        significant_layers: List of layer numbers with significant increases
+        global_top5_tokens: List of (token, prob) tuples for final top 5
+    
+    Returns:
+        Plotly Figure with line graph
+    """
+    import plotly.graph_objs as go
+    
+    if not layer_wise_probs or not global_top5_tokens:
+        return None
+    
+    # Extract layer numbers (sorted)
+    layer_nums = sorted(layer_wise_probs.keys())
+    
+    # Create a line for each of the global top 5 tokens
+    traces = []
+    colors = ['#667eea', '#764ba2', '#f093fb', '#4facfe', '#43e97b']
+    
+    for idx, (token, _) in enumerate(global_top5_tokens[:5]):
+        probs = [layer_wise_probs[layer].get(token, 0.0) for layer in layer_nums]
+        
+        traces.append(go.Scatter(
+            x=layer_nums,
+            y=probs,
+            mode='lines+markers',
+            name=f"'{token}'",
+            line={'color': colors[idx % len(colors)], 'width': 2},
+            marker={'size': 6}
+        ))
+    
+    # Create figure with highlighted significant layers
+    fig = go.Figure(data=traces)
+    
+    # Add yellow highlighting for significant layers
+    for sig_layer in significant_layers:
+        fig.add_vrect(
+            x0=sig_layer - 0.3, x1=sig_layer + 0.3,
+            fillcolor='yellow', opacity=0.2,
+            layer='below', line_width=0
+        )
+    
+    fig.update_layout(
+        title="Top 5 Token Probabilities Across Layers",
+        xaxis_title="Layer Number",
+        yaxis_title="Probability",
+        hovermode='closest',
+        legend={'title': 'Token'},
+        height=400,
+        margin={'l': 60, 'r': 20, 't': 40, 'b': 40}
+    )
+    
+    return fig
+
+
 def _create_single_prompt_chart(layer_data):
     """
     Create a single prompt bar chart (existing functionality).
@@ -662,12 +723,31 @@ def create_layer_accordions(activation_data, activation_data2, model_name):
         if not layer_data:
             return html.P("No layer data available.", className="placeholder-text")
         
+        # Compute layer-wise probability tracking for first prompt
+        tracking_data = compute_layer_wise_probability_tracking(
+            activation_data.get('global_top5_tokens', []),
+            layer_data
+        )
+        layer_wise_probs = tracking_data.get('layer_wise_top5_probs', {})
+        significant_layers = tracking_data.get('significant_layers', [])
+        global_top5 = activation_data.get('global_top5_tokens', [])
+        
         # Check if second prompt exists and extract its layer data
         layer_data2 = None
+        layer_wise_probs2 = {}
+        significant_layers2 = []
+        global_top5_2 = []
         comparison_mode = activation_data2 and activation_data2.get('model') == model_name
         
         if comparison_mode:
             layer_data2 = extract_layer_data(activation_data2, model, tokenizer)
+            tracking_data2 = compute_layer_wise_probability_tracking(
+                activation_data2.get('global_top5_tokens', []),
+                layer_data2
+            )
+            layer_wise_probs2 = tracking_data2.get('layer_wise_top5_probs', {})
+            significant_layers2 = tracking_data2.get('significant_layers', [])
+            global_top5_2 = activation_data2.get('global_top5_tokens', [])
         
         # Create accordion panels (reversed to show final layer first)
         accordions = []
@@ -819,14 +899,85 @@ def create_layer_accordions(activation_data, activation_data2, model_name):
                     import traceback
                     traceback.print_exc()
             
+            # Add CSS class for significant layers (yellow highlighting)
+            accordion_classes = "layer-accordion"
+            if layer_num in significant_layers or (comparison_mode and layer_num in significant_layers2):
+                accordion_classes += " significant-layer"
+            
             panel = html.Details([
                 html.Summary(summary_text, className="layer-summary"),
                 html.Div(content_items, className="layer-content")
-            ], className="layer-accordion")
+            ], className=accordion_classes)
             
             accordions.append(panel)
         
-        return html.Div(accordions)
+        # Create line graph(s) for top 5 tokens across layers
+        line_graphs = []
+        
+        if layer_wise_probs and global_top5:
+            fig = _create_top5_by_layer_graph(layer_wise_probs, significant_layers, global_top5)
+            if fig:
+                tooltip_text = ("This graph shows how the model's confidence in the final top 5 predictions "
+                               "evolves through each layer. Layers with significant probability increases "
+                               "(≥25% relative increase) are highlighted, indicating where the model makes "
+                               "important decisions. Expand the Transformer Layers panel to explore these "
+                               "impactful layers in detail.")
+                
+                merge_note = ("Note: Tokens with and without leading spaces (e.g., ' cat' and 'cat') are "
+                             "automatically merged and treated as the same token for clarity.")
+                
+                graph_container = html.Div([
+                    html.Div([
+                        html.I(className="fas fa-info-circle", 
+                              style={'marginRight': '8px', 'color': '#667eea'}),
+                        tooltip_text
+                    ], style={'fontSize': '13px', 'color': '#6c757d', 'marginBottom': '10px', 'lineHeight': '1.5'}),
+                    dcc.Graph(figure=fig, config={'displayModeBar': False}),
+                    html.Small(merge_note, 
+                              style={'fontSize': '11px', 'color': '#6c757d', 'fontStyle': 'italic'})
+                ], style={'marginBottom': '20px'})
+                
+                line_graphs.append(graph_container)
+        
+        # In comparison mode, create a second graph or side-by-side display
+        if comparison_mode and layer_wise_probs2 and global_top5_2:
+            fig2 = _create_top5_by_layer_graph(layer_wise_probs2, significant_layers2, global_top5_2)
+            if fig2:
+                graph_container2 = html.Div([
+                    html.H6("Prompt 2", style={'color': '#495057', 'marginBottom': '10px'}),
+                    dcc.Graph(figure=fig2, config={'displayModeBar': False})
+                ], style={'marginTop': '20px'})
+                line_graphs.append(graph_container2)
+        
+        # Create stacked visual representation for collapsed state
+        num_layers = len(layer_data)
+        stacked_layers = []
+        for i in range(min(5, num_layers)):  # Show first 5 layers as preview
+            stacked_layers.append(
+                html.Div(f"L{i}", className="stacked-layer-card")
+            )
+        if num_layers > 5:
+            stacked_layers.append(
+                html.Div("...", className="stacked-layer-card")
+            )
+        
+        # Create collapsible container for transformer layers
+        layers_container = html.Details([
+            html.Summary([
+                html.Div([
+                    html.H4("Transformer Layers (Click to Expand)", 
+                           style={'margin': 0, 'color': '#495057'}),
+                    html.Div(stacked_layers, className="stacked-layers-visual")
+                ], style={'display': 'flex', 'alignItems': 'center', 'gap': '20px'})
+            ], className="transformer-layers-summary"),
+            html.Div(accordions, className="transformer-layers-content")
+        ], className="transformer-layers-container", open=False)  # Start collapsed
+        
+        # Return all components
+        return html.Div([
+            *line_graphs,  # Line graph(s) at the top
+            layers_container  # Collapsible layers container below
+        ])
         
     except Exception as e:
         print(f"Error creating accordions: {e}")
