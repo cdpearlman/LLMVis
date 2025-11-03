@@ -106,43 +106,43 @@
 
 ---
 
-## PHASE 4: Transformer Layers Panel Redesign
+## PHASE 4: Transformer Layers Panel Redesign ✅ COMPLETED
 
 ### 4.1 Create Collapsible Transformer Layers Container
-- [ ] Wrap existing layer accordions in new collapsible container
-- [ ] Add visual representation of stacked layers when collapsed:
+- [x] Wrap existing layer accordions in new collapsible container
+- [x] Add visual representation of stacked layers when collapsed:
   - Show layer numbers (L0, L1, L2, ..., Ln) in a stacked visual
   - Style to look like stacked panels/cards
   - Add title "Transformer Layers (Click to Expand)"
-- [ ] Make entire stacked visual clickable to expand/collapse
-- [ ] When collapsed, show only the stacked visual
-- [ ] When expanded, show all individual layer accordions
-- [ ] Add CSS animations for smooth expand/collapse transition
+- [x] Make entire stacked visual clickable to expand/collapse
+- [x] When collapsed, show only the stacked visual
+- [x] When expanded, show all individual layer accordions
+- [x] Add CSS animations for smooth expand/collapse transition
 
 ### 4.2 Create Top 5 Tokens By Layer Line Graph
-- [ ] Create new component `create_top5_by_layer_graph()` that:
+- [x] Create new component `create_top5_by_layer_graph()` that:
   - Takes layer_wise_top5_probs data
   - Creates Plotly line graph with:
     - X-axis: Layer numbers (0 to n)
     - Y-axis: Probability (0 to 1)
     - 5 colored lines, one per global top 5 token
     - Legend showing token names
-- [ ] Highlight significant layers on graph:
+- [x] Highlight significant layers on graph:
   - Add vertical yellow highlighted regions for layers in significant_layers list
   - Or add yellow markers/annotations at those x-positions
-- [ ] Add hover tooltip on graph explaining:
+- [x] Add hover tooltip on graph explaining:
   - "This graph shows how the model's confidence in the final top 5 predictions evolves through each layer. Layers with significant probability increases (≥25% relative increase) are highlighted, indicating where the model makes important decisions. Expand the Transformer Layers panel to explore these impactful layers in detail."
-- [ ] Add tooltip at bottom of graph explaining token merging:
+- [x] Add tooltip at bottom of graph explaining token merging:
   - "Note: Tokens with and without leading spaces (e.g., ' cat' and 'cat') are automatically merged and treated as the same token for clarity."
-- [ ] Place graph below transformer layers panel in main_panel.py
-- [ ] Show graph only after analysis is run
-- [ ] Handle comparison mode: show two line graphs side-by-side or overlaid with different line styles
+- [x] Place graph below transformer layers panel in main_panel.py
+- [x] Show graph only after analysis is run
+- [x] Handle comparison mode: show two line graphs side-by-side or overlaid with different line styles
 
 ### 4.3 Add Yellow Highlighting to Significant Layer Accordions
-- [ ] Modify `create_layer_accordions()` to add CSS class to significant layers
-- [ ] Add CSS rule for `.layer-accordion.significant` with neon yellow border/outline
-- [ ] Highlighting only visible when transformer layers panel is expanded
-- [ ] Ensure highlighting works in both single and comparison modes
+- [x] Modify `create_layer_accordions()` to add CSS class to significant layers
+- [x] Add CSS rule for `.layer-accordion.significant` with neon yellow border/outline
+- [x] Highlighting only visible when transformer layers panel is expanded
+- [x] Ensure highlighting works in both single and comparison modes
 
 ---
 
