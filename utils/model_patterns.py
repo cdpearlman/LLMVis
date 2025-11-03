@@ -64,6 +64,63 @@ def safe_to_serializable(obj: Any) -> Any:
     return obj
 
 
+def merge_token_probabilities(token_probs: List[Tuple[str, float]]) -> List[Tuple[str, float]]:
+    """
+    Merge tokens with and without leading space, summing their probabilities.
+    
+    Example: [(" cat", 0.15), ("cat", 0.05), (" dog", 0.10)] -> [("cat", 0.20), ("dog", 0.10)]
+    
+    Args:
+        token_probs: List of (token_string, probability) tuples
+    
+    Returns:
+        List of (token_string, merged_probability) tuples, sorted by probability (descending)
+    """
+    merged = {}  # Map from stripped token -> total probability
+    
+    for token, prob in token_probs:
+        # Strip leading space to get canonical form
+        canonical = token.lstrip()
+        merged[canonical] = merged.get(canonical, 0.0) + prob
+    
+    # Convert back to list and sort by probability (descending)
+    result = sorted(merged.items(), key=lambda x: x[1], reverse=True)
+    return result
+
+
+def compute_global_top5_tokens(model_output, tokenizer, top_k: int = 5) -> List[Tuple[str, float]]:
+    """
+    Compute the global top-5 tokens from model's final output with merged probabilities.
+    
+    Args:
+        model_output: Output from model(**inputs) containing logits
+        tokenizer: Tokenizer for decoding
+        top_k: Number of top tokens to return (default: 5)
+    
+    Returns:
+        List of (token_string, probability) tuples for top K tokens with merged probabilities
+    """
+    with torch.no_grad():
+        # Get probabilities for next token (last position)
+        logits = model_output.logits[0, -1, :]  # [vocab_size]
+        probs = F.softmax(logits, dim=-1)
+        
+        # Get more candidates to account for merging (get 2x top_k)
+        top_probs, top_indices = torch.topk(probs, k=min(top_k * 2, len(probs)))
+        
+        # Decode tokens
+        candidates = [
+            (tokenizer.decode([idx.item()], skip_special_tokens=False), prob.item())
+            for idx, prob in zip(top_indices, top_probs)
+        ]
+        
+        # Merge tokens with/without leading space
+        merged = merge_token_probabilities(candidates)
+        
+        # Return top K after merging
+        return merged[:top_k]
+
+
 def get_actual_model_output(model_output, tokenizer) -> Tuple[str, float]:
     """
     Extract the predicted token from model's output.
@@ -181,9 +238,12 @@ def execute_forward_pass(model, tokenizer, prompt: str, config: Dict[str, Any]) 
     
     # Extract predicted token from model output
     actual_output = None
+    global_top5_tokens = []
     try:
         output_token, output_prob = get_actual_model_output(model_output, tokenizer)
         actual_output = {"token": output_token, "probability": output_prob}
+        # Compute global top 5 tokens with merged probabilities
+        global_top5_tokens = compute_global_top5_tokens(model_output, tokenizer, top_k=5)
     except Exception as e:
         print(f"Warning: Could not extract model output: {e}")
     
@@ -199,10 +259,184 @@ def execute_forward_pass(model, tokenizer, prompt: str, config: Dict[str, Any]) 
         "norm_parameters": norm_parameters,
         "norm_data": norm_data,
         "logit_lens_parameter": logit_lens_parameter,
-        "actual_output": actual_output
+        "actual_output": actual_output,
+        "global_top5_tokens": global_top5_tokens  # New: global top 5 from final output
     }
     
     print(f"Captured {len(captured)} module outputs using PyVene")
+    return result
+
+
+def execute_forward_pass_with_head_ablation(model, tokenizer, prompt: str, config: Dict[str, Any],
+                                           ablate_layer_num: int, ablate_head_indices: List[int]) -> Dict[str, Any]:
+    """
+    Execute forward pass with specific attention heads zeroed out.
+    
+    Args:
+        model: Loaded transformer model
+        tokenizer: Loaded tokenizer
+        prompt: Input text prompt
+        config: Dict with module lists like {"attention_modules": [...], "block_modules": [...], ...}
+        ablate_layer_num: Layer number containing heads to ablate
+        ablate_head_indices: List of head indices to zero out (e.g., [0, 2, 5])
+    
+    Returns:
+        JSON-serializable dict with captured activations (with ablated heads)
+    """
+    print(f"Executing forward pass with head ablation: Layer {ablate_layer_num}, Heads {ablate_head_indices}")
+    
+    # Extract module lists from config
+    attention_modules = config.get("attention_modules", [])
+    block_modules = config.get("block_modules", [])
+    norm_parameters = config.get("norm_parameters", [])
+    logit_lens_parameter = config.get("logit_lens_parameter")
+    
+    all_modules = attention_modules + block_modules
+    if not all_modules:
+        return {"error": "No modules specified"}
+    
+    # Find the target attention module for the layer to ablate
+    target_attention_module = None
+    for mod_name in attention_modules:
+        layer_match = re.search(r'\.(\d+)(?:\.|$)', mod_name)
+        if layer_match and int(layer_match.group(1)) == ablate_layer_num:
+            target_attention_module = mod_name
+            break
+    
+    if not target_attention_module:
+        return {"error": f"Could not find attention module for layer {ablate_layer_num}"}
+    
+    # Build IntervenableConfig
+    intervenable_representations = []
+    for mod_name in all_modules:
+        layer_match = re.search(r'\.(\d+)(?:\.|$)', mod_name)
+        if not layer_match:
+            return {"error": f"Invalid module name format: {mod_name}"}
+        
+        if 'attn' in mod_name or 'attention' in mod_name:
+            component = 'attention_output'
+        else:
+            component = 'block_output'
+        
+        intervenable_representations.append(
+            RepresentationConfig(layer=int(layer_match.group(1)), component=component, unit="pos")
+        )
+    
+    intervenable_config = IntervenableConfig(
+        intervenable_representations=intervenable_representations
+    )
+    intervenable_model = IntervenableModel(intervenable_config, model)
+    
+    # Prepare inputs
+    inputs = tokenizer(prompt, return_tensors="pt")
+    
+    # Register hooks to capture activations
+    captured = {}
+    name_to_module = dict(intervenable_model.model.named_modules())
+    
+    def make_hook(mod_name: str):
+        return lambda module, inputs, output: captured.update({mod_name: {"output": safe_to_serializable(output)}})
+    
+    # Create head ablation hook
+    def head_ablation_hook(module, input, output):
+        """Zero out specific attention heads in the output."""
+        if isinstance(output, tuple):
+            # Attention modules typically return (hidden_states, attention_weights, ...)
+            hidden_states = output[0]  # [batch, seq_len, hidden_dim]
+            
+            # Convert to tensor if needed
+            if not isinstance(hidden_states, torch.Tensor):
+                hidden_states = torch.tensor(hidden_states)
+            
+            batch_size, seq_len, hidden_dim = hidden_states.shape
+            
+            # Determine head dimension
+            # Assuming hidden_dim = num_heads * head_dim
+            # We need to get num_heads from the model config
+            num_heads = model.config.num_attention_heads
+            head_dim = hidden_dim // num_heads
+            
+            # Reshape to [batch, seq_len, num_heads, head_dim]
+            hidden_states_reshaped = hidden_states.view(batch_size, seq_len, num_heads, head_dim)
+            
+            # Zero out specified heads
+            for head_idx in ablate_head_indices:
+                if 0 <= head_idx < num_heads:
+                    hidden_states_reshaped[:, :, head_idx, :] = 0.0
+            
+            # Reshape back to [batch, seq_len, hidden_dim]
+            ablated_hidden = hidden_states_reshaped.view(batch_size, seq_len, hidden_dim)
+            
+            # Reconstruct output tuple
+            if len(output) > 1:
+                return (ablated_hidden,) + output[1:]
+            else:
+                return (ablated_hidden,)
+        else:
+            # If output is not a tuple, just return as is (shouldn't happen for attention)
+            return output
+    
+    # Register hooks
+    hooks = []
+    for mod_name in all_modules:
+        if mod_name in name_to_module:
+            if mod_name == target_attention_module:
+                # Apply head ablation hook
+                hooks.append(name_to_module[mod_name].register_forward_hook(head_ablation_hook))
+            else:
+                # Regular capture hook
+                hooks.append(name_to_module[mod_name].register_forward_hook(make_hook(mod_name)))
+    
+    # Execute forward pass
+    with torch.no_grad():
+        model_output = intervenable_model.model(**inputs, use_cache=False)
+    
+    # Remove hooks
+    for hook in hooks:
+        hook.remove()
+    
+    # Separate outputs by type
+    attention_outputs = {}
+    block_outputs = {}
+    
+    for mod_name, output in captured.items():
+        if 'attn' in mod_name or 'attention' in mod_name:
+            attention_outputs[mod_name] = output
+        else:
+            block_outputs[mod_name] = output
+    
+    # Capture normalization parameters
+    all_params = dict(model.named_parameters())
+    norm_data = [safe_to_serializable(all_params[p]) for p in norm_parameters if p in all_params]
+    
+    # Extract predicted token from model output
+    actual_output = None
+    global_top5_tokens = []
+    try:
+        output_token, output_prob = get_actual_model_output(model_output, tokenizer)
+        actual_output = {"token": output_token, "probability": output_prob}
+        global_top5_tokens = compute_global_top5_tokens(model_output, tokenizer, top_k=5)
+    except Exception as e:
+        print(f"Warning: Could not extract model output: {e}")
+    
+    # Build output dictionary
+    result = {
+        "model": getattr(model.config, "name_or_path", "unknown"),
+        "prompt": prompt,
+        "input_ids": safe_to_serializable(inputs["input_ids"]),
+        "attention_modules": list(attention_outputs.keys()),
+        "attention_outputs": attention_outputs,
+        "block_modules": list(block_outputs.keys()),
+        "block_outputs": block_outputs,
+        "norm_parameters": norm_parameters,
+        "norm_data": norm_data,
+        "logit_lens_parameter": logit_lens_parameter,
+        "actual_output": actual_output,
+        "global_top5_tokens": global_top5_tokens,
+        "ablated_layer": ablate_layer_num,
+        "ablated_heads": ablate_head_indices
+    }
+    
     return result
 
 
@@ -347,9 +581,11 @@ def execute_forward_pass_with_layer_ablation(model, tokenizer, prompt: str, conf
     
     # Extract predicted token from model output
     actual_output = None
+    global_top5_tokens = []
     try:
         output_token, output_prob = get_actual_model_output(model_output, tokenizer)
         actual_output = {"token": output_token, "probability": output_prob}
+        global_top5_tokens = compute_global_top5_tokens(model_output, tokenizer, top_k=5)
     except Exception as e:
         print(f"Warning: Could not extract model output: {e}")
     
@@ -366,6 +602,7 @@ def execute_forward_pass_with_layer_ablation(model, tokenizer, prompt: str, conf
         "norm_data": norm_data,
         "logit_lens_parameter": logit_lens_parameter,
         "actual_output": actual_output,
+        "global_top5_tokens": global_top5_tokens,
         "ablated_layer": ablate_layer_num
     }
     
@@ -375,6 +612,7 @@ def execute_forward_pass_with_layer_ablation(model, tokenizer, prompt: str, conf
 def logit_lens_transformation(layer_output: Any, norm_data: List[Any], model, logit_lens_parameter: str, tokenizer, norm_parameter: Optional[str] = None, top_k: int = 5) -> List[Tuple[str, float]]:
     """
     Transform layer output to top K token probabilities using logit lens.
+    Returns merged probabilities (tokens with/without leading space are combined).
     
     For standard logit lens, use block/layer outputs (residual stream), not component outputs.
     The residual stream contains the full hidden state with all accumulated information.
@@ -392,7 +630,7 @@ def logit_lens_transformation(layer_output: Any, norm_data: List[Any], model, lo
         top_k: Number of top tokens to return (default: 5)
     
     Returns:
-        List of (token_string, probability) tuples for top K tokens
+        List of (token_string, probability) tuples for top K tokens with merged probabilities
     """
     with torch.no_grad():
         # Convert to tensor and ensure proper shape [batch, seq_len, hidden_dim]
@@ -412,13 +650,18 @@ def logit_lens_transformation(layer_output: Any, norm_data: List[Any], model, lo
         # Step 3: Get probabilities via softmax
         probs = F.softmax(logits[0, -1, :], dim=-1)
         
-        # Step 4: Extract top K tokens
-        top_probs, top_indices = torch.topk(probs, k=top_k)
+        # Step 4: Extract top candidates (get 2x top_k to account for merging)
+        top_probs, top_indices = torch.topk(probs, k=min(top_k * 2, len(probs)))
         
-        return [
+        candidates = [
             (tokenizer.decode([idx.item()], skip_special_tokens=False), prob.item())
             for idx, prob in zip(top_indices, top_probs)
         ]
+        
+        # Step 5: Merge tokens with/without leading space
+        merged = merge_token_probabilities(candidates)
+        
+        return merged[:top_k]
 
 
 def get_norm_layer_from_parameter(model, norm_parameter: Optional[str]) -> Optional[Any]:
@@ -458,6 +701,63 @@ def get_norm_layer_from_parameter(model, norm_parameter: Optional[str]) -> Optio
     return None
 
 
+def _get_token_probabilities_for_layer(activation_data: Dict[str, Any], module_name: str, 
+                                       model, tokenizer, target_tokens: List[str]) -> Dict[str, float]:
+    """
+    Get probabilities for specific tokens at a given layer.
+    
+    Args:
+        activation_data: Activation data from forward pass
+        module_name: Layer module name
+        model: Transformer model
+        tokenizer: Tokenizer
+        target_tokens: List of token strings to get probabilities for
+    
+    Returns:
+        Dict mapping token -> probability (merged for variants with/without space)
+    """
+    try:
+        if module_name not in activation_data.get('block_outputs', {}):
+            return {}
+        
+        layer_output = activation_data['block_outputs'][module_name]['output']
+        norm_params = activation_data.get('norm_parameters', [])
+        norm_parameter = norm_params[0] if norm_params else None
+        final_norm = get_norm_layer_from_parameter(model, norm_parameter)
+        lm_head = model.get_output_embeddings()
+        
+        with torch.no_grad():
+            hidden = torch.tensor(layer_output) if not isinstance(layer_output, torch.Tensor) else layer_output
+            if hidden.dim() == 4:
+                hidden = hidden.squeeze(0)
+            
+            if final_norm is not None:
+                hidden = final_norm(hidden)
+            
+            logits = lm_head(hidden)
+            probs = F.softmax(logits[0, -1, :], dim=-1)
+            
+            # For each target token, get probabilities for both variants (with/without space)
+            token_probs = {}
+            for token in target_tokens:
+                # Try both variants and sum probabilities
+                variants = [token, ' ' + token]
+                total_prob = 0.0
+                
+                for variant in variants:
+                    token_ids = tokenizer.encode(variant, add_special_tokens=False)
+                    if token_ids:
+                        tid = token_ids[-1]  # Use last sub-token
+                        total_prob += probs[tid].item()
+                
+                token_probs[token] = total_prob
+            
+            return token_probs
+    except Exception as e:
+        print(f"Warning: Could not compute token probabilities for {module_name}: {e}")
+        return {}
+
+
 def _get_top_tokens(activation_data: Dict[str, Any], module_name: str, model, tokenizer, top_k: int = 5) -> Optional[List[Tuple[str, float]]]:
     """
     Helper: Get top K tokens for a layer's block output.
@@ -486,8 +786,8 @@ def get_check_token_probabilities(activation_data: Dict[str, Any], model, tokeni
     """
     Collect check token probabilities across all layers.
     
-    Tries both with and without leading space and uses the variant with higher probability.
-    Returns layer numbers and probabilities for plotting.
+    Sums probabilities of token variants (with and without leading space).
+    Returns layer numbers and merged probabilities for plotting.
     """
     if not check_token or not check_token.strip():
         return None
@@ -510,14 +810,15 @@ def get_check_token_probabilities(activation_data: Dict[str, Any], model, tokeni
             (' ' + check_token.strip(), tokenizer.encode(' ' + check_token.strip(), add_special_tokens=False))
         ]
         
-        # Determine which variant to use (choose one with valid token IDs)
-        target_token_id = None
+        # Get token IDs for both variants (if they exist and differ)
+        target_token_ids = []
         for variant_text, token_ids in token_variants:
             if token_ids:
-                target_token_id = token_ids[-1]  # Use last sub-token
-                break
+                tid = token_ids[-1]  # Use last sub-token
+                if tid not in target_token_ids:
+                    target_token_ids.append(tid)
         
-        if target_token_id is None:
+        if not target_token_ids:
             return None
         
         # Get norm parameter
@@ -526,7 +827,7 @@ def get_check_token_probabilities(activation_data: Dict[str, Any], model, tokeni
         final_norm = get_norm_layer_from_parameter(model, norm_parameter)
         lm_head = model.get_output_embeddings()
         
-        # Collect probabilities for all layers
+        # Collect probabilities for all layers (sum both variants)
         layers = []
         probabilities = []
         
@@ -543,19 +844,58 @@ def get_check_token_probabilities(activation_data: Dict[str, Any], model, tokeni
                 
                 logits = lm_head(hidden)
                 probs = F.softmax(logits[0, -1, :], dim=-1)
-                prob = probs[target_token_id].item()
+                
+                # Sum probabilities of all variants
+                merged_prob = sum(probs[tid].item() for tid in target_token_ids)
                 
                 layers.append(layer_num)
-                probabilities.append(prob)
+                probabilities.append(merged_prob)
         
         return {
-            'token': tokenizer.decode([target_token_id], skip_special_tokens=False),
+            'token': check_token.strip(),  # Return canonical form without leading space
             'layers': layers,
             'probabilities': probabilities
         }
     except Exception as e:
         print(f"Error computing check token probabilities: {e}")
         return None
+
+
+def detect_significant_probability_increases(layer_wise_probs: Dict[int, Dict[str, float]], 
+                                            layer_wise_deltas: Dict[int, Dict[str, float]],
+                                            threshold: float = 0.25) -> List[int]:
+    """
+    Detect layers where any global top 5 token has significant probability increase.
+    
+    A layer is significant if any token has ≥25% relative increase from previous layer.
+    Example: 0.20 → 0.25 is (0.25-0.20)/0.20 = 25% increase.
+    
+    Args:
+        layer_wise_probs: Dict mapping layer_num → {token: prob}
+        layer_wise_deltas: Dict mapping layer_num → {token: delta}
+        threshold: Relative increase threshold (default: 0.25 = 25%)
+    
+    Returns:
+        List of layer numbers with significant increases
+    """
+    significant_layers = []
+    
+    for layer_num in sorted(layer_wise_probs.keys()):
+        probs = layer_wise_probs[layer_num]
+        deltas = layer_wise_deltas.get(layer_num, {})
+        
+        for token, prob in probs.items():
+            delta = deltas.get(token, 0.0)
+            prev_prob = prob - delta
+            
+            # Check for significant relative increase (avoid division by zero)
+            if prev_prob > 1e-6 and delta > 0:
+                relative_increase = delta / prev_prob
+                if relative_increase >= threshold:
+                    significant_layers.append(layer_num)
+                    break  # Only need to flag layer once
+    
+    return significant_layers
 
 
 def _compute_certainty(probs: List[float]) -> float:
@@ -655,12 +995,47 @@ def _get_top_attended_tokens(activation_data: Dict[str, Any], layer_num: int, to
         return None
 
 
+def compute_layer_wise_summaries(layer_data: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Compute summary structures from layer data for easy access.
+    
+    Args:
+        layer_data: List of layer data dicts from extract_layer_data()
+    
+    Returns:
+        Dict with: layer_wise_top5_probs, layer_wise_top5_deltas, significant_layers
+    """
+    layer_wise_top5_probs = {}  # layer_num -> {token: prob}
+    layer_wise_top5_deltas = {}  # layer_num -> {token: delta}
+    
+    for layer_info in layer_data:
+        layer_num = layer_info.get('layer_num')
+        if layer_num is not None:
+            layer_wise_top5_probs[layer_num] = layer_info.get('global_top5_probs', {})
+            layer_wise_top5_deltas[layer_num] = layer_info.get('global_top5_deltas', {})
+    
+    # Detect significant layers
+    significant_layers = detect_significant_probability_increases(
+        layer_wise_top5_probs, 
+        layer_wise_top5_deltas,
+        threshold=0.25
+    )
+    
+    return {
+        'layer_wise_top5_probs': layer_wise_top5_probs,
+        'layer_wise_top5_deltas': layer_wise_top5_deltas,
+        'significant_layers': significant_layers
+    }
+
+
 def extract_layer_data(activation_data: Dict[str, Any], model, tokenizer) -> List[Dict[str, Any]]:
     """
     Extract layer-by-layer data for accordion display with top-5, deltas, certainty, and attention.
+    Also tracks global top 5 tokens across all layers.
     
     Returns:
-        List of dicts with: layer_num, top_token, top_prob, top_5_tokens, deltas, certainty, top_attended_tokens
+        List of dicts with: layer_num, top_token, top_prob, top_5_tokens, deltas, certainty, top_attended_tokens,
+        global_top5_probs, global_top5_deltas
     """
     layer_modules = activation_data.get('block_modules', [])
     if not layer_modules:
@@ -677,8 +1052,14 @@ def extract_layer_data(activation_data: Dict[str, Any], model, tokenizer) -> Lis
     )
     
     logit_lens_enabled = activation_data.get('logit_lens_parameter') is not None
+    
+    # Get global top 5 tokens from final output
+    global_top5_tokens = activation_data.get('global_top5_tokens', [])
+    global_top5_token_names = [token for token, _ in global_top5_tokens]
+    
     layer_data = []
-    prev_token_probs = {}  # Track previous layer's token probabilities
+    prev_token_probs = {}  # Track previous layer's token probabilities (layer's own top 5)
+    prev_global_probs = {}  # Track previous layer's global top 5 probabilities
     
     for layer_num, module_name in layer_info:
         top_tokens = _get_top_tokens(activation_data, module_name, model, tokenizer, top_k=5) if logit_lens_enabled else None
@@ -686,10 +1067,23 @@ def extract_layer_data(activation_data: Dict[str, Any], model, tokenizer) -> Lis
         # Get top-3 attended tokens for this layer
         top_attended = _get_top_attended_tokens(activation_data, layer_num, tokenizer, top_k=3)
         
+        # Get probabilities for global top 5 tokens at this layer
+        global_top5_probs = {}
+        global_top5_deltas = {}
+        if logit_lens_enabled and global_top5_token_names:
+            global_top5_probs = _get_token_probabilities_for_layer(
+                activation_data, module_name, model, tokenizer, global_top5_token_names
+            )
+            # Compute deltas for global top 5
+            for token in global_top5_token_names:
+                current_prob = global_top5_probs.get(token, 0.0)
+                prev_prob = prev_global_probs.get(token, 0.0)
+                global_top5_deltas[token] = current_prob - prev_prob
+        
         if top_tokens:
             top_token, top_prob = top_tokens[0]
             
-            # Compute deltas vs previous layer
+            # Compute deltas vs previous layer (for layer's own top 5)
             deltas = {}
             for token, prob in top_tokens:
                 prev_prob = prev_token_probs.get(token, 0.0)
@@ -708,11 +1102,14 @@ def extract_layer_data(activation_data: Dict[str, Any], model, tokenizer) -> Lis
                 'top_5_tokens': top_tokens[:5],  # New: top-5 for bar chart
                 'deltas': deltas,
                 'certainty': certainty,
-                'top_attended_tokens': top_attended  # New: attention view
+                'top_attended_tokens': top_attended,
+                'global_top5_probs': global_top5_probs,  # New: global top 5 probs at this layer
+                'global_top5_deltas': global_top5_deltas  # New: global top 5 deltas
             })
             
             # Update previous layer probabilities
             prev_token_probs = {token: prob for token, prob in top_tokens}
+            prev_global_probs = global_top5_probs.copy()
         else:
             layer_data.append({
                 'layer_num': layer_num,
@@ -723,8 +1120,11 @@ def extract_layer_data(activation_data: Dict[str, Any], model, tokenizer) -> Lis
                 'top_5_tokens': [],
                 'deltas': {},
                 'certainty': 0.0,
-                'top_attended_tokens': top_attended
+                'top_attended_tokens': top_attended,
+                'global_top5_probs': {},
+                'global_top5_deltas': {}
             })
+            prev_global_probs = {}
     
     return layer_data
 
