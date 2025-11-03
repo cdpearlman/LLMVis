@@ -1299,10 +1299,38 @@ def create_layer_accordions(activation_data, activation_data2, model_name):
             html.Div(accordions, className="transformer-layers-content")
         ], className="transformer-layers-container", open=False)  # Start collapsed
         
+        # Create full BertViz button section (below all layer accordions)
+        full_bertviz_section = html.Div([
+            html.Button(
+                [
+                    html.I(className="fas fa-eye", style={'marginRight': '8px'}),
+                    "View All Attention Heads Interactively (BertViz)"
+                ],
+                id='full-bertviz-btn',
+                n_clicks=0,
+                style={
+                    'padding': '12px 24px',
+                    'backgroundColor': '#764ba2',
+                    'color': 'white',
+                    'border': 'none',
+                    'borderRadius': '8px',
+                    'cursor': 'pointer',
+                    'fontSize': '14px',
+                    'fontWeight': '500',
+                    'width': '100%',
+                    'transition': 'all 0.2s',
+                    'marginTop': '1rem'
+                }
+            ),
+            # Container for full BertViz visualization (initially hidden)
+            html.Div(id='full-bertviz-container', style={'marginTop': '1rem'})
+        ], style={'marginTop': '2rem'})
+        
         # Return all components
         return html.Div([
             *line_graphs,  # Line graph(s) at the top
-            layers_container  # Collapsible layers container below
+            layers_container,  # Collapsible layers container below
+            full_bertviz_section  # Full BertViz button at the bottom
         ])
         
     except Exception as e:
@@ -1430,37 +1458,46 @@ def toggle_comparison_mode(n_clicks, is_comparing):
     
     return new_comparing, style, button_content, button_class
 
-# Callback to show BertViz visualization when button is clicked
+# Callback to show full model BertViz visualization
 @app.callback(
-    Output({'type': 'bertviz-container', 'layer': dash.dependencies.MATCH}, 'children'),
-    [Input({'type': 'bertviz-btn', 'layer': dash.dependencies.MATCH}, 'n_clicks')],
-    [State('session-activation-store', 'data'),
-     State({'type': 'bertviz-btn', 'layer': dash.dependencies.MATCH}, 'id')],
+    Output('full-bertviz-container', 'children'),
+    Input('full-bertviz-btn', 'n_clicks'),
+    State('session-activation-store', 'data'),
     prevent_initial_call=True
 )
-def toggle_bertviz_view(n_clicks, activation_data, button_id):
-    """Show/hide BertViz full model view when button is clicked."""
+def show_full_bertviz(n_clicks, activation_data):
+    """Show/hide full model BertViz visualization (all layers, all heads)."""
     if not n_clicks or not activation_data:
+        return None
+    
+    # Toggle: even clicks hide, odd clicks show
+    if n_clicks % 2 == 0:
         return None
     
     try:
         from utils import generate_bertviz_html
-        layer_num = button_id['layer']
         
-        # Toggle: even clicks hide, odd clicks show
-        if n_clicks % 2 == 0:
-            return None
+        # Generate full model BertViz HTML (all layers using model_view)
+        # Pass layer_num=0 as placeholder (function shows all layers with model_view)
+        bertviz_html = generate_bertviz_html(activation_data, 0, 'full')
         
-        # Generate BertViz HTML for this layer
-        bertviz_html = generate_bertviz_html(activation_data, layer_num, 'full')
-        
-        return html.Iframe(
-            srcDoc=bertviz_html,
-            style={'width': '100%', 'height': '500px', 'border': '1px solid #ddd', 'borderRadius': '4px', 'marginTop': '10px'}
-        )
+        return html.Div([
+            html.Div([
+                html.I(className="fas fa-info-circle", style={'marginRight': '8px', 'color': '#764ba2'}),
+                html.Span("Interactive visualization of all attention heads across all layers. ", style={'fontSize': '13px', 'color': '#6c757d'}),
+                html.Span("Use the controls to explore different layers and heads.", style={'fontSize': '13px', 'color': '#6c757d', 'fontStyle': 'italic'})
+            ], style={'marginBottom': '10px', 'padding': '10px', 'backgroundColor': '#f8f9fa', 'borderRadius': '6px'}),
+            html.Iframe(
+                srcDoc=bertviz_html,
+                style={'width': '100%', 'height': '600px', 'border': '2px solid #764ba2', 'borderRadius': '8px'}
+            )
+        ])
         
     except Exception as e:
-        return html.P(f"Error loading BertViz: {str(e)}", style={'color': '#dc3545', 'fontSize': '13px'})
+        return html.Div([
+            html.I(className="fas fa-exclamation-triangle", style={'marginRight': '8px', 'color': '#dc3545'}),
+            f"Error loading BertViz: {str(e)}"
+        ], style={'color': '#dc3545', 'fontSize': '13px', 'padding': '10px'})
 
 
 # Toggle experiments section visibility

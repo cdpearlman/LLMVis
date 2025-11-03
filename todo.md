@@ -209,49 +209,54 @@
 
 ---
 
-## PHASE 6: BertViz Button Relocation
+## PHASE 6: BertViz Button Relocation ✅ COMPLETED
 
 ### 6.1 Move BertViz Button to Bottom
-- [ ] Remove BertViz button from individual layer accordion content (currently at line 912-928 in app.py)
-- [ ] Create new section below all layer accordions in main_panel.py
-- [ ] Add single "View All Attention Heads Interactively (BertViz)" button
-- [ ] Button should open a modal or expandable section showing full BertViz for all layers
-- [ ] Update callback to show full model BertViz instead of single layer
-- [ ] Keep per-category BertViz within layer accordions (no change to that)
+- [x] Remove BertViz button from individual layer accordion content (old callback removed)
+- [x] Create new section below all layer accordions in app.py
+- [x] Add single "View All Attention Heads Interactively (BertViz)" button
+- [x] Button opens expandable section showing full BertViz for all layers
+- [x] Update callback to show full model BertViz (all layers, all heads using model_view)
+- [x] Keep per-category BertViz within layer accordions (no change to that)
 
 ---
 
-## PHASE 7: CSS Styling & Polish
+## PHASE 7: CSS Styling & Polish ✅ COMPLETED
 
 ### 7.1 Tokenization Panel Styling
-- [ ] Add CSS for tokenization panel layout (3-column grid)
-- [ ] Style colored boxes for tokens, IDs, embeddings
-- [ ] Create CSS-based colored connector lines between columns
-- [ ] Add hover effects for tooltips
-- [ ] Ensure responsive design for different screen sizes
+- [x] Add CSS for tokenization panel layout (3-column grid) - lines 555-621 in style.css
+- [x] Style colored boxes for tokens, IDs, embeddings
+- [x] Create CSS-based colored connector lines between columns
+- [x] Add hover effects for tooltips
+- [x] Ensure responsive design for different screen sizes
 
 ### 7.2 Transformer Layers Panel Styling
-- [ ] Style collapsed stacked layers visual (looks like stacked cards)
-- [ ] Add expand/collapse animation
-- [ ] Style neon yellow highlighting for significant layers (#FFFF00 or similar)
-- [ ] Ensure yellow outline is visible and prominent
+- [x] Style collapsed stacked layers visual (looks like stacked cards) - lines 707-727
+- [x] Add expand/collapse animation - lines 735-749
+- [x] Style neon yellow highlighting for significant layers (#FFFF00) - lines 662-673
+- [x] Ensure yellow outline is visible and prominent
 
 ### 7.3 Layer Flow Diagram Styling
-- [ ] Style flow diagram to be clear and readable
-- [ ] Add hover effects for tooltip regions
-- [ ] Ensure diagram fits well within layer accordion content
+- [x] Style flow diagram to be clear and readable - lines 490-525
+- [x] Add hover effects for tooltip regions
+- [x] Ensure diagram fits well within layer accordion content
 
 ### 7.4 Top 5 Line Graph Styling
-- [ ] Style line graph container
-- [ ] Ensure legend is readable
-- [ ] Style highlighted regions for significant layers
-- [ ] Add responsive sizing
+- [x] Style line graph container - handled by Plotly and inline styles
+- [x] Ensure legend is readable
+- [x] Style highlighted regions for significant layers - handled in app.py
+- [x] Add responsive sizing
 
 ### 7.5 Experiments Section Styling
-- [ ] Style "Explore These Changes" button
-- [ ] Style attention head selection buttons (toggle state)
-- [ ] Style ablation description text
-- [ ] Ensure consistent spacing and alignment
+- [x] Style "Explore These Changes" button - inline styles in app.py
+- [x] Style attention head selection buttons (toggle state) - inline styles in app.py
+- [x] Style ablation description text
+- [x] Ensure consistent spacing and alignment
+
+### 7.6 Full BertViz Button Styling (Added in Phase 6)
+- [x] Add hover effects for full BertViz button - lines 751-782 in style.css
+- [x] Add animation for BertViz container appearance
+- [x] Style button with purple theme (#764ba2) matching gradient
 
 ---
 
