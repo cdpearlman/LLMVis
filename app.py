@@ -9,7 +9,7 @@ import dash
 from dash import html, dcc, Input, Output, State, callback, no_update, ALL, MATCH
 from utils import (load_model_and_get_patterns, execute_forward_pass, extract_layer_data,
                    categorize_single_layer_heads, format_categorization_summary,
-                   compute_layer_wise_probability_tracking)
+                   compute_layer_wise_summaries)
 from utils.model_config import get_auto_selections, get_model_family
 
 # Import modular components
@@ -884,10 +884,7 @@ def create_layer_accordions(activation_data, activation_data2, model_name):
             return html.P("No layer data available.", className="placeholder-text")
         
         # Compute layer-wise probability tracking for first prompt
-        tracking_data = compute_layer_wise_probability_tracking(
-            activation_data.get('global_top5_tokens', []),
-            layer_data
-        )
+        tracking_data = compute_layer_wise_summaries(layer_data)
         layer_wise_probs = tracking_data.get('layer_wise_top5_probs', {})
         significant_layers = tracking_data.get('significant_layers', [])
         global_top5 = activation_data.get('global_top5_tokens', [])
@@ -901,10 +898,7 @@ def create_layer_accordions(activation_data, activation_data2, model_name):
         
         if comparison_mode:
             layer_data2 = extract_layer_data(activation_data2, model, tokenizer)
-            tracking_data2 = compute_layer_wise_probability_tracking(
-                activation_data2.get('global_top5_tokens', []),
-                layer_data2
-            )
+            tracking_data2 = compute_layer_wise_summaries(layer_data2)
             layer_wise_probs2 = tracking_data2.get('layer_wise_top5_probs', {})
             significant_layers2 = tracking_data2.get('significant_layers', [])
             global_top5_2 = activation_data2.get('global_top5_tokens', [])
