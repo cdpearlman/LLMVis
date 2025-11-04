@@ -1588,27 +1588,38 @@ def handle_head_selection(n_clicks_list, selected_heads):
 @app.callback(
     [Output('session-activation-store', 'data', allow_duplicate=True),
      Output('status-message', 'children', allow_duplicate=True)],
-    Input({'type': 'run-ablation-btn', 'layer': MATCH}, 'n_clicks'),
-    [State({'type': 'selected-heads-store', 'layer': MATCH}, 'data'),
+    Input({'type': 'run-ablation-btn', 'layer': ALL}, 'n_clicks'),
+    [State({'type': 'selected-heads-store', 'layer': ALL}, 'data'),
      State('session-activation-store', 'data'),
      State('model-dropdown', 'value'),
      State('prompt-input', 'value')],
     prevent_initial_call=True
 )
-def run_head_ablation(n_clicks, selected_heads, activation_data, model_name, prompt):
+def run_head_ablation(n_clicks_list, selected_heads_list, activation_data, model_name, prompt):
     """Run forward pass with selected heads ablated."""
-    if not n_clicks or not selected_heads or not activation_data:
+    # Identify which button was clicked
+    ctx = dash.callback_context
+    if not ctx.triggered or not ctx.triggered_id:
+        return no_update, no_update
+    
+    # Get the layer number from the triggered button
+    triggered_id = ctx.triggered_id
+    layer_idx = triggered_id['layer']
+    
+    # Find the corresponding selected heads for this layer
+    selected_heads = None
+    if isinstance(selected_heads_list, list) and layer_idx < len(selected_heads_list):
+        selected_heads = selected_heads_list[layer_idx]
+    
+    if not selected_heads or not activation_data:
         return no_update, no_update
     
     try:
         from transformers import AutoModelForCausalLM, AutoTokenizer
         from utils import execute_forward_pass_with_head_ablation
         
-        # Get layer number from callback context
-        ctx = dash.callback_context
-        import json
-        button_id = json.loads(ctx.triggered[0]['prop_id'].split('.')[0])
-        layer_num = button_id['layer']
+        # Use layer_idx from triggered_id (already extracted above)
+        layer_num = layer_idx
         
         # Load model and tokenizer
         model = AutoModelForCausalLM.from_pretrained(model_name, attn_implementation='eager')
