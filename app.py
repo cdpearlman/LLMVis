@@ -1681,6 +1681,10 @@ def run_head_ablation(n_clicks_list, selected_heads_list, activation_data, model
         ablated_data['ablated_layer'] = layer_num
         ablated_data['ablated_heads'] = selected_heads
         
+        # Preserve input_ids from original data if not present (prompt is unchanged)
+        if 'input_ids' not in ablated_data and 'input_ids' in activation_data:
+            ablated_data['input_ids'] = activation_data['input_ids']
+        
         # Success message
         heads_str = ', '.join([f"H{h}" for h in sorted(selected_heads)])
         success_message = html.Div([
