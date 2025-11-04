@@ -9,6 +9,7 @@
 - [X] Fixed token probability graphs not populating: Added global_top5_tokens to essential_data in run_analysis callback so it flows through to session store and frontend
 - [X] Fixed Run Ablation button not working: The callback was using layer_num directly as an index into the selected_heads_list, but since layers are displayed in reverse order, the indices didn't match. Fixed by using ctx.states_list to correctly map layer numbers to list indices.
 - [X] Fixed ablation data missing input_ids: The ablated data returned by execute_forward_pass_with_head_ablation was missing input_ids in some cases, causing tokenization display to fail. Fixed by preserving input_ids from original activation data since prompt is unchanged during ablation.
+- [X] Fixed ablation not populating layer data: The head_ablation_hook was modifying attention head outputs but not capturing them to the captured dictionary. This meant the ablated attention module's output was missing from the final data structure, preventing extract_layer_data from working properly. Fixed by adding captured.update() call in the hook to store the ablated output.
 
 ## PHASE 1: Backend Infrastructure Changes
 
