@@ -1587,7 +1587,7 @@ def handle_head_selection(n_clicks_list, selected_heads):
 # Run ablation experiment
 @app.callback(
     [Output('session-activation-store', 'data', allow_duplicate=True),
-     Output('status-message', 'children', allow_duplicate=True)],
+     Output('model-status', 'children', allow_duplicate=True)],
     Input({'type': 'run-ablation-btn', 'layer': ALL}, 'n_clicks'),
     [State({'type': 'selected-heads-store', 'layer': ALL}, 'data'),
      State('session-activation-store', 'data'),

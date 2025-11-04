@@ -1,5 +1,8 @@
 # Transformer Visualization Dashboard - Refactor Action Items
 
+## Recent Fixes
+- [X] Fixed callback error: Changed Output from non-existent 'status-message' to existing 'model-status' component
+
 ## PHASE 1: Backend Infrastructure Changes
 
 ### 1.1 Token Probability Utilities (utils/)
