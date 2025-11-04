@@ -337,9 +337,11 @@ def execute_forward_pass_with_head_ablation(model, tokenizer, prompt: str, confi
     def make_hook(mod_name: str):
         return lambda module, inputs, output: captured.update({mod_name: {"output": safe_to_serializable(output)}})
     
-    # Create head ablation hook
+    # Create head ablation hook that both ablates and captures
     def head_ablation_hook(module, input, output):
-        """Zero out specific attention heads in the output."""
+        """Zero out specific attention heads in the output AND capture it."""
+        ablated_output = output  # Default to original output
+        
         if isinstance(output, tuple):
             # Attention modules typically return (hidden_states, attention_weights, ...)
             hidden_states = output[0]  # [batch, seq_len, hidden_dim]
@@ -369,12 +371,14 @@ def execute_forward_pass_with_head_ablation(model, tokenizer, prompt: str, confi
             
             # Reconstruct output tuple
             if len(output) > 1:
-                return (ablated_hidden,) + output[1:]
+                ablated_output = (ablated_hidden,) + output[1:]
             else:
-                return (ablated_hidden,)
-        else:
-            # If output is not a tuple, just return as is (shouldn't happen for attention)
-            return output
+                ablated_output = (ablated_hidden,)
+        
+        # Capture the ablated output (CRITICAL: this was missing!)
+        captured.update({target_attention_module: {"output": safe_to_serializable(ablated_output)}})
+        
+        return ablated_output
     
     # Register hooks
     hooks = []
