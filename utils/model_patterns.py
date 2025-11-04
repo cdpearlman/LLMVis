@@ -1051,7 +1051,13 @@ def extract_layer_data(activation_data: Dict[str, Any], model, tokenizer) -> Lis
          for name in layer_modules if re.findall(r'\d+', name)]
     )
     
-    logit_lens_enabled = activation_data.get('logit_lens_parameter') is not None
+    # Check if we can compute token predictions (requires block_outputs and norm_parameters)
+    # Note: Previously, this checked for logit_lens_parameter, but that parameter is not actually
+    # needed for computing predictions. The _get_top_tokens function only needs block_outputs
+    # and norm_parameters to work correctly.
+    has_block_outputs = bool(activation_data.get('block_outputs', {}))
+    has_norm_params = bool(activation_data.get('norm_parameters', []))
+    can_compute_predictions = has_block_outputs and has_norm_params
     
     # Get global top 5 tokens from final output
     global_top5_tokens = activation_data.get('global_top5_tokens', [])
@@ -1062,7 +1068,7 @@ def extract_layer_data(activation_data: Dict[str, Any], model, tokenizer) -> Lis
     prev_global_probs = {}  # Track previous layer's global top 5 probabilities
     
     for layer_num, module_name in layer_info:
-        top_tokens = _get_top_tokens(activation_data, module_name, model, tokenizer, top_k=5) if logit_lens_enabled else None
+        top_tokens = _get_top_tokens(activation_data, module_name, model, tokenizer, top_k=5) if can_compute_predictions else None
         
         # Get top-3 attended tokens for this layer
         top_attended = _get_top_attended_tokens(activation_data, layer_num, tokenizer, top_k=3)
@@ -1070,7 +1076,7 @@ def extract_layer_data(activation_data: Dict[str, Any], model, tokenizer) -> Lis
         # Get probabilities for global top 5 tokens at this layer
         global_top5_probs = {}
         global_top5_deltas = {}
-        if logit_lens_enabled and global_top5_token_names:
+        if can_compute_predictions and global_top5_token_names:
             global_top5_probs = _get_token_probabilities_for_layer(
                 activation_data, module_name, model, tokenizer, global_top5_token_names
             )

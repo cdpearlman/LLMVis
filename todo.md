@@ -2,6 +2,7 @@
 
 ## Recent Fixes
 - [X] Fixed callback error: Changed Output from non-existent 'status-message' to existing 'model-status' component
+- [X] Fixed token predictions not being collected: Changed condition in extract_layer_data to check for block_outputs and norm_parameters instead of logit_lens_parameter
 
 ## PHASE 1: Backend Infrastructure Changes
 
