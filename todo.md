@@ -7,6 +7,7 @@
 - [X] Fixed norm_parameters handling in run_analysis: Updated to iterate over list of patterns like other dropdowns
 - [X] Added norm_parameters requirement to Run Analysis button: Button now requires norm parameters to be selected
 - [X] Fixed token probability graphs not populating: Added global_top5_tokens to essential_data in run_analysis callback so it flows through to session store and frontend
+- [X] Fixed Run Ablation button not working: The callback was using layer_num directly as an index into the selected_heads_list, but since layers are displayed in reverse order, the indices didn't match. Fixed by using ctx.states_list to correctly map layer numbers to list indices.
 
 ## PHASE 1: Backend Infrastructure Changes
 
