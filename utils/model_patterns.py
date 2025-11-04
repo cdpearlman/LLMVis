@@ -863,17 +863,17 @@ def get_check_token_probabilities(activation_data: Dict[str, Any], model, tokeni
 
 def detect_significant_probability_increases(layer_wise_probs: Dict[int, Dict[str, float]], 
                                             layer_wise_deltas: Dict[int, Dict[str, float]],
-                                            threshold: float = 0.25) -> List[int]:
+                                            threshold: float = 0.75) -> List[int]:
     """
     Detect layers where any global top 5 token has significant probability increase.
     
-    A layer is significant if any token has ≥25% relative increase from previous layer.
-    Example: 0.20 → 0.25 is (0.25-0.20)/0.20 = 25% increase.
+    A layer is significant if any token has ≥75% relative increase from previous layer.
+    Example: 0.20 → 0.35 is (0.35-0.20)/0.20 = 75% increase.
     
     Args:
         layer_wise_probs: Dict mapping layer_num → {token: prob}
         layer_wise_deltas: Dict mapping layer_num → {token: delta}
-        threshold: Relative increase threshold (default: 0.25 = 25%)
+        threshold: Relative increase threshold (default: 0.75 = 75%)
     
     Returns:
         List of layer numbers with significant increases

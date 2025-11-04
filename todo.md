@@ -6,6 +6,7 @@
 - [X] Fixed norm_selection type mismatch: Changed auto-selection to return list instead of string to match multi-select dropdown
 - [X] Fixed norm_parameters handling in run_analysis: Updated to iterate over list of patterns like other dropdowns
 - [X] Added norm_parameters requirement to Run Analysis button: Button now requires norm parameters to be selected
+- [X] Fixed token probability graphs not populating: Added global_top5_tokens to essential_data in run_analysis callback so it flows through to session store and frontend
 
 ## PHASE 1: Backend Infrastructure Changes
 

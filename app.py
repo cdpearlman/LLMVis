@@ -389,7 +389,8 @@ def run_analysis(n_clicks, model_name, prompt, prompt2, attn_patterns, block_pat
             'block_modules': activation_data.get('block_modules', []),
             'block_outputs': activation_data.get('block_outputs', {}),
             'logit_lens_parameter': activation_data.get('logit_lens_parameter'),
-            'norm_parameters': activation_data.get('norm_parameters', [])
+            'norm_parameters': activation_data.get('norm_parameters', []),
+            'global_top5_tokens': activation_data.get('global_top5_tokens', [])
         }
         
         # Process second prompt if provided
@@ -407,7 +408,8 @@ def run_analysis(n_clicks, model_name, prompt, prompt2, attn_patterns, block_pat
                 'block_modules': activation_data2.get('block_modules', []),
                 'block_outputs': activation_data2.get('block_outputs', {}),
                 'logit_lens_parameter': activation_data2.get('logit_lens_parameter'),
-                'norm_parameters': activation_data2.get('norm_parameters', [])
+                'norm_parameters': activation_data2.get('norm_parameters', []),
+                'global_top5_tokens': activation_data2.get('global_top5_tokens', [])
             }
         
         # Show success message
@@ -941,84 +943,17 @@ def create_layer_accordions(activation_data, activation_data2, model_name):
             # Create accordion panel content
             content_items = []
             
-            # Create delta chart showing changes in global top 5 tokens
+            # Store delta chart for later (will be added after attention head categories)
             if comparison_mode and layer_data2:
                 # Comparison mode: show grouped delta bars
                 layer2 = next((l for l in layer_data2 if l['layer_num'] == layer_num), None)
                 if layer2:
-                    fig = _create_comparison_delta_chart(layer, layer2, layer_num, global_top5, global_top5_2)
+                    delta_fig = _create_comparison_delta_chart(layer, layer2, layer_num, global_top5, global_top5_2)
                 else:
-                    fig = _create_token_probability_delta_chart(layer, layer_num, global_top5)
+                    delta_fig = _create_token_probability_delta_chart(layer, layer_num, global_top5)
             else:
                 # Single prompt mode: show delta bars
-                fig = _create_token_probability_delta_chart(layer, layer_num, global_top5)
-            
-            if fig:
-                content_items.append(
-                    dcc.Graph(
-                        figure=fig,
-                        config={'displayModeBar': False},
-                        style={'marginBottom': '15px'}
-                    )
-                )
-            else:
-                content_items.append(html.P("No predictions available", style={'color': '#6c757d', 'fontSize': '13px'}))
-            
-            # Add visual flow diagram showing transformer layer architecture
-            content_items.append(html.Div([
-                html.H6("How This Layer Works", style={'marginBottom': '10px', 'color': '#495057', 'fontSize': '14px'}),
-                html.Div([
-                    # Input vector
-                    html.Div([
-                        html.Div("[ ... ]", className="flow-box", title="The output from the previous layer (or embedding layer for Layer 0) is fed as input to this layer. Each layer builds upon the representations learned by previous layers."),
-                        html.Div("Input", style={'fontSize': '11px', 'color': '#6c757d', 'textAlign': 'center'})
-                    ], style={'display': 'inline-block', 'verticalAlign': 'middle'}),
-                    
-                    # Arrow
-                    html.Div("→", style={'display': 'inline-block', 'margin': '0 10px', 'fontSize': '20px', 'color': '#667eea'}),
-                    
-                    # Self-Attention box
-                    html.Div([
-                        html.Div("Self-Attention", className="flow-box attention-box", title="The self-attention mechanism allows each token to attend to all other tokens in the sequence, learning which tokens are most relevant for understanding context."),
-                        html.Div("Attention", style={'fontSize': '11px', 'color': '#6c757d', 'textAlign': 'center'})
-                    ], style={'display': 'inline-block', 'verticalAlign': 'middle'}),
-                    
-                    # Arrow to split
-                    html.Div("→", style={'display': 'inline-block', 'margin': '0 10px', 'fontSize': '20px', 'color': '#667eea'}),
-                    
-                    # Split into two paths
-                    html.Div([
-                        # Feed-forward path (top)
-                        html.Div([
-                            html.Div("F(x)", className="flow-box ffn-box", title="Feed-forward neural networks apply learned transformations to extract meaning from the attended information and prepare representations for the next layer. These are non-linear functions that help the model learn complex patterns."),
-                            html.Div("Feed-Forward", style={'fontSize': '11px', 'color': '#6c757d', 'textAlign': 'center', 'marginTop': '2px'})
-                        ], style={'marginBottom': '5px'}),
-                        
-                        # Residual connection path (bottom) - curved arrow
-                        html.Div([
-                            html.Div("⤷", style={'fontSize': '24px', 'color': '#28a745', 'transform': 'scaleX(2)'}),
-                            html.Div("Residual", style={'fontSize': '11px', 'color': '#6c757d', 'textAlign': 'center'}),
-                        ], style={'display': 'flex', 'alignItems': 'center', 'gap': '5px'}, title="The attention output is added back to the final output (residual connection). This preserves information from earlier layers in case the feed-forward network learns little, helping gradients flow during training and maintaining important information.")
-                    ], style={'display': 'inline-block', 'verticalAlign': 'middle', 'textAlign': 'center'}),
-                    
-                    # Arrow to merge
-                    html.Div("→", style={'display': 'inline-block', 'margin': '0 10px', 'fontSize': '20px', 'color': '#667eea'}),
-                    
-                    # Output
-                    html.Div([
-                        html.Div("[ ... ]", className="flow-box", title="The layer's output shows how token probabilities have changed, reflecting what the layer learned."),
-                        html.Div("Output", style={'fontSize': '11px', 'color': '#6c757d', 'textAlign': 'center'})
-                    ], style={'display': 'inline-block', 'verticalAlign': 'middle'})
-                ], style={
-                    'display': 'flex',
-                    'alignItems': 'center',
-                    'justifyContent': 'center',
-                    'padding': '15px',
-                    'backgroundColor': '#f8f9fa',
-                    'borderRadius': '8px',
-                    'flexWrap': 'wrap'
-                })
-            ], style={'marginBottom': '15px'}))
+                delta_fig = _create_token_probability_delta_chart(layer, layer_num, global_top5)
             
             # Add "Explore These Changes" button and experiments section
             num_heads = model.config.num_attention_heads if hasattr(model.config, 'num_attention_heads') else 12
@@ -1219,6 +1154,19 @@ def create_layer_accordions(activation_data, activation_data2, model_name):
                     import traceback
                     traceback.print_exc()
             
+            # Add delta chart after attention head categories
+            content_items.append(html.Hr(style={'margin': '15px 0'}))
+            if delta_fig:
+                content_items.append(
+                    dcc.Graph(
+                        figure=delta_fig,
+                        config={'displayModeBar': False},
+                        style={'marginBottom': '15px'}
+                    )
+                )
+            else:
+                content_items.append(html.P("No probability changes available", style={'color': '#6c757d', 'fontSize': '13px'}))
+            
             # Add CSS class for significant layers (yellow highlighting)
             accordion_classes = "layer-accordion"
             if layer_num in significant_layers or (comparison_mode and layer_num in significant_layers2):
@@ -1239,7 +1187,7 @@ def create_layer_accordions(activation_data, activation_data2, model_name):
             if fig:
                 tooltip_text = ("This graph shows how the model's confidence in the final top 5 predictions "
                                "evolves through each layer. Layers with significant probability increases "
-                               "(≥25% relative increase) are highlighted, indicating where the model makes "
+                               "(≥75% relative increase) are highlighted, indicating where the model makes "
                                "important decisions. Expand the Transformer Layers panel to explore these "
                                "impactful layers in detail.")
                 
@@ -1281,6 +1229,71 @@ def create_layer_accordions(activation_data, activation_data2, model_name):
                 html.Div("...", className="stacked-layer-card")
             )
         
+        # Create "How This Layer Works" diagram to display in main container
+        how_layer_works = html.Div([
+            html.Div([
+                # Input vector
+                html.Div([
+                    html.Div("[ ... ]", className="flow-box", title="The output from the previous layer (or embedding layer for Layer 0) is fed as input to this layer. Each layer builds upon the representations learned by previous layers."),
+                    html.Div("Input", style={'fontSize': '11px', 'color': '#6c757d', 'textAlign': 'center'})
+                ], style={'display': 'inline-block', 'verticalAlign': 'middle'}),
+                
+                # Arrow to Self-Attention
+                html.Div("→", style={'display': 'inline-block', 'margin': '0 10px', 'fontSize': '20px', 'color': '#667eea'}),
+                
+                # Self-Attention box
+                html.Div([
+                    html.Div("Self-Attention", className="flow-box attention-box", title="The self-attention mechanism allows each token to attend to all other tokens in the sequence, learning which tokens are most relevant for understanding context."),
+                    html.Div("Attention", style={'fontSize': '11px', 'color': '#6c757d', 'textAlign': 'center'})
+                ], style={'display': 'inline-block', 'verticalAlign': 'middle'}),
+                
+                # Container for the split arrows showing green arrows going from Self-Attention
+                html.Div([
+                    # Green arrow up to Feed-Forward
+                    html.Div("↗", style={'fontSize': '20px', 'color': '#28a745', 'lineHeight': '1'}),
+                    # Green arrow down to Residual (mirrored)
+                    html.Div("↘", style={'fontSize': '20px', 'color': '#28a745', 'lineHeight': '1'})
+                ], style={'display': 'inline-block', 'verticalAlign': 'middle', 'margin': '0 5px'}),
+                
+                # Split into two paths (Feed-Forward on top, Residual on bottom)
+                html.Div([
+                    # Feed-forward path (top)
+                    html.Div([
+                        html.Div("F(x)", className="flow-box ffn-box", title="Feed-forward neural networks apply learned transformations to extract meaning from the attended information and prepare representations for the next layer. These are non-linear functions that help the model learn complex patterns."),
+                        html.Div("Feed-Forward", style={'fontSize': '11px', 'color': '#6c757d', 'textAlign': 'center', 'marginTop': '2px'})
+                    ], style={'marginBottom': '5px'}),
+                    
+                    # Residual connection path (bottom)
+                    html.Div([
+                        html.Div("⤷", style={'fontSize': '24px', 'color': '#28a745', 'transform': 'scaleX(2)'}),
+                        html.Div("Residual", style={'fontSize': '11px', 'color': '#6c757d', 'textAlign': 'center'}),
+                    ], style={'display': 'flex', 'alignItems': 'center', 'gap': '5px'}, title="The attention output is added back to the final output (residual connection). This preserves information from earlier layers in case the feed-forward network learns little, helping gradients flow during training and maintaining important information.")
+                ], style={'display': 'inline-block', 'verticalAlign': 'middle', 'textAlign': 'center'}),
+                
+                # Container for the merge arrows showing green arrows going to Output
+                html.Div([
+                    # Green arrow from Feed-Forward down
+                    html.Div("↘", style={'fontSize': '20px', 'color': '#28a745', 'lineHeight': '1'}),
+                    # Green arrow from Residual up
+                    html.Div("↗", style={'fontSize': '20px', 'color': '#28a745', 'lineHeight': '1'})
+                ], style={'display': 'inline-block', 'verticalAlign': 'middle', 'margin': '0 5px'}),
+                
+                # Output
+                html.Div([
+                    html.Div("[ ... ]", className="flow-box", title="The layer's output shows how token probabilities have changed, reflecting what the layer learned."),
+                    html.Div("Output", style={'fontSize': '11px', 'color': '#6c757d', 'textAlign': 'center'})
+                ], style={'display': 'inline-block', 'verticalAlign': 'middle'})
+            ], style={
+                'display': 'flex',
+                'alignItems': 'center',
+                'justifyContent': 'center',
+                'padding': '15px',
+                'backgroundColor': '#f8f9fa',
+                'borderRadius': '8px',
+                'flexWrap': 'wrap'
+            })
+        ], style={'marginBottom': '15px', 'padding': '15px'})
+        
         # Create collapsible container for transformer layers
         layers_container = html.Details([
             html.Summary([
@@ -1290,7 +1303,10 @@ def create_layer_accordions(activation_data, activation_data2, model_name):
                     html.Div(stacked_layers, className="stacked-layers-visual")
                 ], style={'display': 'flex', 'alignItems': 'center', 'gap': '20px'})
             ], className="transformer-layers-summary"),
-            html.Div(accordions, className="transformer-layers-content")
+            html.Div([
+                how_layer_works,  # Add the diagram here
+                html.Div(accordions, className="transformer-layers-content")
+            ])
         ], className="transformer-layers-container", open=False)  # Start collapsed
         
         # Create full BertViz button section (below all layer accordions)
