@@ -955,9 +955,9 @@ def create_layer_accordions(activation_data, activation_data2, model_name):
                 # Single prompt mode: show delta bars
                 delta_fig = _create_token_probability_delta_chart(layer, layer_num, global_top5)
             
-            # Add "Explore These Changes" button and experiments section
+            # Store button section for later (will be added after delta chart)
             num_heads = model.config.num_attention_heads if hasattr(model.config, 'num_attention_heads') else 12
-            content_items.append(html.Div([
+            explore_button_section = html.Div([
                 # Button to toggle experiments section
                 html.Button(
                     "Explore These Changes",
@@ -1036,7 +1036,7 @@ def create_layer_accordions(activation_data, activation_data2, model_name):
                         dcc.Store(id={'type': 'selected-heads-store', 'layer': layer_num}, data=[])
                     ])
                 ], id={'type': 'experiments-section', 'layer': layer_num}, style={'display': 'none'})
-            ], style={'marginBottom': '15px'}))
+            ], style={'marginBottom': '15px'})
             
             # Add attention head categorization section
             top_attended = layer.get('top_attended_tokens', [])
@@ -1167,6 +1167,9 @@ def create_layer_accordions(activation_data, activation_data2, model_name):
             else:
                 content_items.append(html.P("No probability changes available", style={'color': '#6c757d', 'fontSize': '13px'}))
             
+            # Add "Explore These Changes" button after delta chart
+            content_items.append(explore_button_section)
+            
             # Add CSS class for significant layers (yellow highlighting)
             accordion_classes = "layer-accordion"
             if layer_num in significant_layers or (comparison_mode and layer_num in significant_layers2):
@@ -1231,6 +1234,7 @@ def create_layer_accordions(activation_data, activation_data2, model_name):
         
         # Create "How This Layer Works" diagram to display in main container
         how_layer_works = html.Div([
+            html.H6("How This Layer Works", style={'marginBottom': '10px', 'color': '#495057', 'fontSize': '14px'}),
             html.Div([
                 # Input vector
                 html.Div([
@@ -1265,9 +1269,9 @@ def create_layer_accordions(activation_data, activation_data2, model_name):
                     
                     # Residual connection path (bottom)
                     html.Div([
-                        html.Div("⤷", style={'fontSize': '24px', 'color': '#28a745', 'transform': 'scaleX(2)'}),
-                        html.Div("Residual", style={'fontSize': '11px', 'color': '#6c757d', 'textAlign': 'center'}),
-                    ], style={'display': 'flex', 'alignItems': 'center', 'gap': '5px'}, title="The attention output is added back to the final output (residual connection). This preserves information from earlier layers in case the feed-forward network learns little, helping gradients flow during training and maintaining important information.")
+                        html.Div("⤷", className="flow-box", style={'fontSize': '24px', 'color': '#28a745', 'transform': 'scaleX(2)'}, title="The attention output is added back to the final output (residual connection). This preserves information from earlier layers in case the feed-forward network learns little, helping gradients flow during training and maintaining important information."),
+                        html.Div("Residual", style={'fontSize': '11px', 'color': '#6c757d', 'textAlign': 'center', 'marginTop': '2px'})
+                    ])
                 ], style={'display': 'inline-block', 'verticalAlign': 'middle', 'textAlign': 'center'}),
                 
                 # Container for the merge arrows showing green arrows going to Output
@@ -1338,8 +1342,8 @@ def create_layer_accordions(activation_data, activation_data2, model_name):
         
         # Return all components
         return html.Div([
-            *line_graphs,  # Line graph(s) at the top
-            layers_container,  # Collapsible layers container below
+            layers_container,  # Collapsible layers container at top
+            *line_graphs,  # Line graph(s) below (showing outputs)
             full_bertviz_section  # Full BertViz button at the bottom
         ])
         
