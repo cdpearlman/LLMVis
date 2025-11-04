@@ -3,6 +3,9 @@
 ## Recent Fixes
 - [X] Fixed callback error: Changed Output from non-existent 'status-message' to existing 'model-status' component
 - [X] Fixed token predictions not being collected: Changed condition in extract_layer_data to check for block_outputs and norm_parameters instead of logit_lens_parameter
+- [X] Fixed norm_selection type mismatch: Changed auto-selection to return list instead of string to match multi-select dropdown
+- [X] Fixed norm_parameters handling in run_analysis: Updated to iterate over list of patterns like other dropdowns
+- [X] Added norm_parameters requirement to Run Analysis button: Button now requires norm parameters to be selected
 
 ## PHASE 1: Backend Infrastructure Changes
 

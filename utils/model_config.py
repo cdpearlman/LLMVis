@@ -222,7 +222,7 @@ def get_auto_selections(model_name: str, module_patterns: Dict[str, List[str]],
         return {
             'attention_selection': [],
             'block_selection': [],
-            'norm_selection': None,
+            'norm_selection': [],  # Empty list for multi-select dropdown
             'logit_lens_selection': None,
             'family_name': None
         }
@@ -232,7 +232,7 @@ def get_auto_selections(model_name: str, module_patterns: Dict[str, List[str]],
         return {
             'attention_selection': [],
             'block_selection': [],
-            'norm_selection': None,
+            'norm_selection': [],  # Empty list for multi-select dropdown
             'logit_lens_selection': None,
             'family_name': None
         }
@@ -256,11 +256,12 @@ def get_auto_selections(model_name: str, module_patterns: Dict[str, List[str]],
             block_matches.append(pattern_key)
     
     # Match normalization parameter
+    # Note: norm-params-dropdown has multi=True, so return a list
     norm_parameter = config.get('norm_parameter', '')
     if norm_parameter:
         for pattern_key in param_patterns.keys():
             if _pattern_matches_template(pattern_key, norm_parameter):
-                norm_match = pattern_key
+                norm_match = [pattern_key]  # Return as list for multi-select dropdown
                 break
     
     # Match logit lens pattern - check both parameters AND modules
@@ -280,7 +281,7 @@ def get_auto_selections(model_name: str, module_patterns: Dict[str, List[str]],
     return {
         'attention_selection': attention_matches,
         'block_selection': block_matches,
-        'norm_selection': norm_match,
+        'norm_selection': norm_match if norm_match else [],  # Ensure list for multi-select
         'logit_lens_selection': logit_lens_match,
         'family_name': family,
         'family_description': config.get('description', '')

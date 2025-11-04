@@ -369,7 +369,7 @@ def run_analysis(n_clicks, model_name, prompt, prompt2, attn_patterns, block_pat
         config = {
             'attention_modules': [mod for pattern in (attn_patterns or []) for mod in module_patterns.get(pattern, [])],
             'block_modules': [mod for pattern in block_patterns for mod in module_patterns.get(pattern, [])],
-            'norm_parameters': param_patterns.get(norm_patterns, []) if norm_patterns else [],
+            'norm_parameters': [param for pattern in (norm_patterns or []) for param in param_patterns.get(pattern, [])],
             'logit_lens_parameter': all_patterns.get(logit_pattern, [None])[0] if logit_pattern else None
         }
         
@@ -1389,11 +1389,12 @@ def update_tokenization_display(activation_data, activation_data2, model_name):
     Output('run-analysis-btn', 'disabled'),
     [Input('model-dropdown', 'value'),
      Input('prompt-input', 'value'),
-     Input('block-modules-dropdown', 'value')]
+     Input('block-modules-dropdown', 'value'),
+     Input('norm-params-dropdown', 'value')]
 )
-def enable_run_button(model, prompt, block_modules):
-    """Enable Run Analysis button when model, prompt, and layer blocks are selected."""
-    return not (model and prompt and block_modules)
+def enable_run_button(model, prompt, block_modules, norm_params):
+    """Enable Run Analysis button when model, prompt, layer blocks, and norm parameters are selected."""
+    return not (model and prompt and block_modules and norm_params)
 
 # Sidebar collapse toggle
 @app.callback(
