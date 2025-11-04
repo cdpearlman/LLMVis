@@ -1623,14 +1623,33 @@ def run_head_ablation(n_clicks_list, selected_heads_list, activation_data, model
     if not ctx.triggered or not ctx.triggered_id:
         return no_update, no_update
     
-    # Get the layer number from the triggered button
-    triggered_id = ctx.triggered_id
-    layer_idx = triggered_id['layer']
+    # Get the layer number from the triggered button ID
+    layer_num = ctx.triggered_id.get('layer')
+    if layer_num is None:
+        return no_update, no_update
     
-    # Find the corresponding selected heads for this layer
+    # Find the index in the states_list that corresponds to this layer
+    # ctx.states_list contains the State values in order
+    button_index = None
+    if hasattr(ctx, 'states_list') and ctx.states_list:
+        # states_list[0] corresponds to selected-heads-store
+        for idx, state_info in enumerate(ctx.states_list[0]):
+            if state_info['id'].get('layer') == layer_num:
+                button_index = idx
+                break
+    
+    # Fallback: if states_list doesn't work, try matching by iterating
+    if button_index is None:
+        # This shouldn't happen, but as a fallback, just return error
+        return no_update, html.Div([
+            html.I(className="fas fa-exclamation-circle", style={'marginRight': '8px', 'color': '#dc3545'}),
+            f"Could not determine button index for layer {layer_num}"
+        ], className="status-error")
+    
+    # Get the selected heads for this specific button
     selected_heads = None
-    if isinstance(selected_heads_list, list) and layer_idx < len(selected_heads_list):
-        selected_heads = selected_heads_list[layer_idx]
+    if isinstance(selected_heads_list, list) and button_index < len(selected_heads_list):
+        selected_heads = selected_heads_list[button_index]
     
     if not selected_heads or not activation_data:
         return no_update, no_update
@@ -1638,9 +1657,6 @@ def run_head_ablation(n_clicks_list, selected_heads_list, activation_data, model
     try:
         from transformers import AutoModelForCausalLM, AutoTokenizer
         from utils import execute_forward_pass_with_head_ablation
-        
-        # Use layer_idx from triggered_id (already extracted above)
-        layer_num = layer_idx
         
         # Load model and tokenizer
         model = AutoModelForCausalLM.from_pretrained(model_name, attn_implementation='eager')
