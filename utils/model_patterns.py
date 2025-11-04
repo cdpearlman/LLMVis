@@ -382,14 +382,24 @@ def execute_forward_pass_with_head_ablation(model, tokenizer, prompt: str, confi
     
     # Register hooks
     hooks = []
+    hooks_registered = []
+    hooks_skipped = []
     for mod_name in all_modules:
         if mod_name in name_to_module:
             if mod_name == target_attention_module:
                 # Apply head ablation hook
                 hooks.append(name_to_module[mod_name].register_forward_hook(head_ablation_hook))
+                hooks_registered.append(f"{mod_name} (ablation)")
             else:
                 # Regular capture hook
                 hooks.append(name_to_module[mod_name].register_forward_hook(make_hook(mod_name)))
+                hooks_registered.append(f"{mod_name} (capture)")
+        else:
+            hooks_skipped.append(mod_name)
+    
+    print(f"DEBUG: Registered {len(hooks)} hooks: {hooks_registered[:3]}...")
+    if hooks_skipped:
+        print(f"DEBUG: Skipped {len(hooks_skipped)} hooks (not in name_to_module): {hooks_skipped[:3]}...")
     
     # Execute forward pass
     with torch.no_grad():
