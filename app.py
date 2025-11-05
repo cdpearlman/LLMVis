@@ -384,6 +384,7 @@ def run_analysis(n_clicks, model_name, prompt, prompt2, attn_patterns, block_pat
         essential_data = {
             'model': model_name,
             'prompt': prompt,
+            'attention_modules': activation_data.get('attention_modules', []),
             'attention_outputs': activation_data.get('attention_outputs', {}),
             'input_ids': activation_data.get('input_ids', []),
             'block_modules': activation_data.get('block_modules', []),
@@ -403,6 +404,7 @@ def run_analysis(n_clicks, model_name, prompt, prompt2, attn_patterns, block_pat
             essential_data2 = {
                 'model': model_name,
                 'prompt': prompt2,
+                'attention_modules': activation_data2.get('attention_modules', []),
                 'attention_outputs': activation_data2.get('attention_outputs', {}),
                 'input_ids': activation_data2.get('input_ids', []),
                 'block_modules': activation_data2.get('block_modules', []),
@@ -872,12 +874,6 @@ def create_layer_accordions(activation_data, activation_data2, model_name):
     if not activation_data or not model_name:
         return html.P("Run analysis to see layer-by-layer predictions.", className="placeholder-text")
     
-    # Debug: Check incoming data
-    print(f"DEBUG create_layer_accordions called")
-    print(f"  activation_data keys: {list(activation_data.keys()) if activation_data else 'None'}")
-    print(f"  block_modules: {activation_data.get('block_modules', 'MISSING') if activation_data else 'None'}")
-    print(f"  Is ablated: {activation_data.get('ablated', False) if activation_data else 'None'}")
-    
     try:
         from transformers import AutoModelForCausalLM, AutoTokenizer
         import plotly.graph_objs as go
@@ -887,8 +883,6 @@ def create_layer_accordions(activation_data, activation_data2, model_name):
         
         # Extract layer data for first prompt
         layer_data = extract_layer_data(activation_data, model, tokenizer)
-        
-        print(f"  extract_layer_data returned {len(layer_data) if layer_data else 0} layers")
         
         if not layer_data:
             return html.P("No layer data available.", className="placeholder-text")
@@ -1678,19 +1672,10 @@ def run_head_ablation(n_clicks_list, selected_heads_list, activation_data, model
             'logit_lens_parameter': activation_data.get('logit_lens_parameter')
         }
         
-        # Debug: Check config
-        print(f"DEBUG ablation config: attention_modules={len(config['attention_modules'])}, block_modules={len(config['block_modules'])}, norm_parameters={len(config['norm_parameters'])}")
-        
         # Run ablation
         ablated_data = execute_forward_pass_with_head_ablation(
             model, tokenizer, prompt, config, layer_num, selected_heads
         )
-        
-        # Debug: Check returned data
-        print(f"DEBUG ablated_data keys: {list(ablated_data.keys())}")
-        print(f"DEBUG ablated_data block_modules: {ablated_data.get('block_modules', 'MISSING')}")
-        if 'error' in ablated_data:
-            print(f"DEBUG ablated_data ERROR: {ablated_data['error']}")
         
         # Update activation data with ablated results
         # Mark as ablated for visual indication
