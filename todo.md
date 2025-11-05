@@ -10,6 +10,7 @@
 - [X] Fixed Run Ablation button not working: The callback was using layer_num directly as an index into the selected_heads_list, but since layers are displayed in reverse order, the indices didn't match. Fixed by using ctx.states_list to correctly map layer numbers to list indices.
 - [X] Fixed ablation data missing input_ids: The ablated data returned by execute_forward_pass_with_head_ablation was missing input_ids in some cases, causing tokenization display to fail. Fixed by preserving input_ids from original activation data since prompt is unchanged during ablation.
 - [X] Fixed ablation not populating layer data: The head_ablation_hook was modifying attention head outputs but not capturing them to the captured dictionary. This meant the ablated attention module's output was missing from the final data structure, preventing extract_layer_data from working properly. Fixed by adding captured.update() call in the hook to store the ablated output.
+- [X] Fixed ablation "No layer data available" error: The run_analysis callback was not storing 'attention_modules' in essential_data, only 'attention_outputs'. Without the list of attention module names, execute_forward_pass_with_head_ablation couldn't find which module to ablate and returned an error dict. Fixed by adding 'attention_modules' to both essential_data and essential_data2 dictionaries.
 
 ## PHASE 1: Backend Infrastructure Changes
 
