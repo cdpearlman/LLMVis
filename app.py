@@ -105,6 +105,8 @@ app.layout = html.Div([
     # Session storage for activation data
     dcc.Store(id='session-activation-store', storage_type='session'),
     dcc.Store(id='session-patterns-store', storage_type='session'),
+    # Store original activation data before ablation for comparison
+    dcc.Store(id='session-activation-store-original', storage_type='session'),
     # Sidebar collapse state (default: collapsed = True)
     dcc.Store(id='sidebar-collapse-store', storage_type='session', data=True),
     # Comparison mode state (default: not comparing)
@@ -496,12 +498,13 @@ def _create_top5_by_layer_graph(layer_wise_probs, significant_layers, global_top
     return fig
 
 
-def _create_single_prompt_chart(layer_data):
+def _create_single_prompt_chart(layer_data, title_suffix=''):
     """
     Create a single prompt bar chart (existing functionality).
     
     Args:
         layer_data: Layer data dict (with top_5_tokens, deltas, certainty)
+        title_suffix: Optional suffix to add to title (e.g., "Before Ablation", "After Ablation")
     
     Returns:
         Plotly Figure with horizontal bars
@@ -548,9 +551,14 @@ def _create_single_prompt_chart(layer_data):
         )
     ])
     
+    # Build title with optional suffix
+    title_text = f'Top 5 Predictions (Certainty: {certainty:.2f})'
+    if title_suffix:
+        title_text = f'Top 5 Predictions {title_suffix} (Certainty: {certainty:.2f})'
+    
     fig.update_layout(
         title={
-            'text': f'Top 5 Predictions (Certainty: {certainty:.2f})',
+            'text': title_text,
             'font': {'size': 14}
         },
         xaxis={'title': 'Probability', 'range': [0, max(probs) * 1.15]},
@@ -702,7 +710,7 @@ def _create_comparison_bar_chart(layer_data1, layer_data2, layer_num):
     return fig
 
 
-def _create_token_probability_delta_chart(layer_data, layer_num, global_top5_tokens):
+def _create_token_probability_delta_chart(layer_data, layer_num, global_top5_tokens, title_suffix=''):
     """
     Create horizontal bar chart showing change in probabilities for global top 5 tokens.
     
@@ -710,6 +718,7 @@ def _create_token_probability_delta_chart(layer_data, layer_num, global_top5_tok
         layer_data: Layer data dict with global_top5_deltas
         layer_num: Layer number for title
         global_top5_tokens: List of (token, prob) tuples for final global top 5
+        title_suffix: Optional suffix to add to title (e.g., "Before Ablation", "After Ablation")
     
     Returns:
         Plotly Figure with horizontal bars (green for positive, red for negative)
@@ -759,9 +768,13 @@ def _create_token_probability_delta_chart(layer_data, layer_num, global_top5_tok
     
     # Update layout
     prev_layer_text = "Embedding" if layer_num == 0 else f"Layer {layer_num - 1}"
+    title_text = f'Change in Token Probabilities (from {prev_layer_text} to Layer {layer_num})'
+    if title_suffix:
+        title_text = f'Change in Token Probabilities {title_suffix} (from {prev_layer_text} to Layer {layer_num})'
+    
     fig.update_layout(
         title={
-            'text': f'Change in Token Probabilities (from {prev_layer_text} to Layer {layer_num})',
+            'text': title_text,
             'font': {'size': 13}
         },
         xaxis={'title': 'Probability Change', 'range': x_range, 'zeroline': True, 'zerolinewidth': 2, 'zerolinecolor': '#999'},
@@ -866,10 +879,11 @@ def _create_comparison_delta_chart(layer_data1, layer_data2, layer_num, global_t
 @app.callback(
     Output('layer-accordions-container', 'children'),
     [Input('session-activation-store', 'data'),
-     Input('session-activation-store-2', 'data')],
+     Input('session-activation-store-2', 'data'),
+     Input('session-activation-store-original', 'data')],
     [State('model-dropdown', 'value')]
 )
-def create_layer_accordions(activation_data, activation_data2, model_name):
+def create_layer_accordions(activation_data, activation_data2, original_activation_data, model_name):
     """Create accordion panels for each layer with top-5 bar charts, deltas, and certainty."""
     if not activation_data or not model_name:
         return html.P("Run analysis to see layer-by-layer predictions.", className="placeholder-text")
@@ -881,17 +895,33 @@ def create_layer_accordions(activation_data, activation_data2, model_name):
         model = AutoModelForCausalLM.from_pretrained(model_name, attn_implementation='eager')
         tokenizer = AutoTokenizer.from_pretrained(model_name)
         
-        # Extract layer data for first prompt
+        # Check if we're in ablation mode
+        ablation_mode = activation_data.get('ablated', False) and original_activation_data
+        
+        # Extract layer data for current activation (may be ablated)
         layer_data = extract_layer_data(activation_data, model, tokenizer)
         
         if not layer_data:
             return html.P("No layer data available.", className="placeholder-text")
         
-        # Compute layer-wise probability tracking for first prompt
+        # Compute layer-wise probability tracking
         tracking_data = compute_layer_wise_summaries(layer_data)
         layer_wise_probs = tracking_data.get('layer_wise_top5_probs', {})
         significant_layers = tracking_data.get('significant_layers', [])
         global_top5 = activation_data.get('global_top5_tokens', [])
+        
+        # If in ablation mode, also extract original layer data
+        original_layer_data = None
+        original_layer_wise_probs = {}
+        original_significant_layers = []
+        original_global_top5 = []
+        
+        if ablation_mode:
+            original_layer_data = extract_layer_data(original_activation_data, model, tokenizer)
+            original_tracking_data = compute_layer_wise_summaries(original_layer_data)
+            original_layer_wise_probs = original_tracking_data.get('layer_wise_top5_probs', {})
+            original_significant_layers = original_tracking_data.get('significant_layers', [])
+            original_global_top5 = original_activation_data.get('global_top5_tokens', [])
         
         # Check if second prompt exists and extract its layer data
         layer_data2 = None
@@ -1158,16 +1188,68 @@ def create_layer_accordions(activation_data, activation_data2, model_name):
             
             # Add delta chart after attention head categories
             content_items.append(html.Hr(style={'margin': '15px 0'}))
-            if delta_fig:
-                content_items.append(
-                    dcc.Graph(
-                        figure=delta_fig,
-                        config={'displayModeBar': False},
-                        style={'marginBottom': '15px'}
-                    )
-                )
+            
+            # If in ablation mode, show before/after comparison
+            if ablation_mode and original_layer_data:
+                # Find corresponding original layer
+                original_layer = next((l for l in original_layer_data if l['layer_num'] == layer_num), None)
+                
+                if original_layer:
+                    # Add explanatory note about ablation comparison
+                    content_items.append(html.Div([
+                        html.I(className="fas fa-info-circle", style={'marginRight': '8px', 'color': '#667eea'}),
+                        f"Comparing probabilities before and after ablating Layer {activation_data.get('ablated_layer')}, " +
+                        f"Heads {', '.join([f'H{h}' for h in sorted(activation_data.get('ablated_heads', []))])}"
+                    ], style={'fontSize': '12px', 'color': '#6c757d', 'marginBottom': '15px', 'padding': '10px', 
+                             'backgroundColor': '#f8f9fa', 'borderRadius': '6px', 'border': '1px solid #dee2e6'}))
+                    
+                    # Before Ablation Section
+                    content_items.append(html.Div([
+                        html.H6("Before Ablation", style={
+                            'marginBottom': '10px', 'color': '#495057', 'fontSize': '14px', 
+                            'fontWeight': '600', 'borderLeft': '4px solid #74b9ff', 'paddingLeft': '10px'
+                        }),
+                        dcc.Graph(
+                            figure=_create_token_probability_delta_chart(original_layer, layer_num, original_global_top5, '(Before Ablation)'),
+                            config={'displayModeBar': False},
+                            style={'marginBottom': '10px'}
+                        )
+                    ], style={'padding': '15px', 'backgroundColor': '#e3f2fd', 'borderRadius': '8px', 'marginBottom': '15px'}))
+                    
+                    # After Ablation Section  
+                    content_items.append(html.Div([
+                        html.H6("After Ablation", style={
+                            'marginBottom': '10px', 'color': '#495057', 'fontSize': '14px',
+                            'fontWeight': '600', 'borderLeft': '4px solid #ffb74d', 'paddingLeft': '10px'
+                        }),
+                        dcc.Graph(
+                            figure=_create_token_probability_delta_chart(layer, layer_num, global_top5, '(After Ablation)'),
+                            config={'displayModeBar': False},
+                            style={'marginBottom': '10px'}
+                        )
+                    ], style={'padding': '15px', 'backgroundColor': '#fff3e0', 'borderRadius': '8px', 'marginBottom': '15px'}))
+                else:
+                    # Fallback if original layer not found
+                    if delta_fig:
+                        content_items.append(
+                            dcc.Graph(
+                                figure=delta_fig,
+                                config={'displayModeBar': False},
+                                style={'marginBottom': '15px'}
+                            )
+                        )
             else:
-                content_items.append(html.P("No probability changes available", style={'color': '#6c757d', 'fontSize': '13px'}))
+                # Normal mode (not ablation): show single delta chart
+                if delta_fig:
+                    content_items.append(
+                        dcc.Graph(
+                            figure=delta_fig,
+                            config={'displayModeBar': False},
+                            style={'marginBottom': '15px'}
+                        )
+                    )
+                else:
+                    content_items.append(html.P("No probability changes available", style={'color': '#6c757d', 'fontSize': '13px'}))
             
             # Add "Explore These Changes" button after delta chart
             content_items.append(explore_button_section)
@@ -1187,7 +1269,60 @@ def create_layer_accordions(activation_data, activation_data2, model_name):
         # Create line graph(s) for top 5 tokens across layers
         line_graphs = []
         
-        if layer_wise_probs and global_top5:
+        # If in ablation mode, show before/after comparison
+        if ablation_mode and original_layer_wise_probs and original_global_top5:
+            # Before Ablation Graph
+            fig_before = _create_top5_by_layer_graph(original_layer_wise_probs, original_significant_layers, original_global_top5)
+            if fig_before:
+                # Update title to indicate "Before Ablation"
+                fig_before.update_layout(title="Top 5 Token Probabilities Across Layers (Before Ablation)")
+                
+                graph_container_before = html.Div([
+                    html.H5("Before Ablation", style={
+                        'marginBottom': '10px', 'color': '#495057', 'fontSize': '16px',
+                        'fontWeight': '600', 'borderLeft': '4px solid #74b9ff', 'paddingLeft': '10px'
+                    }),
+                    html.Div([
+                        html.I(className="fas fa-info-circle", 
+                              style={'marginRight': '8px', 'color': '#667eea'}),
+                        "This graph shows how the model's confidence in the final top 5 predictions evolves through each layer before ablation."
+                    ], style={'fontSize': '13px', 'color': '#6c757d', 'marginBottom': '10px', 'lineHeight': '1.5'}),
+                    dcc.Graph(figure=fig_before, config={'displayModeBar': False})
+                ], style={'padding': '15px', 'backgroundColor': '#e3f2fd', 'borderRadius': '8px', 'marginBottom': '20px'})
+                
+                line_graphs.append(graph_container_before)
+            
+            # After Ablation Graph
+            if layer_wise_probs and global_top5:
+                fig_after = _create_top5_by_layer_graph(layer_wise_probs, significant_layers, global_top5)
+                if fig_after:
+                    # Update title to indicate "After Ablation"
+                    fig_after.update_layout(title="Top 5 Token Probabilities Across Layers (After Ablation)")
+                    
+                    ablated_layer = activation_data.get('ablated_layer')
+                    ablated_heads = activation_data.get('ablated_heads', [])
+                    heads_str = ', '.join([f'H{h}' for h in sorted(ablated_heads)])
+                    
+                    graph_container_after = html.Div([
+                        html.H5("After Ablation", style={
+                            'marginBottom': '10px', 'color': '#495057', 'fontSize': '16px',
+                            'fontWeight': '600', 'borderLeft': '4px solid #ffb74d', 'paddingLeft': '10px'
+                        }),
+                        html.Div([
+                            html.I(className="fas fa-info-circle", 
+                                  style={'marginRight': '8px', 'color': '#f57c00'}),
+                            f"This graph shows how probabilities changed after removing Layer {ablated_layer}, Heads {heads_str}. " +
+                            "Compare with the graph above to see the impact of the ablation."
+                        ], style={'fontSize': '13px', 'color': '#6c757d', 'marginBottom': '10px', 'lineHeight': '1.5'}),
+                        dcc.Graph(figure=fig_after, config={'displayModeBar': False}),
+                        html.Small("Note: Tokens with and without leading spaces (e.g., ' cat' and 'cat') are automatically merged.", 
+                                  style={'fontSize': '11px', 'color': '#6c757d', 'fontStyle': 'italic'})
+                    ], style={'padding': '15px', 'backgroundColor': '#fff3e0', 'borderRadius': '8px', 'marginBottom': '20px'})
+                    
+                    line_graphs.append(graph_container_after)
+        
+        # Normal mode (not ablation): show single line graph
+        elif layer_wise_probs and global_top5:
             fig = _create_top5_by_layer_graph(layer_wise_probs, significant_layers, global_top5)
             if fig:
                 tooltip_text = ("This graph shows how the model's confidence in the final top 5 predictions "
@@ -1212,7 +1347,7 @@ def create_layer_accordions(activation_data, activation_data2, model_name):
                 
                 line_graphs.append(graph_container)
         
-        # In comparison mode, create a second graph or side-by-side display
+        # In comparison mode (two prompts), create a second graph or side-by-side display
         if comparison_mode and layer_wise_probs2 and global_top5_2:
             fig2 = _create_top5_by_layer_graph(layer_wise_probs2, significant_layers2, global_top5_2)
             if fig2:
@@ -1610,6 +1745,7 @@ def handle_head_selection(n_clicks_list, selected_heads):
 # Run ablation experiment
 @app.callback(
     [Output('session-activation-store', 'data', allow_duplicate=True),
+     Output('session-activation-store-original', 'data'),
      Output('model-status', 'children', allow_duplicate=True)],
     Input({'type': 'run-ablation-btn', 'layer': ALL}, 'n_clicks'),
     [State({'type': 'selected-heads-store', 'layer': ALL}, 'data'),
@@ -1623,12 +1759,12 @@ def run_head_ablation(n_clicks_list, selected_heads_list, activation_data, model
     # Identify which button was clicked
     ctx = dash.callback_context
     if not ctx.triggered or not ctx.triggered_id:
-        return no_update, no_update
+        return no_update, no_update, no_update
     
     # Get the layer number from the triggered button ID
     layer_num = ctx.triggered_id.get('layer')
     if layer_num is None:
-        return no_update, no_update
+        return no_update, no_update, no_update
     
     # Find the index in the states_list that corresponds to this layer
     # ctx.states_list contains the State values in order
@@ -1643,7 +1779,7 @@ def run_head_ablation(n_clicks_list, selected_heads_list, activation_data, model
     # Fallback: if states_list doesn't work, try matching by iterating
     if button_index is None:
         # This shouldn't happen, but as a fallback, just return error
-        return no_update, html.Div([
+        return no_update, no_update, html.Div([
             html.I(className="fas fa-exclamation-circle", style={'marginRight': '8px', 'color': '#dc3545'}),
             f"Could not determine button index for layer {layer_num}"
         ], className="status-error")
@@ -1654,11 +1790,15 @@ def run_head_ablation(n_clicks_list, selected_heads_list, activation_data, model
         selected_heads = selected_heads_list[button_index]
     
     if not selected_heads or not activation_data:
-        return no_update, no_update
+        return no_update, no_update, no_update
     
     try:
         from transformers import AutoModelForCausalLM, AutoTokenizer
         from utils import execute_forward_pass_with_head_ablation
+        
+        # Save original activation data before ablation
+        import copy
+        original_data = copy.deepcopy(activation_data)
         
         # Load model and tokenizer
         model = AutoModelForCausalLM.from_pretrained(model_name, attn_implementation='eager')
@@ -1694,7 +1834,7 @@ def run_head_ablation(n_clicks_list, selected_heads_list, activation_data, model
             f"Ablation complete: Layer {layer_num}, Heads {heads_str} removed"
         ], className="status-success")
         
-        return ablated_data, success_message
+        return ablated_data, original_data, success_message
         
     except Exception as e:
         print(f"Error running ablation: {e}")
@@ -1706,7 +1846,51 @@ def run_head_ablation(n_clicks_list, selected_heads_list, activation_data, model
             f"Ablation error: {str(e)}"
         ], className="status-error")
         
-        return no_update, error_message
+        return no_update, no_update, error_message
+
+
+# Show/hide Reset Ablation button based on ablation mode
+@app.callback(
+    Output('reset-ablation-container', 'style'),
+    Input('session-activation-store', 'data'),
+    prevent_initial_call=False
+)
+def toggle_reset_ablation_button(activation_data):
+    """Show Reset Ablation button when in ablation mode, hide otherwise."""
+    if activation_data and activation_data.get('ablated', False):
+        return {'display': 'block'}
+    else:
+        return {'display': 'none'}
+
+
+# Reset ablation experiment
+@app.callback(
+    [Output('session-activation-store', 'data', allow_duplicate=True),
+     Output('session-activation-store-original', 'data', allow_duplicate=True),
+     Output('model-status', 'children', allow_duplicate=True)],
+    Input('reset-ablation-btn', 'n_clicks'),
+    [State('session-activation-store-original', 'data')],
+    prevent_initial_call=True
+)
+def reset_ablation(n_clicks, original_data):
+    """Reset ablation by restoring original data and clearing the original store."""
+    if not n_clicks:
+        return no_update, no_update, no_update
+    
+    if not original_data:
+        error_message = html.Div([
+            html.I(className="fas fa-exclamation-circle", style={'marginRight': '8px', 'color': '#dc3545'}),
+            "No original data to restore"
+        ], className="status-error")
+        return no_update, no_update, error_message
+    
+    # Restore original data to main store and clear original store
+    success_message = html.Div([
+        html.I(className="fas fa-undo", style={'marginRight': '8px', 'color': '#28a745'}),
+        "Ablation reset - original data restored"
+    ], className="status-success")
+    
+    return original_data, {}, success_message
 
 
 if __name__ == '__main__':

@@ -93,7 +93,20 @@ def create_sidebar():
                     id="clear-selections-btn",
                     className="action-button secondary-button"
                 )
-            ], className="button-container")
+            ], className="button-container"),
+            
+            # Reset Ablation button (hidden by default, shown when in ablation mode)
+            html.Div([
+                html.Button(
+                    [
+                        html.I(className="fas fa-undo", style={'marginRight': '8px'}),
+                        "Reset Ablation"
+                    ],
+                    id="reset-ablation-btn",
+                    className="action-button warning-button",
+                    style={'marginTop': '10px'}
+                )
+            ], id="reset-ablation-container", style={'display': 'none'})
         ], id="sidebar-content", className="sidebar-content")
         
     ])
