@@ -13,15 +13,24 @@ import re
 
 
 class ComparisonConfig:
-    """Configuration for two-prompt comparison thresholds."""
+    """
+    Configuration for two-prompt comparison thresholds.
+    
+    These thresholds determine when two prompts are considered "different enough"
+    to highlight for educational purposes. Tuned to catch meaningful differences
+    without being overly sensitive to minor variations.
+    """
     
     def __init__(self):
         # Attention difference thresholds
-        self.attention_cosine_threshold = 0.2  # Minimum cosine distance for "different"
-        self.attention_l2_threshold = 1.0  # Minimum normalized L2 distance
+        # Cosine distance of 0.15 means ~85% similarity (meaningful difference)
+        self.attention_cosine_threshold = 0.15  # Minimum cosine distance for "different"
+        # Normalized L2 distance of 0.8 represents substantial difference
+        self.attention_l2_threshold = 0.8  # Minimum normalized L2 distance
         
         # Output probability difference thresholds
-        self.output_prob_threshold = 0.1  # Minimum probability difference
+        # 8% probability difference is pedagogically meaningful
+        self.output_prob_threshold = 0.08  # Minimum probability difference
         
         # Top-N for summary
         self.top_n_divergent = 5  # Show top-5 most divergent layers/heads

@@ -152,17 +152,17 @@ def create_token_box(content, color, idx, box_type):
     Returns:
         Dash HTML component for the token box
     """
-    # Tooltip text based on box type
+    # Tooltip text based on box type (written for high school education level)
     tooltips = {
-        'token': "The input text is split into tokens, which are the basic units the model processes. "
-                "Tokenization helps the model understand semantic meaning by breaking text into meaningful "
-                "subwords, allowing it to handle any word, even ones it hasn't seen before.",
-        'id': "Each token is mapped to a unique ID number from the model's vocabulary. Models have a "
-             "finite vocabulary size (typically 30k-50k tokens) to keep the model size manageable while "
-             "covering most language patterns through subword tokenization.",
-        'embedding': "Each token ID is converted to an embedding vector - a list of numbers that represents "
-                    "the token's meaning. These vectors are learned during training so that words with similar "
-                    "meanings have similar vectors. This is the actual input fed into the transformer layers."
+        'token': "The text is broken into 'tokens' - small pieces like words or parts of words. "
+                "This is how the model reads text. Breaking words into smaller pieces lets the model "
+                "understand new words by combining pieces it already knows.",
+        'id': "Each token gets a unique number (ID) from the model's dictionary. "
+             "Think of it like a phonebook - every token has its own number. "
+             "The model uses these numbers instead of the actual text.",
+        'embedding': "Each token number is turned into a list of numbers called an 'embedding.' "
+                    "These numbers capture the token's meaning. Similar words get similar numbers. "
+                    "This list of numbers is what actually goes into the model's layers."
     }
     
     return html.Div([

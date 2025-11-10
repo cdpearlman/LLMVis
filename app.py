@@ -995,9 +995,21 @@ def create_layer_accordions(activation_data, activation_data2, original_activati
                     html.Div([
                         html.H6("Attention Head Ablation", style={'marginBottom': '8px', 'color': '#495057', 'fontSize': '14px'}),
                         html.P(
-                            "Ablation experiments remove the output of specific attention heads, exploring how the model functions without those components. "
-                            "We can see how important a head is by how much the predictions change when we remove it. "
-                            "Select one or more attention heads below to zero out their contributions and re-run the forward pass.",
+                            "Ablation experiments help us understand which attention heads are important by removing them and seeing what changes. "
+                            "When we 'ablate' a head, we zero out its contribution to the layer's output. "
+                            "If the model's predictions change a lot, that head was important. If they stay similar, that head wasn't doing much.",
+                            style={'fontSize': '12px', 'color': '#6c757d', 'lineHeight': '1.5', 'marginBottom': '10px'}
+                        ),
+                        html.Div([
+                            html.Strong("What we zero out: ", style={'color': '#495057', 'fontSize': '12px'}),
+                            html.Span(
+                                "Each attention head produces a set of values (one per token). We set all these values to zero, "
+                                "effectively removing that head's influence. The model then continues processing without that head's contribution.",
+                                style={'fontSize': '12px', 'color': '#6c757d'}
+                            )
+                        ], style={'padding': '10px', 'backgroundColor': '#f8f9fa', 'borderRadius': '4px', 'marginBottom': '15px', 'border': '1px solid #dee2e6'}),
+                        html.P(
+                            "Select one or more attention heads below, then click 'Run Ablation' to see the results.",
                             style={'fontSize': '12px', 'color': '#6c757d', 'lineHeight': '1.5', 'marginBottom': '15px'}
                         )
                     ]),
@@ -1092,11 +1104,11 @@ def create_layer_accordions(activation_data, activation_data2, original_activati
                         
                         # Category descriptions for tooltips
                         category_descriptions = {
-                            'previous_token': "These attention heads primarily focus on the immediately preceding token. They help the model track local sequential dependencies and are often important for syntax and grammar.",
-                            'first_token': "These heads attend strongly to the first token or show positional patterns. They help the model maintain awareness of sentence structure and position-dependent information.",
-                            'bow': "These heads distribute attention broadly across many tokens without strong positional preferences. They help aggregate semantic information from across the entire sequence.",
-                            'syntactic': "These heads show structured attention patterns that often correspond to syntactic relationships (e.g., subject-verb, modifier-noun). They help the model understand grammatical structure.",
-                            'other': "These heads show attention patterns that don't fit the above categories. They may be learning task-specific or more complex patterns."
+                            'previous_token': "These heads mainly look at the word right before the current word. They help the model understand word order and grammar, like knowing that 'the' usually comes before a noun.",
+                            'first_token': "These heads pay a lot of attention to the first word in the sentence. They help the model remember the overall topic or structure of the sentence.",
+                            'bow': "These heads look at many words in the sentence at once, without focusing on any particular one. They help the model get the general meaning by combining information from across the whole sentence.",
+                            'syntactic': "These heads look for grammatical relationships between words, like connecting a verb to its subject. For example, in 'The dog runs,' they connect 'dog' to 'runs.'",
+                            'other': "These heads have attention patterns that don't fit the other categories. They might be learning special patterns unique to certain tasks or contexts."
                         }
                         
                         # BertViz usage instructions (show once before categories)
@@ -1104,7 +1116,10 @@ def create_layer_accordions(activation_data, activation_data2, original_activati
                             html.Small([
                                 html.I(className="fas fa-lightbulb", style={'marginRight': '6px', 'color': '#ffc107'}),
                                 html.Strong("How to read the visualizations: ", style={'color': '#495057'}),
-                                "The left side shows Query tokens (where attention is coming FROM), and the right side shows Key tokens (where attention is going TO). Lines connect tokens that attend to each other, with thicker lines indicating stronger attention weights. Each color represents a different attention head. Double-click a color to isolate that head. Hover over lines to see exact attention weights."
+                                "The left side shows the words asking for attention (Query), and the right side shows the words being looked at (Key). "
+                                "Lines connect words that pay attention to each other - thicker lines mean stronger attention. "
+                                "Each color is a different attention head. Double-click a color to see just that head. "
+                                "Hover over lines to see the exact attention strength."
                             ], style={'fontSize': '11px', 'color': '#6c757d', 'lineHeight': '1.5', 'display': 'block', 'padding': '10px', 'backgroundColor': '#fff9e6', 'borderRadius': '4px', 'border': '1px solid #ffc107'})
                         ], style={'marginBottom': '12px'})
                         content_items.append(bertviz_instructions)
@@ -1304,14 +1319,13 @@ def create_layer_accordions(activation_data, activation_data2, original_activati
         elif layer_wise_probs and global_top5:
             fig = _create_top5_by_layer_graph(layer_wise_probs, significant_layers, global_top5)
             if fig:
-                tooltip_text = ("This graph shows how the model's confidence in the final top 5 predictions "
-                               "evolves through each layer. Layers with significant probability increases "
-                               "(≥50% relative increase) are highlighted in yellow, indicating where the model makes "
-                               "important decisions. Expand the Transformer Layers panel to explore these "
-                               "impactful layers in detail.")
+                tooltip_text = ("This graph shows how confident the model is in its top 5 predictions as it processes through each layer. "
+                               "Yellow highlights mark layers where the model's confidence jumped significantly (50% or more increase). "
+                               "These are the layers where the model made important decisions. "
+                               "Click on the Transformer Layers section below to see what each layer did.")
                 
-                merge_note = ("Note: Tokens with and without leading spaces (e.g., ' cat' and 'cat') are "
-                             "automatically merged and treated as the same token for clarity.")
+                merge_note = ("Note: Some tokens appear with a space before them (like ' cat') and some without (like 'cat'). "
+                             "We automatically combine these to make the graph easier to read.")
                 
                 graph_container = html.Div([
                     html.Div([
@@ -1354,7 +1368,7 @@ def create_layer_accordions(activation_data, activation_data2, original_activati
             html.Div([
                 # Input vector
                 html.Div([
-                    html.Div("[ ... ]", className="flow-box", title="The output from the previous layer (or embedding layer for Layer 0) is fed as input to this layer. Each layer builds upon the representations learned by previous layers."),
+                    html.Div("[ ... ]", className="flow-box", title="This layer receives the output from the previous layer. Each layer builds on what earlier layers learned, gradually understanding the text better."),
                     html.Div("Input", style={'fontSize': '11px', 'color': '#6c757d', 'textAlign': 'center'})
                 ], style={'display': 'inline-block', 'verticalAlign': 'middle'}),
                 
@@ -1363,7 +1377,7 @@ def create_layer_accordions(activation_data, activation_data2, original_activati
                 
                 # Self-Attention box
                 html.Div([
-                    html.Div("Self-Attention", className="flow-box attention-box", title="The self-attention mechanism allows each token to attend to all other tokens in the sequence, learning which tokens are most relevant for understanding context."),
+                    html.Div("Self-Attention", className="flow-box attention-box", title="Self-attention lets each word 'look at' all other words in the sentence to understand context. For example, in 'The cat sat on it,' the word 'it' can look back at 'cat' to understand what 'it' refers to."),
                     html.Div("Attention", style={'fontSize': '11px', 'color': '#6c757d', 'textAlign': 'center'})
                 ], style={'display': 'inline-block', 'verticalAlign': 'middle'}),
                 
@@ -1379,13 +1393,13 @@ def create_layer_accordions(activation_data, activation_data2, original_activati
                 html.Div([
                     # Feed-forward path (top)
                     html.Div([
-                        html.Div("F(x)", className="flow-box ffn-box", title="Feed-forward neural networks apply learned transformations to extract meaning from the attended information and prepare representations for the next layer. These are non-linear functions that help the model learn complex patterns."),
+                        html.Div("F(x)", className="flow-box ffn-box", title="The feed-forward network processes the attention results. Think of it as a calculator that transforms the information to extract deeper meaning and patterns."),
                         html.Div("Feed-Forward", style={'fontSize': '11px', 'color': '#6c757d', 'textAlign': 'center', 'marginTop': '2px'})
                     ], style={'marginBottom': '5px'}),
                     
                     # Residual connection path (bottom)
                     html.Div([
-                        html.Div("⤷", className="flow-box", style={'fontSize': '24px', 'color': '#28a745', 'transform': 'scaleX(2)'}, title="The attention output is added back to the final output (residual connection). This preserves information from earlier layers in case the feed-forward network learns little, helping gradients flow during training and maintaining important information."),
+                        html.Div("⤷", className="flow-box", style={'fontSize': '24px', 'color': '#28a745', 'transform': 'scaleX(2)'}, title="The residual connection is like a shortcut that adds the original input back to the output. This helps preserve important information and makes training more stable."),
                         html.Div("Residual", style={'fontSize': '11px', 'color': '#6c757d', 'textAlign': 'center', 'marginTop': '2px'})
                     ])
                 ], style={'display': 'inline-block', 'verticalAlign': 'middle', 'textAlign': 'center'}),
@@ -1400,7 +1414,7 @@ def create_layer_accordions(activation_data, activation_data2, original_activati
                 
                 # Output
                 html.Div([
-                    html.Div("[ ... ]", className="flow-box", title="The layer's output shows how token probabilities have changed, reflecting what the layer learned."),
+                    html.Div("[ ... ]", className="flow-box", title="The layer's output shows how the model's predictions changed after processing through this layer."),
                     html.Div("Output", style={'fontSize': '11px', 'color': '#6c757d', 'textAlign': 'center'})
                 ], style={'display': 'inline-block', 'verticalAlign': 'middle'})
             ], style={

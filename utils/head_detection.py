@@ -16,26 +16,35 @@ import re
 
 
 class HeadCategorizationConfig:
-    """Configuration for attention head categorization heuristics."""
+    """
+    Configuration for attention head categorization heuristics.
+    
+    These thresholds are tuned to balance sensitivity (catching relevant patterns)
+    with specificity (avoiding false positives) for educational purposes.
+    """
     
     def __init__(self):
         # Previous-token head thresholds
-        self.prev_token_threshold = 0.5  # Minimum avg attention to prev token
+        # Heads that primarily attend to the immediately preceding token
+        self.prev_token_threshold = 0.4  # Minimum avg attention to prev token (40%)
         self.prev_token_diagonal_offset = 1  # Check i → i-1 pattern
         
         # First/Positional head thresholds
-        self.first_token_threshold = 0.3  # Minimum avg attention to first token
+        # Heads that attend strongly to first token or show positional patterns
+        self.first_token_threshold = 0.25  # Minimum avg attention to first token (25%)
         self.positional_pattern_threshold = 0.4  # For detecting positional patterns
         
         # Bag-of-words head thresholds
-        self.bow_entropy_threshold = 0.7  # Minimum entropy (normalized)
-        self.bow_max_attention_threshold = 0.3  # Maximum attention to any single token
+        # Heads with diffuse attention across many tokens
+        self.bow_entropy_threshold = 0.65  # Minimum entropy (normalized, 0-1 scale)
+        self.bow_max_attention_threshold = 0.35  # Maximum attention to any single token
         
         # Syntactic head thresholds
-        self.syntactic_distance_pattern_threshold = 0.4  # For detecting distance patterns
+        # Heads showing structured distance patterns (e.g., subject-verb)
+        self.syntactic_distance_pattern_threshold = 0.3  # For detecting distance patterns
         
         # General thresholds
-        self.min_seq_len = 3  # Minimum sequence length for reliable detection
+        self.min_seq_len = 4  # Minimum sequence length for reliable detection
 
 
 def compute_attention_entropy(attention_weights: torch.Tensor) -> float:
