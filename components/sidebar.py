@@ -67,19 +67,6 @@ def create_sidebar():
             )
         ], className="dropdown-container"),
         
-        # Logit lens parameter dropdown (single selection)
-        html.Div([
-            html.Label("Logit Lens Parameter:", className="dropdown-label"),
-            dcc.Dropdown(
-                id='logit-lens-dropdown',
-                options=[],
-                value=None,
-                placeholder="Select logit lens parameter...",
-                multi=False,
-                className="module-dropdown"
-            )
-        ], className="dropdown-container"),
-        
             # Action buttons
             html.Div([
                 html.Button(

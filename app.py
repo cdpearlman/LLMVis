@@ -145,11 +145,9 @@ app.layout = html.Div([
      Output('attention-modules-dropdown', 'options'),
      Output('block-modules-dropdown', 'options'),
      Output('norm-params-dropdown', 'options'),
-     Output('logit-lens-dropdown', 'options'),
      Output('attention-modules-dropdown', 'value', allow_duplicate=True),
      Output('block-modules-dropdown', 'value', allow_duplicate=True),
      Output('norm-params-dropdown', 'value', allow_duplicate=True),
-     Output('logit-lens-dropdown', 'value', allow_duplicate=True),
      Output('loading-indicator', 'children')],
     [Input('model-dropdown', 'value')],
     prevent_initial_call=True
@@ -157,7 +155,7 @@ app.layout = html.Div([
 def load_model_patterns(selected_model):
     """Load and categorize model patterns when a model is selected."""
     if not selected_model:
-        return {}, [], [], [], [], None, None, None, None, None
+        return {}, [], [], [], None, None, None, None
     
     try:
         # Load model patterns
@@ -205,11 +203,6 @@ def load_model_patterns(selected_model):
         norm_options = create_grouped_options(
             param_patterns, ['norm', 'layernorm', 'layer_norm'], 'params'
         )
-        # Logit lens can be in either modules or parameters - combine both
-        combined_patterns = {**param_patterns, **module_patterns}
-        logit_lens_options = create_grouped_options(
-            combined_patterns, ['lm_head', 'head', 'classifier', 'embed', 'wte', 'word'], 'items'
-        )
         
         # Get auto-selections based on model family
         auto_selections = get_auto_selections(selected_model, module_patterns, param_patterns)
@@ -248,12 +241,10 @@ def load_model_patterns(selected_model):
             patterns_data, 
             attention_options, 
             block_options, 
-            norm_options, 
-            logit_lens_options,
+            norm_options,
             auto_selections.get('attention_selection', []),
             auto_selections.get('block_selection', []),
             auto_selections.get('norm_selection', []),
-            auto_selections.get('logit_lens_selection'),
             loading_content
         )
         
@@ -263,7 +254,7 @@ def load_model_patterns(selected_model):
             html.I(className="fas fa-exclamation-triangle", style={'color': '#dc3545', 'marginRight': '8px'}),
             f"Error loading model: {str(e)}"
         ], className="status-error")
-        return {}, [], [], [], [], None, None, None, None, error_content
+        return {}, [], [], [], None, None, None, error_content
 
 # Callback to show loading spinner when model is being processed
 @app.callback(
@@ -286,7 +277,6 @@ def show_loading_spinner(selected_model):
     [Output('attention-modules-dropdown', 'value'),
      Output('block-modules-dropdown', 'value'),
      Output('norm-params-dropdown', 'value'),
-     Output('logit-lens-dropdown', 'value'),
      Output('session-activation-store', 'data'),
      Output('loading-indicator', 'children', allow_duplicate=True)],
     [Input('clear-selections-btn', 'n_clicks')],
@@ -307,7 +297,6 @@ def clear_all_selections(n_clicks):
         None,  # attention-modules-dropdown value
         None,  # block-modules-dropdown value  
         None,  # norm-params-dropdown value
-        None,  # logit-lens-dropdown value
         {},    # session-activation-store data
         cleared_status  # loading-indicator children
     )
@@ -339,17 +328,15 @@ def show_analysis_loading_spinner(n_clicks):
      State('prompt-input-2', 'value'),
      State('attention-modules-dropdown', 'value'),
      State('block-modules-dropdown', 'value'),
-     State('norm-params-dropdown', 'value'), 
-     State('logit-lens-dropdown', 'value'),
+     State('norm-params-dropdown', 'value'),
      State('session-patterns-store', 'data')],
     prevent_initial_call=True
 )
-def run_analysis(n_clicks, model_name, prompt, prompt2, attn_patterns, block_patterns, norm_patterns, logit_pattern, patterns_data):
+def run_analysis(n_clicks, model_name, prompt, prompt2, attn_patterns, block_patterns, norm_patterns, patterns_data):
     """Run forward pass and store activation data (handles 1 or 2 prompts)."""
     print(f"\n=== DEBUG: run_analysis START ===")
     print(f"DEBUG: n_clicks={n_clicks}, model_name={model_name}, prompt='{prompt}', prompt2='{prompt2}'")
     print(f"DEBUG: block_patterns={block_patterns}")
-    print(f"DEBUG: logit_pattern={logit_pattern}")
     
     if not n_clicks or not model_name or not prompt or not block_patterns:
         print("DEBUG: Missing required inputs, returning empty")
@@ -365,14 +352,12 @@ def run_analysis(n_clicks, model_name, prompt, prompt2, attn_patterns, block_pat
         # Build config from selected patterns
         module_patterns = patterns_data.get('module_patterns', {})
         param_patterns = patterns_data.get('param_patterns', {})
-        all_patterns = {**module_patterns, **param_patterns}
         
         # Use block patterns (full layer outputs / residual stream) for logit lens
         config = {
             'attention_modules': [mod for pattern in (attn_patterns or []) for mod in module_patterns.get(pattern, [])],
             'block_modules': [mod for pattern in block_patterns for mod in module_patterns.get(pattern, [])],
-            'norm_parameters': [param for pattern in (norm_patterns or []) for param in param_patterns.get(pattern, [])],
-            'logit_lens_parameter': all_patterns.get(logit_pattern, [None])[0] if logit_pattern else None
+            'norm_parameters': [param for pattern in (norm_patterns or []) for param in param_patterns.get(pattern, [])]
         }
         
         print(f"DEBUG: config = {config}")
@@ -391,7 +376,6 @@ def run_analysis(n_clicks, model_name, prompt, prompt2, attn_patterns, block_pat
             'input_ids': activation_data.get('input_ids', []),
             'block_modules': activation_data.get('block_modules', []),
             'block_outputs': activation_data.get('block_outputs', {}),
-            'logit_lens_parameter': activation_data.get('logit_lens_parameter'),
             'norm_parameters': activation_data.get('norm_parameters', []),
             'global_top5_tokens': activation_data.get('global_top5_tokens', [])
         }
@@ -411,7 +395,6 @@ def run_analysis(n_clicks, model_name, prompt, prompt2, attn_patterns, block_pat
                 'input_ids': activation_data2.get('input_ids', []),
                 'block_modules': activation_data2.get('block_modules', []),
                 'block_outputs': activation_data2.get('block_outputs', {}),
-                'logit_lens_parameter': activation_data2.get('logit_lens_parameter'),
                 'norm_parameters': activation_data2.get('norm_parameters', []),
                 'global_top5_tokens': activation_data2.get('global_top5_tokens', [])
             }
@@ -503,7 +486,7 @@ def _create_single_prompt_chart(layer_data, title_suffix=''):
     Create a single prompt bar chart (existing functionality).
     
     Args:
-        layer_data: Layer data dict (with top_5_tokens, deltas, certainty)
+        layer_data: Layer data dict (with top_5_tokens, deltas)
         title_suffix: Optional suffix to add to title (e.g., "Before Ablation", "After Ablation")
     
     Returns:
@@ -513,7 +496,6 @@ def _create_single_prompt_chart(layer_data, title_suffix=''):
     
     top_5 = layer_data.get('top_5_tokens', [])
     deltas = layer_data.get('deltas', {})
-    certainty = layer_data.get('certainty', 0.0)
     
     if not top_5:
         return go.Figure()
@@ -552,9 +534,9 @@ def _create_single_prompt_chart(layer_data, title_suffix=''):
     ])
     
     # Build title with optional suffix
-    title_text = f'Top 5 Predictions (Certainty: {certainty:.2f})'
+    title_text = f'Top 5 Predictions'
     if title_suffix:
-        title_text = f'Top 5 Predictions {title_suffix} (Certainty: {certainty:.2f})'
+        title_text = f'Top 5 Predictions {title_suffix}'
     
     fig.update_layout(
         title={
@@ -577,8 +559,8 @@ def _create_comparison_bar_chart(layer_data1, layer_data2, layer_num):
     Create a grouped bar chart comparing top-5 predictions from two prompts.
     
     Args:
-        layer_data1: Layer data dict for prompt 1 (with top_5_tokens, deltas, certainty)
-        layer_data2: Layer data dict for prompt 2 (with top_5_tokens, deltas, certainty)
+        layer_data1: Layer data dict for prompt 1 (with top_5_tokens, deltas)
+        layer_data2: Layer data dict for prompt 2 (with top_5_tokens, deltas)
         layer_num: Layer number for title
     
     Returns:
@@ -590,8 +572,6 @@ def _create_comparison_bar_chart(layer_data1, layer_data2, layer_num):
     top_5_2 = layer_data2.get('top_5_tokens', [])
     deltas_1 = layer_data1.get('deltas', {})
     deltas_2 = layer_data2.get('deltas', {})
-    certainty_1 = layer_data1.get('certainty', 0.0)
-    certainty_2 = layer_data2.get('certainty', 0.0)
     
     # Build token sets
     tokens_1 = {tok: prob for tok, prob in top_5_1}
@@ -688,7 +668,7 @@ def _create_comparison_bar_chart(layer_data1, layer_data2, layer_num):
     
     fig.update_layout(
         title={
-            'text': f'Top 5 Predictions Comparison (Certainty: P1={certainty_1:.2f}, P2={certainty_2:.2f})',
+            'text': f'Top 5 Predictions Comparison',
             'font': {'size': 14}
         },
         xaxis={'title': 'Probability', 'range': [0, max_prob * 1.2]},
@@ -884,7 +864,7 @@ def _create_comparison_delta_chart(layer_data1, layer_data2, layer_num, global_t
     [State('model-dropdown', 'value')]
 )
 def create_layer_accordions(activation_data, activation_data2, original_activation_data, model_name):
-    """Create accordion panels for each layer with top-5 bar charts, deltas, and certainty."""
+    """Create accordion panels for each layer with top-5 bar charts and deltas."""
     if not activation_data or not model_name:
         return html.P("Run analysis to see layer-by-layer predictions.", className="placeholder-text")
     
@@ -945,7 +925,6 @@ def create_layer_accordions(activation_data, activation_data2, original_activati
             top_prob = layer.get('top_prob', 0.0)
             top_5 = layer.get('top_5_tokens', [])
             deltas = layer.get('deltas', {})
-            certainty = layer.get('certainty', 0.0)
             
             # Create summary header - different format for comparison mode
             if comparison_mode and layer_data2:
@@ -1327,7 +1306,7 @@ def create_layer_accordions(activation_data, activation_data2, original_activati
             if fig:
                 tooltip_text = ("This graph shows how the model's confidence in the final top 5 predictions "
                                "evolves through each layer. Layers with significant probability increases "
-                               "(≥75% relative increase) are highlighted, indicating where the model makes "
+                               "(≥50% relative increase) are highlighted in yellow, indicating where the model makes "
                                "important decisions. Expand the Transformer Layers panel to explore these "
                                "impactful layers in detail.")
                 
@@ -1808,8 +1787,7 @@ def run_head_ablation(n_clicks_list, selected_heads_list, activation_data, model
         config = {
             'attention_modules': activation_data.get('attention_modules', []),
             'block_modules': activation_data.get('block_modules', []),
-            'norm_parameters': activation_data.get('norm_parameters', []),
-            'logit_lens_parameter': activation_data.get('logit_lens_parameter')
+            'norm_parameters': activation_data.get('norm_parameters', [])
         }
         
         # Run ablation

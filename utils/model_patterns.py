@@ -258,7 +258,6 @@ def execute_forward_pass(model, tokenizer, prompt: str, config: Dict[str, Any]) 
         "block_outputs": block_outputs,
         "norm_parameters": norm_parameters,
         "norm_data": norm_data,
-        "logit_lens_parameter": logit_lens_parameter,
         "actual_output": actual_output,
         "global_top5_tokens": global_top5_tokens  # New: global top 5 from final output
     }
@@ -434,7 +433,6 @@ def execute_forward_pass_with_head_ablation(model, tokenizer, prompt: str, confi
         "block_outputs": block_outputs,
         "norm_parameters": norm_parameters,
         "norm_data": norm_data,
-        "logit_lens_parameter": logit_lens_parameter,
         "actual_output": actual_output,
         "global_top5_tokens": global_top5_tokens,
         "ablated_layer": ablate_layer_num,
@@ -604,7 +602,6 @@ def execute_forward_pass_with_layer_ablation(model, tokenizer, prompt: str, conf
         "block_outputs": block_outputs,
         "norm_parameters": norm_parameters,
         "norm_data": norm_data,
-        "logit_lens_parameter": logit_lens_parameter,
         "actual_output": actual_output,
         "global_top5_tokens": global_top5_tokens,
         "ablated_layer": ablate_layer_num
@@ -613,7 +610,7 @@ def execute_forward_pass_with_layer_ablation(model, tokenizer, prompt: str, conf
     return result
 
 
-def logit_lens_transformation(layer_output: Any, norm_data: List[Any], model, logit_lens_parameter: str, tokenizer, norm_parameter: Optional[str] = None, top_k: int = 5) -> List[Tuple[str, float]]:
+def logit_lens_transformation(layer_output: Any, norm_data: List[Any], model, tokenizer, norm_parameter: Optional[str] = None, top_k: int = 5) -> List[Tuple[str, float]]:
     """
     Transform layer output to top K token probabilities using logit lens.
     Returns merged probabilities (tokens with/without leading space are combined).
@@ -628,7 +625,6 @@ def logit_lens_transformation(layer_output: Any, norm_data: List[Any], model, lo
         layer_output: Hidden state from any layer (preferably block output / residual stream)
         norm_data: Not used (deprecated - using model's norm layer directly)
         model: HuggingFace model
-        logit_lens_parameter: Not used (deprecated)
         tokenizer: Tokenizer for decoding
         norm_parameter: Parameter path for final norm layer (e.g., "model.norm.weight")
         top_k: Number of top tokens to return (default: 5)
@@ -780,7 +776,7 @@ def _get_top_tokens(activation_data: Dict[str, Any], module_name: str, model, to
         norm_params = activation_data.get('norm_parameters', [])
         norm_parameter = norm_params[0] if norm_params else None
         
-        return logit_lens_transformation(layer_output, [], model, None, tokenizer, norm_parameter, top_k=top_k)
+        return logit_lens_transformation(layer_output, [], model, tokenizer, norm_parameter, top_k=top_k)
     except Exception as e:
         print(f"Warning: Could not compute logit lens for {module_name}: {e}")
         return None
@@ -867,17 +863,21 @@ def get_check_token_probabilities(activation_data: Dict[str, Any], model, tokeni
 
 def detect_significant_probability_increases(layer_wise_probs: Dict[int, Dict[str, float]], 
                                             layer_wise_deltas: Dict[int, Dict[str, float]],
-                                            threshold: float = 0.75) -> List[int]:
+                                            threshold: float = 0.50) -> List[int]:
     """
     Detect layers where any global top 5 token has significant probability increase.
     
-    A layer is significant if any token has ≥75% relative increase from previous layer.
-    Example: 0.20 → 0.35 is (0.35-0.20)/0.20 = 75% increase.
+    A layer is significant if any token has ≥50% relative increase from previous layer.
+    Example: 0.20 → 0.30 is (0.30-0.20)/0.20 = 50% increase.
+    
+    This threshold balances sensitivity (catching meaningful changes) with specificity
+    (avoiding too many flagged layers). A 50% increase represents a substantial shift
+    in the model's confidence that is pedagogically useful to highlight.
     
     Args:
         layer_wise_probs: Dict mapping layer_num → {token: prob}
         layer_wise_deltas: Dict mapping layer_num → {token: delta}
-        threshold: Relative increase threshold (default: 0.75 = 75%)
+        threshold: Relative increase threshold (default: 0.50 = 50%)
     
     Returns:
         List of layer numbers with significant increases
@@ -900,37 +900,6 @@ def detect_significant_probability_increases(layer_wise_probs: Dict[int, Dict[st
                     break  # Only need to flag layer once
     
     return significant_layers
-
-
-def _compute_certainty(probs: List[float]) -> float:
-    """
-    Compute normalized certainty from probability distribution.
-    Formula: certainty = 1 - H(p)/log(K) where H is Shannon entropy.
-    
-    Args:
-        probs: List of probabilities (top-K)
-    
-    Returns:
-        Certainty score in [0, 1] where 1 = completely certain
-    """
-    import math
-    if not probs or len(probs) == 0:
-        return 0.0
-    
-    # Compute Shannon entropy: H = -Σ(p_i * log(p_i))
-    entropy = 0.0
-    for p in probs:
-        if p > 0:
-            entropy -= p * math.log(p)
-    
-    # Normalize by max entropy (log(K))
-    max_entropy = math.log(len(probs))
-    if max_entropy == 0:
-        return 1.0
-    
-    # Certainty = 1 - normalized_entropy
-    certainty = 1.0 - (entropy / max_entropy)
-    return max(0.0, min(1.0, certainty))  # Clamp to [0, 1]
 
 
 def _get_top_attended_tokens(activation_data: Dict[str, Any], layer_num: int, tokenizer, top_k: int = 3) -> Optional[List[Tuple[str, float]]]:
@@ -1022,7 +991,7 @@ def compute_layer_wise_summaries(layer_data: List[Dict[str, Any]]) -> Dict[str, 
     significant_layers = detect_significant_probability_increases(
         layer_wise_top5_probs, 
         layer_wise_top5_deltas,
-        threshold=0.25
+        threshold=0.50
     )
     
     return {
@@ -1034,11 +1003,11 @@ def compute_layer_wise_summaries(layer_data: List[Dict[str, Any]]) -> Dict[str, 
 
 def extract_layer_data(activation_data: Dict[str, Any], model, tokenizer) -> List[Dict[str, Any]]:
     """
-    Extract layer-by-layer data for accordion display with top-5, deltas, certainty, and attention.
+    Extract layer-by-layer data for accordion display with top-5, deltas, and attention.
     Also tracks global top 5 tokens across all layers.
     
     Returns:
-        List of dicts with: layer_num, top_token, top_prob, top_5_tokens, deltas, certainty, top_attended_tokens,
+        List of dicts with: layer_num, top_token, top_prob, top_5_tokens, deltas, top_attended_tokens,
         global_top5_probs, global_top5_deltas
     """
     layer_modules = activation_data.get('block_modules', [])
@@ -1099,10 +1068,6 @@ def extract_layer_data(activation_data: Dict[str, Any], model, tokenizer) -> Lis
                 prev_prob = prev_token_probs.get(token, 0.0)
                 deltas[token] = prob - prev_prob
             
-            # Compute certainty from top-5 probabilities
-            probs = [prob for _, prob in top_tokens]
-            certainty = _compute_certainty(probs)
-            
             layer_data.append({
                 'layer_num': layer_num,
                 'module_name': module_name,
@@ -1111,7 +1076,6 @@ def extract_layer_data(activation_data: Dict[str, Any], model, tokenizer) -> Lis
                 'top_3_tokens': top_tokens[:3],  # Keep for backward compatibility
                 'top_5_tokens': top_tokens[:5],  # New: top-5 for bar chart
                 'deltas': deltas,
-                'certainty': certainty,
                 'top_attended_tokens': top_attended,
                 'global_top5_probs': global_top5_probs,  # New: global top 5 probs at this layer
                 'global_top5_deltas': global_top5_deltas  # New: global top 5 deltas
@@ -1129,7 +1093,6 @@ def extract_layer_data(activation_data: Dict[str, Any], model, tokenizer) -> Lis
                 'top_3_tokens': [],
                 'top_5_tokens': [],
                 'deltas': {},
-                'certainty': 0.0,
                 'top_attended_tokens': top_attended,
                 'global_top5_probs': {},
                 'global_top5_deltas': {}

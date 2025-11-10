@@ -1,5 +1,11 @@
 # Transformer Visualization Dashboard - Refactor Action Items
 
+Notes:
+Explain BertViz - lots of lines means XYZ, a few lines means ABC
+- go more in depth for how to understand BertViz and Attention
+DCC Store reset?
+
+
 ## Recent Fixes
 - [X] Fixed callback error: Changed Output from non-existent 'status-message' to existing 'model-status' component
 - [X] Fixed token predictions not being collected: Changed condition in extract_layer_data to check for block_outputs and norm_parameters instead of logit_lens_parameter
