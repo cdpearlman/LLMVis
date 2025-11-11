@@ -863,24 +863,25 @@ def get_check_token_probabilities(activation_data: Dict[str, Any], model, tokeni
 
 def detect_significant_probability_increases(layer_wise_probs: Dict[int, Dict[str, float]], 
                                             layer_wise_deltas: Dict[int, Dict[str, float]],
-                                            threshold: float = 0.50) -> List[int]:
+                                            actual_output_token: str,
+                                            threshold: float = 1.0) -> List[int]:
     """
-    Detect layers where any global top 5 token has significant probability increase.
+    Detect layers where the actual output token has significant probability increase.
     
-    A layer is significant if any token has ≥50% relative increase from previous layer.
-    Example: 0.20 → 0.30 is (0.30-0.20)/0.20 = 50% increase.
+    A layer is significant if the actual output token has ≥100% relative increase from previous layer.
+    Example: 0.20 → 0.40 is (0.40-0.20)/0.20 = 100% increase.
     
-    This threshold balances sensitivity (catching meaningful changes) with specificity
-    (avoiding too many flagged layers). A 50% increase represents a substantial shift
-    in the model's confidence that is pedagogically useful to highlight.
+    This threshold highlights layers where the model's confidence in the actual output
+    doubles, representing a pedagogically significant shift in the prediction.
     
     Args:
         layer_wise_probs: Dict mapping layer_num → {token: prob}
         layer_wise_deltas: Dict mapping layer_num → {token: delta}
-        threshold: Relative increase threshold (default: 0.50 = 50%)
+        actual_output_token: The token that the model actually outputs (predicted token)
+        threshold: Relative increase threshold (default: 1.0 = 100%)
     
     Returns:
-        List of layer numbers with significant increases
+        List of layer numbers with significant increases in the actual output token
     """
     significant_layers = []
     
@@ -888,8 +889,10 @@ def detect_significant_probability_increases(layer_wise_probs: Dict[int, Dict[st
         probs = layer_wise_probs[layer_num]
         deltas = layer_wise_deltas.get(layer_num, {})
         
-        for token, prob in probs.items():
-            delta = deltas.get(token, 0.0)
+        # Only check the actual output token
+        if actual_output_token in probs:
+            prob = probs[actual_output_token]
+            delta = deltas.get(actual_output_token, 0.0)
             prev_prob = prob - delta
             
             # Check for significant relative increase (avoid division by zero)
@@ -897,7 +900,6 @@ def detect_significant_probability_increases(layer_wise_probs: Dict[int, Dict[st
                 relative_increase = delta / prev_prob
                 if relative_increase >= threshold:
                     significant_layers.append(layer_num)
-                    break  # Only need to flag layer once
     
     return significant_layers
 
@@ -968,12 +970,13 @@ def _get_top_attended_tokens(activation_data: Dict[str, Any], layer_num: int, to
         return None
 
 
-def compute_layer_wise_summaries(layer_data: List[Dict[str, Any]]) -> Dict[str, Any]:
+def compute_layer_wise_summaries(layer_data: List[Dict[str, Any]], activation_data: Dict[str, Any]) -> Dict[str, Any]:
     """
     Compute summary structures from layer data for easy access.
     
     Args:
         layer_data: List of layer data dicts from extract_layer_data()
+        activation_data: Activation data containing actual output token
     
     Returns:
         Dict with: layer_wise_top5_probs, layer_wise_top5_deltas, significant_layers
@@ -987,12 +990,19 @@ def compute_layer_wise_summaries(layer_data: List[Dict[str, Any]]) -> Dict[str, 
             layer_wise_top5_probs[layer_num] = layer_info.get('global_top5_probs', {})
             layer_wise_top5_deltas[layer_num] = layer_info.get('global_top5_deltas', {})
     
-    # Detect significant layers
-    significant_layers = detect_significant_probability_increases(
-        layer_wise_top5_probs, 
-        layer_wise_top5_deltas,
-        threshold=0.50
-    )
+    # Extract actual output token from activation data
+    actual_output = activation_data.get('actual_output', {})
+    actual_output_token = actual_output.get('token', '').strip() if actual_output else ''
+    
+    # Detect significant layers based on actual output token
+    significant_layers = []
+    if actual_output_token:
+        significant_layers = detect_significant_probability_increases(
+            layer_wise_top5_probs, 
+            layer_wise_top5_deltas,
+            actual_output_token,
+            threshold=1.0
+        )
     
     return {
         'layer_wise_top5_probs': layer_wise_top5_probs,

@@ -855,6 +855,78 @@ def _create_comparison_delta_chart(layer_data1, layer_data2, layer_num, global_t
     return fig
 
 
+def _create_actual_output_display(activation_data):
+    """
+    Create a display element showing the actual output token with tooltip.
+    
+    Args:
+        activation_data: Activation data containing actual_output
+    
+    Returns:
+        Dash HTML component displaying the actual output token
+    """
+    actual_output = activation_data.get('actual_output')
+    if not actual_output:
+        return None
+    
+    token = actual_output.get('token', 'N/A')
+    probability = actual_output.get('probability', 0.0)
+    
+    tooltip_text = ("The actual output token may differ from the highest probability token shown in the final layer. "
+                   "This is because the model uses residual connections (skip links) that add information across layers. "
+                   "The final output is determined after all residual streams are combined. "
+                   "See transformer layer implementations for details.")
+    
+    return html.Div([
+        html.Div([
+            html.Strong("Actual Model Output: ", style={'color': '#495057', 'fontSize': '14px'}),
+            html.Span(f'"{token}"', style={
+                'backgroundColor': '#e8f5e9', 
+                'padding': '4px 10px', 
+                'borderRadius': '4px',
+                'fontFamily': 'monospace',
+                'fontSize': '14px',
+                'fontWeight': '600',
+                'color': '#2e7d32',
+                'border': '1px solid #4caf50'
+            }),
+            html.Span(f" (probability: {probability:.4f})", style={
+                'color': '#6c757d',
+                'fontSize': '13px',
+                'marginLeft': '8px'
+            }),
+            html.I(
+                className="fas fa-info-circle",
+                id="actual-output-info-icon",
+                style={
+                    'marginLeft': '10px',
+                    'color': '#667eea',
+                    'cursor': 'pointer',
+                    'fontSize': '14px'
+                }
+            )
+        ], style={'marginBottom': '8px'}),
+        html.Div([
+            html.I(className="fas fa-lightbulb", style={'marginRight': '6px', 'color': '#ffa726'}),
+            tooltip_text
+        ], style={
+            'fontSize': '12px',
+            'color': '#6c757d',
+            'backgroundColor': '#fff8e1',
+            'padding': '10px',
+            'borderRadius': '5px',
+            'borderLeft': '3px solid #ffa726',
+            'lineHeight': '1.6'
+        })
+    ], style={
+        'marginTop': '15px',
+        'padding': '12px',
+        'backgroundColor': '#f8f9fa',
+        'borderRadius': '6px',
+        'border': '1px solid #dee2e6'
+    })
+
+
 # Callback to create accordion panels from layer data
 @app.callback(
     Output('layer-accordions-container', 'children'),
@@ -885,7 +957,7 @@ def create_layer_accordions(activation_data, activation_data2, original_activati
             return html.P("No layer data available.", className="placeholder-text")
         
         # Compute layer-wise probability tracking
-        tracking_data = compute_layer_wise_summaries(layer_data)
+        tracking_data = compute_layer_wise_summaries(layer_data, activation_data)
         layer_wise_probs = tracking_data.get('layer_wise_top5_probs', {})
         significant_layers = tracking_data.get('significant_layers', [])
         global_top5 = activation_data.get('global_top5_tokens', [])
@@ -898,7 +970,7 @@ def create_layer_accordions(activation_data, activation_data2, original_activati
         
         if ablation_mode:
             original_layer_data = extract_layer_data(original_activation_data, model, tokenizer)
-            original_tracking_data = compute_layer_wise_summaries(original_layer_data)
+            original_tracking_data = compute_layer_wise_summaries(original_layer_data, original_activation_data)
             original_layer_wise_probs = original_tracking_data.get('layer_wise_top5_probs', {})
             original_significant_layers = original_tracking_data.get('significant_layers', [])
             original_global_top5 = original_activation_data.get('global_top5_tokens', [])
@@ -912,7 +984,7 @@ def create_layer_accordions(activation_data, activation_data2, original_activati
         
         if comparison_mode:
             layer_data2 = extract_layer_data(activation_data2, model, tokenizer)
-            tracking_data2 = compute_layer_wise_summaries(layer_data2)
+            tracking_data2 = compute_layer_wise_summaries(layer_data2, activation_data2)
             layer_wise_probs2 = tracking_data2.get('layer_wise_top5_probs', {})
             significant_layers2 = tracking_data2.get('significant_layers', [])
             global_top5_2 = activation_data2.get('global_top5_tokens', [])
@@ -1271,7 +1343,8 @@ def create_layer_accordions(activation_data, activation_data2, original_activati
                 # Update title to indicate "Before Ablation"
                 fig_before.update_layout(title="Top 5 Token Probabilities Across Layers (Before Ablation)")
                 
-                graph_container_before = html.Div([
+                # Build children for before ablation graph
+                before_children = [
                     html.H5("Before Ablation", style={
                         'marginBottom': '10px', 'color': '#495057', 'fontSize': '16px',
                         'fontWeight': '600', 'borderLeft': '4px solid #74b9ff', 'paddingLeft': '10px'
@@ -1282,7 +1355,15 @@ def create_layer_accordions(activation_data, activation_data2, original_activati
                         "This graph shows how the model's confidence in the final top 5 predictions evolves through each layer before ablation."
                     ], style={'fontSize': '13px', 'color': '#6c757d', 'marginBottom': '10px', 'lineHeight': '1.5'}),
                     dcc.Graph(figure=fig_before, config={'displayModeBar': False})
-                ], style={'padding': '15px', 'backgroundColor': '#e3f2fd', 'borderRadius': '8px', 'marginBottom': '20px'})
+                ]
+                
+                # Add actual output display
+                actual_output_display_before = _create_actual_output_display(original_activation_data)
+                if actual_output_display_before:
+                    before_children.append(actual_output_display_before)
+                
+                graph_container_before = html.Div(before_children, 
+                    style={'padding': '15px', 'backgroundColor': '#e3f2fd', 'borderRadius': '8px', 'marginBottom': '20px'})
                 
                 line_graphs.append(graph_container_before)
             
@@ -1297,7 +1378,8 @@ def create_layer_accordions(activation_data, activation_data2, original_activati
                     ablated_heads = activation_data.get('ablated_heads', [])
                     heads_str = ', '.join([f'H{h}' for h in sorted(ablated_heads)])
                     
-                    graph_container_after = html.Div([
+                    # Build children for after ablation graph
+                    after_children = [
                         html.H5("After Ablation", style={
                             'marginBottom': '10px', 'color': '#495057', 'fontSize': '16px',
                             'fontWeight': '600', 'borderLeft': '4px solid #ffb74d', 'paddingLeft': '10px'
@@ -1308,10 +1390,22 @@ def create_layer_accordions(activation_data, activation_data2, original_activati
                             f"This graph shows how probabilities changed after removing Layer {ablated_layer}, Heads {heads_str}. " +
                             "Compare with the graph above to see the impact of the ablation."
                         ], style={'fontSize': '13px', 'color': '#6c757d', 'marginBottom': '10px', 'lineHeight': '1.5'}),
-                        dcc.Graph(figure=fig_after, config={'displayModeBar': False}),
+                        dcc.Graph(figure=fig_after, config={'displayModeBar': False})
+                    ]
+                    
+                    # Add actual output display
+                    actual_output_display_after = _create_actual_output_display(activation_data)
+                    if actual_output_display_after:
+                        after_children.append(actual_output_display_after)
+                    
+                    # Add merge note at the end
+                    after_children.append(
                         html.Small("Note: Tokens with and without leading spaces (e.g., ' cat' and 'cat') are automatically merged.", 
                                   style={'fontSize': '11px', 'color': '#6c757d', 'fontStyle': 'italic'})
-                    ], style={'padding': '15px', 'backgroundColor': '#fff3e0', 'borderRadius': '8px', 'marginBottom': '20px'})
+                    )
+                    
+                    graph_container_after = html.Div(after_children, 
+                        style={'padding': '15px', 'backgroundColor': '#fff3e0', 'borderRadius': '8px', 'marginBottom': '20px'})
                     
                     line_graphs.append(graph_container_after)
         
@@ -1320,23 +1414,35 @@ def create_layer_accordions(activation_data, activation_data2, original_activati
             fig = _create_top5_by_layer_graph(layer_wise_probs, significant_layers, global_top5)
             if fig:
                 tooltip_text = ("This graph shows how confident the model is in its top 5 predictions as it processes through each layer. "
-                               "Yellow highlights mark layers where the model's confidence jumped significantly (50% or more increase). "
+                               "Yellow highlights mark layers where the model's confidence in the actual output token doubled (100% or more increase). "
                                "These are the layers where the model made important decisions. "
-                               "Click on the Transformer Layers section below to see what each layer did.")
+                               "Click on the Transformer Layers section to see what each layer did.")
                 
                 merge_note = ("Note: Some tokens appear with a space before them (like ' cat') and some without (like 'cat'). "
                              "We automatically combine these to make the graph easier to read.")
                 
-                graph_container = html.Div([
+                # Create list of children for graph container
+                graph_children = [
                     html.Div([
                         html.I(className="fas fa-info-circle", 
                               style={'marginRight': '8px', 'color': '#667eea'}),
                         tooltip_text
                     ], style={'fontSize': '13px', 'color': '#6c757d', 'marginBottom': '10px', 'lineHeight': '1.5'}),
-                    dcc.Graph(figure=fig, config={'displayModeBar': False}),
+                    dcc.Graph(figure=fig, config={'displayModeBar': False})
+                ]
+                
+                # Add actual output display
+                actual_output_display = _create_actual_output_display(activation_data)
+                if actual_output_display:
+                    graph_children.append(actual_output_display)
+                
+                # Add merge note at the end
+                graph_children.append(
                     html.Small(merge_note, 
                               style={'fontSize': '11px', 'color': '#6c757d', 'fontStyle': 'italic'})
-                ], style={'marginBottom': '20px'})
+                )
+                
+                graph_container = html.Div(graph_children, style={'marginBottom': '20px'})
                 
                 line_graphs.append(graph_container)
         
@@ -1344,10 +1450,18 @@ def create_layer_accordions(activation_data, activation_data2, original_activati
         if comparison_mode and layer_wise_probs2 and global_top5_2:
             fig2 = _create_top5_by_layer_graph(layer_wise_probs2, significant_layers2, global_top5_2)
             if fig2:
-                graph_container2 = html.Div([
+                # Build children for second prompt graph
+                children2 = [
                     html.H6("Prompt 2", style={'color': '#495057', 'marginBottom': '10px'}),
                     dcc.Graph(figure=fig2, config={'displayModeBar': False})
-                ], style={'marginTop': '20px'})
+                ]
+                
+                # Add actual output display for second prompt
+                actual_output_display2 = _create_actual_output_display(activation_data2)
+                if actual_output_display2:
+                    children2.append(actual_output_display2)
+                
+                graph_container2 = html.Div(children2, style={'marginTop': '20px'})
                 line_graphs.append(graph_container2)
         
         # Create stacked visual representation for collapsed state
