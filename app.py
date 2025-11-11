@@ -377,6 +377,7 @@ def run_analysis(n_clicks, model_name, prompt, prompt2, attn_patterns, block_pat
             'block_modules': activation_data.get('block_modules', []),
             'block_outputs': activation_data.get('block_outputs', {}),
             'norm_parameters': activation_data.get('norm_parameters', []),
+            'actual_output': activation_data.get('actual_output'),  # FIXED: Added actual output token
             'global_top5_tokens': activation_data.get('global_top5_tokens', [])
         }
         
@@ -396,6 +397,7 @@ def run_analysis(n_clicks, model_name, prompt, prompt2, attn_patterns, block_pat
                 'block_modules': activation_data2.get('block_modules', []),
                 'block_outputs': activation_data2.get('block_outputs', {}),
                 'norm_parameters': activation_data2.get('norm_parameters', []),
+                'actual_output': activation_data2.get('actual_output'),  # FIXED: Added actual output token
                 'global_top5_tokens': activation_data2.get('global_top5_tokens', [])
             }
         
