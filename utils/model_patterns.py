@@ -54,9 +54,13 @@ def safe_to_serializable(obj: Any) -> Any:
     """Convert tensors to lists recursively for JSON serialization."""
     if torch.is_tensor(obj):
         # Check if tensor is a meta tensor (no data) and skip it
-        if obj.device.type == 'meta':
+        try:
+            if obj.device.type == 'meta':
+                return None
+            return obj.detach().cpu().tolist()
+        except RuntimeError:
+            # Handle meta tensors that raise errors when accessing device
             return None
-        return obj.detach().cpu().tolist()
     if isinstance(obj, (list, tuple)):
         return [safe_to_serializable(x) for x in obj]
     if isinstance(obj, dict):
