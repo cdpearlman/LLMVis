@@ -1178,11 +1178,11 @@ def create_layer_accordions(activation_data, activation_data2, original_activati
                         
                         # Category descriptions for tooltips
                         category_descriptions = {
-                            'previous_token': "These heads mainly look at the word right before the current word. They help the model understand word order and grammar, like knowing that 'the' usually comes before a noun.",
-                            'first_token': "These heads pay a lot of attention to the first word in the sentence. They help the model remember the overall topic or structure of the sentence.",
-                            'bow': "These heads look at many words in the sentence at once, without focusing on any particular one. They help the model get the general meaning by combining information from across the whole sentence.",
-                            'syntactic': "These heads look for grammatical relationships between words, like connecting a verb to its subject. For example, in 'The dog runs,' they connect 'dog' to 'runs.'",
-                            'other': "These heads have attention patterns that don't fit the other categories. They might be learning special patterns unique to certain tasks or contexts."
+                            'previous_token': "During training, these heads learned to mainly look at the word right before the current word. This helps the model understand word order and grammar - for example, learning that 'the' usually comes before a noun. The strong lines you see show the relationships this head learned.",
+                            'first_token': "These heads learned to pay a lot of attention to the first word in the sentence during training. This helps the model remember the overall topic or structure of the sentence. The visualization shows you which words this head learned to connect to the beginning of the sentence.",
+                            'bow': "These heads learned to look at many words in the sentence at once, without focusing on any particular one. This helps the model get the general meaning by combining information from across the whole sentence. You'll see many lines connecting different words, showing how this head learned to gather information broadly.",
+                            'syntactic': "During training, these heads learned to look for grammatical relationships between words, like connecting a verb to its subject. For example, in 'The dog runs,' they learned to connect 'dog' to 'runs.' The lines show you the grammatical patterns this head discovered.",
+                            'other': "These heads learned attention patterns that don't fit the other categories. They might have discovered special patterns unique to certain tasks or contexts. The visualization shows you what relationships they learned, even if they're not easily categorized."
                         }
                         
                         # BertViz usage instructions (show once before categories)
@@ -1193,7 +1193,13 @@ def create_layer_accordions(activation_data, activation_data2, original_activati
                                 "The left side shows the words asking for attention (Query), and the right side shows the words being looked at (Key). "
                                 "Lines connect words that pay attention to each other - thicker lines mean stronger attention. "
                                 "Each color is a different attention head. Double-click a color to see just that head. "
-                                "Hover over lines to see the exact attention strength."
+                                "Hover over words to see the exact attention strength. ",
+                                html.Br(),
+                                html.Strong("Understanding what you're seeing: ", style={'color': '#495057'}),
+                                "These attention patterns were learned during training - the model figured out how to pay attention to word meanings, sentence structure, and grammar on its own. "
+                                "Different attention heads learned different patterns (some focus on word order, others on grammar, etc.). "
+                                "A thicker line means that head learned a stronger relationship between those two words. "
+                                "If there's no line between two words, that specific attention head didn't learn to connect them."
                             ], style={'fontSize': '11px', 'color': '#6c757d', 'lineHeight': '1.5', 'display': 'block', 'padding': '10px', 'backgroundColor': '#fff9e6', 'borderRadius': '4px', 'border': '1px solid #ffc107'})
                         ], style={'marginBottom': '12px'})
                         content_items.append(bertviz_instructions)
@@ -1478,83 +1484,85 @@ def create_layer_accordions(activation_data, activation_data2, original_activati
                 html.Div("...", className="stacked-layer-card")
             )
         
-        # Create "How This Layer Works" diagram to display in main container
-        how_layer_works = html.Div([
-            html.H6("How This Layer Works", style={'marginBottom': '10px', 'color': '#495057', 'fontSize': '14px'}),
+        # Create transformer layer flow diagram
+        transformer_diagram = html.Div([
+            # Input vector
             html.Div([
-                # Input vector
+                html.Div("[ ... ]", className="flow-box", title="This layer receives the output from the previous layer. Each layer builds on what earlier layers learned, gradually understanding the text better."),
+                html.Div("Input", style={'fontSize': '11px', 'color': '#6c757d', 'textAlign': 'center'})
+            ], style={'display': 'inline-block', 'verticalAlign': 'middle'}),
+            
+            # Arrow to Self-Attention
+            html.Div("→", style={'display': 'inline-block', 'margin': '0 10px', 'fontSize': '20px', 'color': '#667eea'}),
+            
+            # Self-Attention box
+            html.Div([
+                html.Div("Self-Attention", className="flow-box attention-box", title="Self-attention lets each word 'look at' all other words in the sentence to understand context. For example, in 'The cat sat on it,' the word 'it' can look back at 'cat' to understand what 'it' refers to."),
+                html.Div("Attention", style={'fontSize': '11px', 'color': '#6c757d', 'textAlign': 'center'})
+            ], style={'display': 'inline-block', 'verticalAlign': 'middle'}),
+            
+            # Container for the split arrows showing green arrows going from Self-Attention
+            html.Div([
+                # Green arrow up to Feed-Forward
+                html.Div("↗", style={'fontSize': '20px', 'color': '#28a745', 'lineHeight': '1'}),
+                # Green arrow down to Residual (mirrored)
+                html.Div("↘", style={'fontSize': '20px', 'color': '#28a745', 'lineHeight': '1'})
+            ], style={'display': 'inline-block', 'verticalAlign': 'middle', 'margin': '0 5px'}),
+            
+            # Split into two paths (Feed-Forward on top, Residual on bottom)
+            html.Div([
+                # Feed-forward path (top)
                 html.Div([
-                    html.Div("[ ... ]", className="flow-box", title="This layer receives the output from the previous layer. Each layer builds on what earlier layers learned, gradually understanding the text better."),
-                    html.Div("Input", style={'fontSize': '11px', 'color': '#6c757d', 'textAlign': 'center'})
-                ], style={'display': 'inline-block', 'verticalAlign': 'middle'}),
+                    html.Div("F(x)", className="flow-box ffn-box", title="The feed-forward network processes the attention results. Think of it as a calculator that transforms the information to extract deeper meaning and patterns."),
+                    html.Div("Feed-Forward", style={'fontSize': '11px', 'color': '#6c757d', 'textAlign': 'center', 'marginTop': '2px'})
+                ], style={'marginBottom': '5px'}),
                 
-                # Arrow to Self-Attention
-                html.Div("→", style={'display': 'inline-block', 'margin': '0 10px', 'fontSize': '20px', 'color': '#667eea'}),
-                
-                # Self-Attention box
+                # Residual connection path (bottom)
                 html.Div([
-                    html.Div("Self-Attention", className="flow-box attention-box", title="Self-attention lets each word 'look at' all other words in the sentence to understand context. For example, in 'The cat sat on it,' the word 'it' can look back at 'cat' to understand what 'it' refers to."),
-                    html.Div("Attention", style={'fontSize': '11px', 'color': '#6c757d', 'textAlign': 'center'})
-                ], style={'display': 'inline-block', 'verticalAlign': 'middle'}),
-                
-                # Container for the split arrows showing green arrows going from Self-Attention
-                html.Div([
-                    # Green arrow up to Feed-Forward
-                    html.Div("↗", style={'fontSize': '20px', 'color': '#28a745', 'lineHeight': '1'}),
-                    # Green arrow down to Residual (mirrored)
-                    html.Div("↘", style={'fontSize': '20px', 'color': '#28a745', 'lineHeight': '1'})
-                ], style={'display': 'inline-block', 'verticalAlign': 'middle', 'margin': '0 5px'}),
-                
-                # Split into two paths (Feed-Forward on top, Residual on bottom)
-                html.Div([
-                    # Feed-forward path (top)
-                    html.Div([
-                        html.Div("F(x)", className="flow-box ffn-box", title="The feed-forward network processes the attention results. Think of it as a calculator that transforms the information to extract deeper meaning and patterns."),
-                        html.Div("Feed-Forward", style={'fontSize': '11px', 'color': '#6c757d', 'textAlign': 'center', 'marginTop': '2px'})
-                    ], style={'marginBottom': '5px'}),
-                    
-                    # Residual connection path (bottom)
-                    html.Div([
-                        html.Div("⤷", className="flow-box", style={'fontSize': '24px', 'color': '#28a745', 'transform': 'scaleX(2)'}, title="The residual connection is like a shortcut that adds the original input back to the output. This helps preserve important information and makes training more stable."),
-                        html.Div("Residual", style={'fontSize': '11px', 'color': '#6c757d', 'textAlign': 'center', 'marginTop': '2px'})
-                    ])
-                ], style={'display': 'inline-block', 'verticalAlign': 'middle', 'textAlign': 'center'}),
-                
-                # Container for the merge arrows showing green arrows going to Output
-                html.Div([
-                    # Green arrow from Feed-Forward down
-                    html.Div("↘", style={'fontSize': '20px', 'color': '#28a745', 'lineHeight': '1'}),
-                    # Green arrow from Residual up
-                    html.Div("↗", style={'fontSize': '20px', 'color': '#28a745', 'lineHeight': '1'})
-                ], style={'display': 'inline-block', 'verticalAlign': 'middle', 'margin': '0 5px'}),
-                
-                # Output
-                html.Div([
-                    html.Div("[ ... ]", className="flow-box", title="The layer's output shows how the model's predictions changed after processing through this layer."),
-                    html.Div("Output", style={'fontSize': '11px', 'color': '#6c757d', 'textAlign': 'center'})
-                ], style={'display': 'inline-block', 'verticalAlign': 'middle'})
-            ], style={
-                'display': 'flex',
-                'alignItems': 'center',
-                'justifyContent': 'center',
-                'padding': '15px',
-                'backgroundColor': '#f8f9fa',
-                'borderRadius': '8px',
-                'flexWrap': 'wrap'
-            })
-        ], style={'marginBottom': '15px', 'padding': '15px'})
+                    html.Div("⤷", className="flow-box", style={'fontSize': '24px', 'color': '#28a745', 'transform': 'scaleX(2)'}, title="The residual connection is like a shortcut that adds the original input back to the output. This helps preserve important information and makes training more stable."),
+                    html.Div("Residual", style={'fontSize': '11px', 'color': '#6c757d', 'textAlign': 'center', 'marginTop': '2px'})
+                ])
+            ], style={'display': 'inline-block', 'verticalAlign': 'middle', 'textAlign': 'center'}),
+            
+            # Container for the merge arrows showing green arrows going to Output
+            html.Div([
+                # Green arrow from Feed-Forward down
+                html.Div("↘", style={'fontSize': '20px', 'color': '#28a745', 'lineHeight': '1'}),
+                # Green arrow from Residual up
+                html.Div("↗", style={'fontSize': '20px', 'color': '#28a745', 'lineHeight': '1'})
+            ], style={'display': 'inline-block', 'verticalAlign': 'middle', 'margin': '0 5px'}),
+            
+            # Output
+            html.Div([
+                html.Div("[ ... ]", className="flow-box", title="The layer's output shows how the model's predictions changed after processing through this layer."),
+                html.Div("Output", style={'fontSize': '11px', 'color': '#6c757d', 'textAlign': 'center'})
+            ], style={'display': 'inline-block', 'verticalAlign': 'middle'})
+        ], style={
+            'display': 'flex',
+            'alignItems': 'center',
+            'justifyContent': 'center',
+            'padding': '15px',
+            'backgroundColor': '#f8f9fa',
+            'borderRadius': '8px',
+            'flexWrap': 'wrap'
+        })
         
         # Create collapsible container for transformer layers
         layers_container = html.Details([
             html.Summary([
                 html.Div([
-                    html.H4("Transformer Layers (Click to Expand)", 
-                           style={'margin': 0, 'color': '#495057'}),
-                    html.Div(stacked_layers, className="stacked-layers-visual")
-                ], style={'display': 'flex', 'alignItems': 'center', 'gap': '20px'})
+                    html.Div([
+                        html.H4("Transformer Layers (Click to Expand)", 
+                               style={'margin': 0, 'color': '#495057'}),
+                        html.Div(stacked_layers, className="stacked-layers-visual")
+                    ], style={'display': 'flex', 'alignItems': 'center', 'gap': '20px'}),
+                    html.Div([
+                        html.H6("How This Layer Works", style={'marginBottom': '10px', 'color': '#495057', 'fontSize': '14px'}),
+                        transformer_diagram
+                    ], style={'width': '100%', 'marginTop': '15px'})
+                ], style={'display': 'flex', 'flexDirection': 'column', 'gap': '10px'})
             ], className="transformer-layers-summary"),
             html.Div([
-                how_layer_works,  # Add the diagram here
                 html.Div(accordions, className="transformer-layers-content")
             ])
         ], className="transformer-layers-container", open=False)  # Start collapsed
