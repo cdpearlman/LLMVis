@@ -7,15 +7,18 @@ Components are organized for easy understanding and maintenance.
 
 import dash
 from dash import html, dcc, Input, Output, State, callback, no_update, ALL, MATCH
+import json
+import torch
 from utils import (load_model_and_get_patterns, execute_forward_pass, extract_layer_data,
                    categorize_single_layer_heads, format_categorization_summary,
-                   compute_layer_wise_summaries)
+                   compute_layer_wise_summaries, perform_beam_search, compute_sequence_trajectory)
 from utils.model_config import get_auto_selections, get_model_family
 
 # Import modular components
 from components.sidebar import create_sidebar
 from components.model_selector import create_model_selector
 from components.main_panel import create_main_panel
+from components.glossary import create_glossary_modal
 
 # Initialize Dash app with external stylesheets
 app = dash.Dash(
@@ -100,19 +103,186 @@ def _create_category_detail_view(categorized_heads, activation_data):
     
     return html.Div(sections)
 
+def _create_token_probability_delta_chart(layer_data, layer_num, global_top5_tokens, title_suffix=""):
+    """Create a horizontal bar chart showing probability changes for global top 5 tokens."""
+    import plotly.graph_objs as go
+    
+    # Get deltas for global top 5 tokens
+    deltas = layer_data.get('deltas', {})
+    
+    # Filter for global top 5 tokens
+    tokens = []
+    delta_values = []
+    colors = []
+    
+    for token_info in global_top5_tokens:
+        token = token_info.get('token', '')
+        # Handle merging logic here if needed, but deltas should already key by merged token
+        # Check if token exists in deltas (try exact match first)
+        delta = deltas.get(token, 0.0)
+        
+        tokens.append(token)
+        delta_values.append(delta)
+        colors.append('#28a745' if delta >= 0 else '#dc3545')
+        
+    # Create horizontal bar chart
+    fig = go.Figure(go.Bar(
+        x=delta_values,
+        y=tokens,
+        orientation='h',
+        marker_color=colors,
+        text=[f"{val:+.2%}" for val in delta_values],
+        textposition='auto',
+        hoverinfo='text+y',
+        hovertext=[f"Token: {t}<br>Change: {v:+.4f}" for t, v in zip(tokens, delta_values)]
+    ))
+    
+    fig.update_layout(
+        title=f"Probability Changes (L{layer_num-1} → L{layer_num}) {title_suffix}",
+        xaxis_title="Change in Probability",
+        yaxis_title="Token",
+        margin=dict(l=20, r=20, t=40, b=20),
+        height=300,
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)'
+    )
+    
+    return fig
+
+def _create_comparison_delta_chart(layer1, layer2, layer_num, global_top5_1, global_top5_2):
+    """Create grouped bar chart comparing deltas for two models/prompts."""
+    import plotly.graph_objs as go
+    
+    # Combine unique tokens from both top 5 sets
+    tokens1 = {t.get('token') for t in global_top5_1}
+    tokens2 = {t.get('token') for t in global_top5_2}
+    all_tokens = sorted(list(tokens1.union(tokens2)))
+    
+    deltas1 = layer1.get('deltas', {})
+    deltas2 = layer2.get('deltas', {})
+    
+    values1 = [deltas1.get(t, 0.0) for t in all_tokens]
+    values2 = [deltas2.get(t, 0.0) for t in all_tokens]
+    
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        y=all_tokens,
+        x=values1,
+        name='Prompt 1',
+        orientation='h',
+        marker_color='#74b9ff'
+    ))
+    fig.add_trace(go.Bar(
+        y=all_tokens,
+        x=values2,
+        name='Prompt 2',
+        orientation='h',
+        marker_color='#ff7979'
+    ))
+    
+    fig.update_layout(
+        title=f"Probability Changes Comparison (Layer {layer_num})",
+        barmode='group',
+        xaxis_title="Change in Probability",
+        yaxis_title="Token",
+        margin=dict(l=20, r=20, t=40, b=20),
+        height=400
+    )
+    
+    return fig
+
+def _create_top5_by_layer_graph(layer_wise_probs, significant_layers, global_top5):
+    """Create line graph of top 5 token probabilities across layers."""
+    import plotly.graph_objs as go
+    
+    fig = go.Figure()
+    
+    layers = sorted([int(k) for k in layer_wise_probs.keys()])
+    if not layers:
+        return None
+        
+    for i, token_info in enumerate(global_top5):
+        token = token_info.get('token', '')
+        probs = []
+        for layer in layers:
+            layer_probs = layer_wise_probs.get(layer, {}) # Use layer key directly (int)
+            # Try to find probability for this token
+            prob = layer_probs.get(token, 0.0)
+            probs.append(prob)
+            
+        fig.add_trace(go.Scatter(
+            x=layers,
+            y=probs,
+            mode='lines+markers',
+            name=token,
+            line=dict(width=2),
+            marker=dict(size=6)
+        ))
+        
+    # Add highlighting for significant layers
+    shapes = []
+    for layer in significant_layers:
+        shapes.append(dict(
+            type="rect",
+            xref="x",
+            yref="paper",
+            x0=layer - 0.4,
+            x1=layer + 0.4,
+            y0=0,
+            y1=1,
+            fillcolor="yellow",
+            opacity=0.2,
+            layer="below",
+            line_width=0,
+        ))
+        
+    fig.update_layout(
+        title="Top 5 Token Probabilities Across Layers",
+        xaxis_title="Layer",
+        yaxis_title="Probability",
+        hovermode="x unified",
+        shapes=shapes,
+        margin=dict(l=20, r=20, t=40, b=20),
+        height=400,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+    )
+    
+    return fig
+
+def _create_actual_output_display(activation_data):
+    """Create display for the actual final output token."""
+    actual_output = activation_data.get('actual_output')
+    if not actual_output:
+        return None
+        
+    token = actual_output.get('token', '')
+    prob = actual_output.get('probability', 0.0)
+    
+    return html.Div([
+        html.Strong("Final Output: ", style={'color': '#495057'}),
+        html.Span(token, style={'fontFamily': 'monospace', 'fontWeight': 'bold', 'backgroundColor': '#e2e8f0', 'padding': '2px 6px', 'borderRadius': '4px'}),
+        html.Span(f" (p={prob:.2%})", style={'color': '#6c757d', 'marginLeft': '8px', 'fontSize': '13px'})
+    ], style={'marginTop': '10px', 'padding': '8px', 'backgroundColor': '#f8f9fa', 'borderRadius': '4px', 'borderLeft': '4px solid #28a745'})
+
+
 # Main app layout
 app.layout = html.Div([
+    # Glossary Modal
+    create_glossary_modal(),
+    
     # Session storage for activation data
-    dcc.Store(id='session-activation-store', storage_type='session'),
+    dcc.Store(id='session-activation-store', storage_type='memory'),
     dcc.Store(id='session-patterns-store', storage_type='session'),
     # Store original activation data before ablation for comparison
-    dcc.Store(id='session-activation-store-original', storage_type='session'),
+    dcc.Store(id='session-activation-store-original', storage_type='memory'),
     # Sidebar collapse state (default: collapsed = True)
     dcc.Store(id='sidebar-collapse-store', storage_type='session', data=True),
     # Comparison mode state (default: not comparing)
     dcc.Store(id='comparison-mode-store', storage_type='session', data=False),
     # Second prompt activation data
-    dcc.Store(id='session-activation-store-2', storage_type='session'),
+    dcc.Store(id='session-activation-store-2', storage_type='memory'),
+    # Generation results store
+    dcc.Store(id='generation-results-store', storage_type='session'),
     
     # Main container
     html.Div([
@@ -138,6 +308,27 @@ app.layout = html.Div([
         ], className="content-container")
     ], className="app-container")
 ], className="app-wrapper")
+
+# Glossary Callbacks
+@app.callback(
+    [Output("glossary-modal-overlay", "style"),
+     Output("glossary-modal-content", "style")],
+    [Input("open-glossary-btn", "n_clicks"),
+     Input("close-glossary-btn", "n_clicks"),
+     Input("glossary-modal-overlay", "n_clicks")],
+    prevent_initial_call=True
+)
+def toggle_glossary(open_clicks, close_clicks, overlay_clicks):
+    ctx = dash.callback_context
+    if not ctx.triggered:
+        return no_update, no_update
+    
+    trigger_id = ctx.triggered[0]["prop_id"].split(".")[0]
+    
+    if trigger_id == "open-glossary-btn":
+        return {'display': 'flex'}, {'display': 'block'}
+    else:
+        return {'display': 'none'}, {'display': 'none'}
 
 # Callback to load model patterns when model is selected
 @app.callback(
@@ -277,7 +468,7 @@ def show_loading_spinner(selected_model):
     [Output('attention-modules-dropdown', 'value'),
      Output('block-modules-dropdown', 'value'),
      Output('norm-params-dropdown', 'value'),
-     Output('session-activation-store', 'data'),
+     Output('session-activation-store', 'data', allow_duplicate=True),
      Output('loading-indicator', 'children', allow_duplicate=True)],
     [Input('clear-selections-btn', 'n_clicks')],
     prevent_initial_call=True
@@ -301,654 +492,328 @@ def clear_all_selections(n_clicks):
         cleared_status  # loading-indicator children
     )
 
-# Callback to show loading spinner when Run Analysis is clicked
+# Enable Run Analysis button when requirements are met
 @app.callback(
-    Output('analysis-loading-indicator', 'children', allow_duplicate=True),
-    [Input('run-analysis-btn', 'n_clicks')],
-    prevent_initial_call=True
+    Output('generate-btn', 'disabled'),
+    [Input('model-dropdown', 'value'),
+     Input('prompt-input', 'value'),
+     Input('block-modules-dropdown', 'value'),
+     Input('norm-params-dropdown', 'value')]
 )
-def show_analysis_loading_spinner(n_clicks):
-    """Show loading spinner when Run Analysis button is clicked."""
-    if not n_clicks:
-        return None
-    
-    return html.Div([
-        html.I(className="fas fa-spinner fa-spin", style={'marginRight': '8px'}),
-        "Collecting Data..."
-    ], className="status-loading")
+def enable_run_button(model, prompt, block_modules, norm_params):
+    """Enable Generate button when model, prompt, layer blocks, and norm parameters are selected."""
+    return not (model and prompt and block_modules and norm_params)
 
-# Callback to run analysis
+# Callback to Run Generation / Analysis
 @app.callback(
-    [Output('session-activation-store', 'data', allow_duplicate=True),
-     Output('session-activation-store-2', 'data'),
-     Output('analysis-loading-indicator', 'children')],
-    [Input('run-analysis-btn', 'n_clicks')],
+    [Output('generation-results-container', 'children', allow_duplicate=True),
+     Output('generation-results-store', 'data', allow_duplicate=True),
+     Output('analysis-view-container', 'style', allow_duplicate=True),
+     Output('session-activation-store', 'data', allow_duplicate=True),
+     Output('sequence-scrubber', 'max'),
+     Output('sequence-scrubber', 'marks'),
+     Output('sequence-scrubber', 'value'),
+     Output('sequence-scrubber', 'disabled')],
+    [Input('generate-btn', 'n_clicks')],
     [State('model-dropdown', 'value'),
      State('prompt-input', 'value'),
-     State('prompt-input-2', 'value'),
+     State('max-new-tokens-slider', 'value'),
+     State('beam-width-slider', 'value'),
+     State('session-patterns-store', 'data'),
      State('attention-modules-dropdown', 'value'),
      State('block-modules-dropdown', 'value'),
-     State('norm-params-dropdown', 'value'),
-     State('session-patterns-store', 'data')],
+     State('norm-params-dropdown', 'value')],
     prevent_initial_call=True
 )
-def run_analysis(n_clicks, model_name, prompt, prompt2, attn_patterns, block_patterns, norm_patterns, patterns_data):
-    """Run forward pass and store activation data (handles 1 or 2 prompts)."""
-    print(f"\n=== DEBUG: run_analysis START ===")
-    print(f"DEBUG: n_clicks={n_clicks}, model_name={model_name}, prompt='{prompt}', prompt2='{prompt2}'")
-    print(f"DEBUG: block_patterns={block_patterns}")
+def run_generation(n_clicks, model_name, prompt, max_new_tokens, beam_width, patterns_data, attn_patterns, block_patterns, norm_patterns):
+    if not n_clicks or not model_name or not prompt:
+        return no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update
+
+    try:
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+        # Load model once
+        model = AutoModelForCausalLM.from_pretrained(model_name, attn_implementation='eager')
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        model.eval()
+
+        # Perform Beam Search
+        results = perform_beam_search(model, tokenizer, prompt, beam_width, max_new_tokens)
+        
+        # Results UI
+        results_ui = []
+        if max_new_tokens > 1:
+            results_ui.append(html.H4("Generated Sequences (Ranked)", className="section-title"))
+            for i, result in enumerate(results):
+                text = result['text']
+                score = result['score']
+                results_ui.append(html.Div([
+                    html.Div([
+                        html.Span(f"Rank {i+1}", style={'fontWeight': 'bold', 'marginRight': '10px', 'color': '#667eea'}),
+                        html.Span(f"Score: {score:.4f}", style={'fontSize': '12px', 'color': '#6c757d'})
+                    ], style={'marginBottom': '5px'}),
+                    html.Div(text, style={'fontFamily': 'monospace', 'backgroundColor': '#fff', 'padding': '10px', 'borderRadius': '4px', 'border': '1px solid #dee2e6'}),
+                    html.Button(
+                        "Analyze This Sequence",
+                        id={'type': 'result-item', 'index': i},
+                        n_clicks=0,
+                        className="action-button secondary-button",
+                        style={'marginTop': '10px', 'fontSize': '12px', 'padding': '5px 10px'}
+                    )
+                ], style={'marginBottom': '15px', 'padding': '15px', 'backgroundColor': '#f8f9fa', 'borderRadius': '6px', 'border': '1px solid #e9ecef'}))
+            
+            # Return just the list, hide analyzer
+            return results_ui, results, {'display': 'none'}, {}, 0, {}, 0, True
+            
+        else:
+            # Single token case: Run analysis immediately
+            result = results[0]
+            text = result['text']
+            
+            # Use defaults if patterns not selected
+            module_patterns = patterns_data.get('module_patterns', {})
+            param_patterns = patterns_data.get('param_patterns', {})
+            
+            # If selections empty, use auto-selections or defaults
+            # (Simplification: assuming user selected something or auto-select happened)
+            # If not, we should probably warn, but for now let's rely on sidebar state
+            
+            config = {
+                'attention_modules': [mod for pattern in (attn_patterns or []) for mod in module_patterns.get(pattern, [])],
+                'block_modules': [mod for pattern in (block_patterns or []) for mod in module_patterns.get(pattern, [])],
+                'norm_parameters': [param for pattern in (norm_patterns or []) for param in param_patterns.get(pattern, [])]
+            }
+            
+            if not config['block_modules']:
+                 return html.Div("Please select modules in the sidebar first.", style={'color': 'red'}), results, {'display': 'none'}, {}, 0, {}, 0, True
+
+            # Run forward pass on the Generated Text
+            activation_data = execute_forward_pass(model, tokenizer, text, config)
+            
+            # Setup scrubber
+            input_ids = activation_data['input_ids'][0]
+            seq_len = len(input_ids)
+            # We want to scrub 0 to seq_len-1
+            # Marks: Show every 5th or something
+            marks = {i: str(i) for i in range(0, seq_len, max(1, seq_len//10))}
+            
+            return results_ui, results, {'display': 'block'}, activation_data, seq_len-1, marks, seq_len-1, False
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return html.Div(f"Error: {e}", style={'color': 'red'}), [], {'display': 'none'}, {}, 0, {}, 0, True
+
+# Callback to Analyze a specific sequence from results list
+@app.callback(
+    [Output('session-activation-store', 'data', allow_duplicate=True),
+     Output('analysis-view-container', 'style', allow_duplicate=True),
+     Output('sequence-scrubber', 'max', allow_duplicate=True),
+     Output('sequence-scrubber', 'marks', allow_duplicate=True),
+     Output('sequence-scrubber', 'value', allow_duplicate=True),
+     Output('sequence-scrubber', 'disabled', allow_duplicate=True)],
+    Input({'type': 'result-item', 'index': ALL}, 'n_clicks'),
+    [State('generation-results-store', 'data'),
+     State('model-dropdown', 'value'),
+     State('session-patterns-store', 'data'),
+     State('attention-modules-dropdown', 'value'),
+     State('block-modules-dropdown', 'value'),
+     State('norm-params-dropdown', 'value')],
+    prevent_initial_call=True
+)
+def analyze_selected_sequence(n_clicks_list, results_data, model_name, patterns_data, attn_patterns, block_patterns, norm_patterns):
+    if not any(n_clicks_list) or not results_data:
+        return no_update
     
-    if not n_clicks or not model_name or not prompt or not block_patterns:
-        print("DEBUG: Missing required inputs, returning empty")
-        return {}, {}, None, None
+    # Find which button was clicked
+    ctx = dash.callback_context
+    if not ctx.triggered:
+        return no_update
+        
+    triggered_id = json.loads(ctx.triggered[0]['prop_id'].split('.')[0])
+    index = triggered_id['index']
     
     try:
-        # Load model for execution
+        result = results_data[index]
+        text = result['text']
+        
+        # Load model & tokenizer
         from transformers import AutoModelForCausalLM, AutoTokenizer
         model = AutoModelForCausalLM.from_pretrained(model_name, attn_implementation='eager')
         tokenizer = AutoTokenizer.from_pretrained(model_name)
         model.eval()
         
-        # Build config from selected patterns
+        # Config
         module_patterns = patterns_data.get('module_patterns', {})
         param_patterns = patterns_data.get('param_patterns', {})
         
-        # Use block patterns (full layer outputs / residual stream) for logit lens
         config = {
             'attention_modules': [mod for pattern in (attn_patterns or []) for mod in module_patterns.get(pattern, [])],
-            'block_modules': [mod for pattern in block_patterns for mod in module_patterns.get(pattern, [])],
+            'block_modules': [mod for pattern in (block_patterns or []) for mod in module_patterns.get(pattern, [])],
             'norm_parameters': [param for pattern in (norm_patterns or []) for param in param_patterns.get(pattern, [])]
         }
         
-        print(f"DEBUG: config = {config}")
+        if not config['block_modules']:
+             return no_update # Or show error
+             
+        # Run forward pass
+        activation_data = execute_forward_pass(model, tokenizer, text, config)
         
-        # Execute forward pass for first prompt
-        activation_data = execute_forward_pass(model, tokenizer, prompt, config)
+        # Setup scrubber
+        input_ids = activation_data['input_ids'][0]
+        seq_len = len(input_ids)
+        marks = {i: str(i) for i in range(0, seq_len, max(1, seq_len//10))}
         
-        print(f"DEBUG: Executed forward pass for prompt 1")
-        
-        # Store data needed for accordion display and analysis
-        essential_data = {
-            'model': model_name,
-            'prompt': prompt,
-            'attention_modules': activation_data.get('attention_modules', []),
-            'attention_outputs': activation_data.get('attention_outputs', {}),
-            'input_ids': activation_data.get('input_ids', []),
-            'block_modules': activation_data.get('block_modules', []),
-            'block_outputs': activation_data.get('block_outputs', {}),
-            'norm_parameters': activation_data.get('norm_parameters', []),
-            'actual_output': activation_data.get('actual_output'),  # FIXED: Added actual output token
-            'global_top5_tokens': activation_data.get('global_top5_tokens', [])
-        }
-        
-        # Process second prompt if provided
-        essential_data2 = {}
-        
-        if prompt2 and prompt2.strip():
-            activation_data2 = execute_forward_pass(model, tokenizer, prompt2, config)
-            print(f"DEBUG: Executed forward pass for prompt 2")
-            
-            essential_data2 = {
-                'model': model_name,
-                'prompt': prompt2,
-                'attention_modules': activation_data2.get('attention_modules', []),
-                'attention_outputs': activation_data2.get('attention_outputs', {}),
-                'input_ids': activation_data2.get('input_ids', []),
-                'block_modules': activation_data2.get('block_modules', []),
-                'block_outputs': activation_data2.get('block_outputs', {}),
-                'norm_parameters': activation_data2.get('norm_parameters', []),
-                'actual_output': activation_data2.get('actual_output'),  # FIXED: Added actual output token
-                'global_top5_tokens': activation_data2.get('global_top5_tokens', [])
-            }
-        
-        # Show success message
-        success_message = html.Div([
-            html.I(className="fas fa-check-circle", style={'color': '#28a745', 'marginRight': '8px'}),
-            "Analysis completed successfully!" + (" (2 prompts)" if prompt2 and prompt2.strip() else "")
-        ], className="status-success")
-        
-        print(f"=== DEBUG: run_analysis END ===\n")
-        return essential_data, essential_data2, success_message
+        return activation_data, {'display': 'block'}, seq_len-1, marks, seq_len-1, False
         
     except Exception as e:
-        print(f"Analysis error: {e}")
         import traceback
         traceback.print_exc()
-        
-        # Show error message
-        error_message = html.Div([
-            html.I(className="fas fa-exclamation-triangle", style={'color': '#dc3545', 'marginRight': '8px'}),
-            f"Analysis error: {str(e)}"
-        ], className="status-error")
-        
-        return {}, {}, error_message
+        return no_update
 
-def _create_top5_by_layer_graph(layer_wise_probs, significant_layers, global_top5_tokens):
-    """
-    Create line graph showing top 5 tokens' probabilities across layers.
-    
-    Args:
-        layer_wise_probs: Dict mapping layer_num -> {token: prob}
-        significant_layers: List of layer numbers with significant increases
-        global_top5_tokens: List of (token, prob) tuples for final top 5
-    
-    Returns:
-        Plotly Figure with line graph
-    """
-    import plotly.graph_objs as go
-    
-    if not layer_wise_probs or not global_top5_tokens:
-        return None
-    
-    # Extract layer numbers (sorted)
-    layer_nums = sorted(layer_wise_probs.keys())
-    
-    # Create a line for each of the global top 5 tokens
-    traces = []
-    colors = ['#667eea', '#764ba2', '#f093fb', '#4facfe', '#43e97b']
-    
-    for idx, (token, _) in enumerate(global_top5_tokens[:5]):
-        probs = [layer_wise_probs[layer].get(token, 0.0) for layer in layer_nums]
-        
-        traces.append(go.Scatter(
-            x=layer_nums,
-            y=probs,
-            mode='lines+markers',
-            name=f"'{token}'",
-            line={'color': colors[idx % len(colors)], 'width': 2},
-            marker={'size': 6}
-        ))
-    
-    # Create figure with highlighted significant layers
-    fig = go.Figure(data=traces)
-    
-    # Add yellow highlighting for significant layers
-    for sig_layer in significant_layers:
-        fig.add_vrect(
-            x0=sig_layer - 0.3, x1=sig_layer + 0.3,
-            fillcolor='yellow', opacity=0.2,
-            layer='below', line_width=0
-        )
-    
-    fig.update_layout(
-        title="Top 5 Token Probabilities Across Layers",
-        xaxis_title="Layer Number",
-        yaxis_title="Probability",
-        hovermode='closest',
-        legend={'title': 'Token'},
-        height=400,
-        margin={'l': 60, 'r': 20, 't': 40, 'b': 40}
-    )
-    
-    return fig
-
-
-def _create_single_prompt_chart(layer_data, title_suffix=''):
-    """
-    Create a single prompt bar chart (existing functionality).
-    
-    Args:
-        layer_data: Layer data dict (with top_5_tokens, deltas)
-        title_suffix: Optional suffix to add to title (e.g., "Before Ablation", "After Ablation")
-    
-    Returns:
-        Plotly Figure with horizontal bars
-    """
-    import plotly.graph_objs as go
-    
-    top_5 = layer_data.get('top_5_tokens', [])
-    deltas = layer_data.get('deltas', {})
-    
-    if not top_5:
-        return go.Figure()
-    
-    tokens = [tok for tok, _ in top_5]
-    probs = [prob for _, prob in top_5]
-    
-    # Create delta annotations (▲/▼ with color)
-    annotations = []
-    for idx, (token, prob) in enumerate(top_5):
-        delta = deltas.get(token, 0.0)
-        if abs(delta) > 0.001:  # Only show meaningful deltas
-            symbol = '▲' if delta > 0 else '▼'
-            color = '#28a745' if delta > 0 else '#dc3545'
-            annotations.append({
-                'x': prob,
-                'y': idx,
-                'text': f'{symbol} {abs(delta):.3f}',
-                'showarrow': False,
-                'xanchor': 'left',
-                'xshift': 10,
-                'font': {'size': 10, 'color': color}
-            })
-    
-    # Create Plotly figure
-    fig = go.Figure(data=[
-        go.Bar(
-            x=probs,
-            y=tokens,
-            orientation='h',
-            marker={'color': '#667eea'},
-            text=[f'{p:.3f}' for p in probs],
-            textposition='auto',
-            hovertemplate='%{y}: %{x:.4f}<extra></extra>'
-        )
-    ])
-    
-    # Build title with optional suffix
-    title_text = f'Top 5 Predictions'
-    if title_suffix:
-        title_text = f'Top 5 Predictions {title_suffix}'
-    
-    fig.update_layout(
-        title={
-            'text': title_text,
-            'font': {'size': 14}
-        },
-        xaxis={'title': 'Probability', 'range': [0, max(probs) * 1.15]},
-        yaxis={'title': '', 'autorange': 'reversed'},
-        height=250,
-        margin={'l': 100, 'r': 80, 't': 50, 'b': 40},
-        annotations=annotations,
-        hovermode='closest'
-    )
-    
-    return fig
-
-
-def _create_comparison_bar_chart(layer_data1, layer_data2, layer_num):
-    """
-    Create a grouped bar chart comparing top-5 predictions from two prompts.
-    
-    Args:
-        layer_data1: Layer data dict for prompt 1 (with top_5_tokens, deltas)
-        layer_data2: Layer data dict for prompt 2 (with top_5_tokens, deltas)
-        layer_num: Layer number for title
-    
-    Returns:
-        Plotly Figure with grouped bars for overlapping tokens and separate bars for non-overlapping
-    """
-    import plotly.graph_objs as go
-    
-    top_5_1 = layer_data1.get('top_5_tokens', [])
-    top_5_2 = layer_data2.get('top_5_tokens', [])
-    deltas_1 = layer_data1.get('deltas', {})
-    deltas_2 = layer_data2.get('deltas', {})
-    
-    # Build token sets
-    tokens_1 = {tok: prob for tok, prob in top_5_1}
-    tokens_2 = {tok: prob for tok, prob in top_5_2}
-    
-    all_tokens = set(tokens_1.keys()) | set(tokens_2.keys())
-    overlapping_tokens = set(tokens_1.keys()) & set(tokens_2.keys())
-    
-    # Sort tokens: overlapping first (by max prob), then unique to prompt 1, then unique to prompt 2
-    def token_sort_key(token):
-        if token in overlapping_tokens:
-            return (0, -max(tokens_1.get(token, 0), tokens_2.get(token, 0)))
-        elif token in tokens_1:
-            return (1, -tokens_1[token])
-        else:
-            return (2, -tokens_2[token])
-    
-    sorted_tokens = sorted(all_tokens, key=token_sort_key)
-    
-    # Prepare data for grouped bars
-    tokens_list = []
-    probs_1_list = []
-    probs_2_list = []
-    
-    for token in sorted_tokens:
-        tokens_list.append(token)
-        probs_1_list.append(tokens_1.get(token, 0))
-        probs_2_list.append(tokens_2.get(token, 0))
-    
-    # Create annotations for deltas
-    annotations = []
-    for idx, token in enumerate(tokens_list):
-        # Prompt 1 delta (if token exists in prompt 1)
-        if token in tokens_1:
-            delta = deltas_1.get(token, 0.0)
-            if abs(delta) > 0.001:
-                symbol = '▲' if delta > 0 else '▼'
-                color = '#28a745' if delta > 0 else '#dc3545'
-                annotations.append({
-                    'x': tokens_1[token],
-                    'y': idx - 0.2,  # Offset for prompt 1 bar
-                    'text': f'{symbol}{abs(delta):.3f}',
-                    'showarrow': False,
-                    'xanchor': 'left',
-                    'xshift': 10,
-                    'font': {'size': 9, 'color': color}
-                })
-        
-        # Prompt 2 delta (if token exists in prompt 2)
-        if token in tokens_2:
-            delta = deltas_2.get(token, 0.0)
-            if abs(delta) > 0.001:
-                symbol = '▲' if delta > 0 else '▼'
-                color = '#28a745' if delta > 0 else '#dc3545'
-                annotations.append({
-                    'x': tokens_2[token],
-                    'y': idx + 0.2,  # Offset for prompt 2 bar
-                    'text': f'{symbol}{abs(delta):.3f}',
-                    'showarrow': False,
-                    'xanchor': 'left',
-                    'xshift': 10,
-                    'font': {'size': 9, 'color': color}
-                })
-    
-    # Create figure with grouped bars
-    fig = go.Figure()
-    
-    # Add Prompt 1 bars
-    fig.add_trace(go.Bar(
-        name='Prompt 1',
-        x=probs_1_list,
-        y=tokens_list,
-        orientation='h',
-        marker={'color': '#667eea'},
-        text=[f'{p:.3f}' if p > 0 else '' for p in probs_1_list],
-        textposition='auto',
-        hovertemplate='Prompt 1 - %{y}: %{x:.4f}<extra></extra>'
-    ))
-    
-    # Add Prompt 2 bars
-    fig.add_trace(go.Bar(
-        name='Prompt 2',
-        x=probs_2_list,
-        y=tokens_list,
-        orientation='h',
-        marker={'color': '#f59e42'},
-        text=[f'{p:.3f}' if p > 0 else '' for p in probs_2_list],
-        textposition='auto',
-        hovertemplate='Prompt 2 - %{y}: %{x:.4f}<extra></extra>'
-    ))
-    
-    # Update layout
-    max_prob = max(max(probs_1_list + [0]), max(probs_2_list + [0]))
-    
-    fig.update_layout(
-        title={
-            'text': f'Top 5 Predictions Comparison',
-            'font': {'size': 14}
-        },
-        xaxis={'title': 'Probability', 'range': [0, max_prob * 1.2]},
-        yaxis={'title': '', 'autorange': 'reversed'},
-        barmode='group',
-        height=300,
-        margin={'l': 100, 'r': 100, 't': 50, 'b': 40},
-        annotations=annotations,
-        hovermode='closest',
-        legend={
-            'orientation': 'h',
-            'yanchor': 'bottom',
-            'y': 1.02,
-            'xanchor': 'right',
-            'x': 1
-        }
-    )
-    
-    return fig
-
-
-def _create_token_probability_delta_chart(layer_data, layer_num, global_top5_tokens, title_suffix=''):
-    """
-    Create horizontal bar chart showing change in probabilities for global top 5 tokens.
-    
-    Args:
-        layer_data: Layer data dict with global_top5_deltas
-        layer_num: Layer number for title
-        global_top5_tokens: List of (token, prob) tuples for final global top 5
-        title_suffix: Optional suffix to add to title (e.g., "Before Ablation", "After Ablation")
-    
-    Returns:
-        Plotly Figure with horizontal bars (green for positive, red for negative)
-    """
-    import plotly.graph_objs as go
-    
-    global_top5_deltas = layer_data.get('global_top5_deltas', {})
-    global_top5_probs = layer_data.get('global_top5_probs', {})
-    
-    if not global_top5_tokens:
-        return None
-    
-    # Extract tokens and deltas for the global top 5
-    tokens = [token for token, _ in global_top5_tokens]
-    deltas = [global_top5_deltas.get(token, 0.0) for token in tokens]
-    current_probs = [global_top5_probs.get(token, 0.0) for token in tokens]
-    
-    # Calculate previous probabilities
-    prev_probs = [current_probs[i] - deltas[i] for i in range(len(tokens))]
-    
-    # Create bar colors (green for positive, red for negative)
-    bar_colors = ['#28a745' if delta > 0 else '#dc3545' for delta in deltas]
-    
-    # Create hover text with previous, current, and delta
-    hover_texts = [
-        f"{tokens[i]}<br>Previous: {prev_probs[i]:.4f}<br>Current: {current_probs[i]:.4f}<br>Change: {deltas[i]:+.4f}"
-        for i in range(len(tokens))
-    ]
-    
-    # Create figure
-    fig = go.Figure(data=[
-        go.Bar(
-            x=deltas,
-            y=tokens,
-            orientation='h',
-            marker={'color': bar_colors},
-            text=[f'{d:+.4f}' for d in deltas],
-            textposition='outside',
-            hovertext=hover_texts,
-            hoverinfo='text'
-        )
-    ])
-    
-    # Determine x-axis range (symmetric around 0 for better visualization)
-    max_abs_delta = max(abs(d) for d in deltas) if deltas else 0.01
-    x_range = [-max_abs_delta * 1.2, max_abs_delta * 1.2]
-    
-    # Update layout
-    prev_layer_text = "Embedding" if layer_num == 0 else f"Layer {layer_num - 1}"
-    title_text = f'Change in Token Probabilities (from {prev_layer_text} to Layer {layer_num})'
-    if title_suffix:
-        title_text = f'Change in Token Probabilities {title_suffix} (from {prev_layer_text} to Layer {layer_num})'
-    
-    fig.update_layout(
-        title={
-            'text': title_text,
-            'font': {'size': 13}
-        },
-        xaxis={'title': 'Probability Change', 'range': x_range, 'zeroline': True, 'zerolinewidth': 2, 'zerolinecolor': '#999'},
-        yaxis={'title': '', 'autorange': 'reversed'},
-        height=250,
-        margin={'l': 100, 'r': 80, 't': 50, 'b': 40},
-        hovermode='closest',
-        showlegend=False
-    )
-    
-    return fig
-
-
-def _create_comparison_delta_chart(layer_data1, layer_data2, layer_num, global_top5_1, global_top5_2):
-    """
-    Create grouped bar chart comparing delta changes for two prompts.
-    
-    Args:
-        layer_data1: Layer data dict for prompt 1
-        layer_data2: Layer data dict for prompt 2
-        layer_num: Layer number for title
-        global_top5_1: Global top 5 tokens for prompt 1
-        global_top5_2: Global top 5 tokens for prompt 2
-    
-    Returns:
-        Plotly Figure with grouped bars showing deltas for both prompts
-    """
-    import plotly.graph_objs as go
-    
-    deltas_1 = layer_data1.get('global_top5_deltas', {})
-    deltas_2 = layer_data2.get('global_top5_deltas', {})
-    
-    # Merge token sets from both prompts
-    tokens_1 = {token for token, _ in global_top5_1}
-    tokens_2 = {token for token, _ in global_top5_2}
-    all_tokens = sorted(tokens_1 | tokens_2, key=lambda t: -max(abs(deltas_1.get(t, 0)), abs(deltas_2.get(t, 0))))
-    
-    # Get deltas for all tokens
-    deltas_1_list = [deltas_1.get(token, 0.0) for token in all_tokens]
-    deltas_2_list = [deltas_2.get(token, 0.0) for token in all_tokens]
-    
-    # Create figure with grouped bars
-    fig = go.Figure()
-    
-    # Add Prompt 1 bars
-    fig.add_trace(go.Bar(
-        name='Prompt 1',
-        x=deltas_1_list,
-        y=all_tokens,
-        orientation='h',
-        marker={'color': '#667eea'},
-        text=[f'{d:+.3f}' if abs(d) > 0.001 else '' for d in deltas_1_list],
-        textposition='outside',
-        hovertemplate='Prompt 1 - %{y}: %{x:+.4f}<extra></extra>'
-    ))
-    
-    # Add Prompt 2 bars
-    fig.add_trace(go.Bar(
-        name='Prompt 2',
-        x=deltas_2_list,
-        y=all_tokens,
-        orientation='h',
-        marker={'color': '#f59e42'},
-        text=[f'{d:+.3f}' if abs(d) > 0.001 else '' for d in deltas_2_list],
-        textposition='outside',
-        hovertemplate='Prompt 2 - %{y}: %{x:+.4f}<extra></extra>'
-    ))
-    
-    # Determine x-axis range
-    max_abs_delta = max(
-        max(abs(d) for d in deltas_1_list + deltas_2_list) if (deltas_1_list + deltas_2_list) else 0.01,
-        0.01
-    )
-    x_range = [-max_abs_delta * 1.3, max_abs_delta * 1.3]
-    
-    # Update layout
-    prev_layer_text = "Embedding" if layer_num == 0 else f"Layer {layer_num - 1}"
-    fig.update_layout(
-        title={
-            'text': f'Change in Token Probabilities (from {prev_layer_text} to Layer {layer_num})',
-            'font': {'size': 13}
-        },
-        xaxis={'title': 'Probability Change', 'range': x_range, 'zeroline': True, 'zerolinewidth': 2, 'zerolinecolor': '#999'},
-        yaxis={'title': '', 'autorange': 'reversed'},
-        barmode='group',
-        height=300,
-        margin={'l': 100, 'r': 100, 't': 50, 'b': 40},
-        hovermode='closest',
-        legend={
-            'orientation': 'h',
-            'yanchor': 'bottom',
-            'y': 1.02,
-            'xanchor': 'right',
-            'x': 1
-        }
-    )
-    
-    return fig
-
-
-def _create_actual_output_display(activation_data):
-    """
-    Create a display element showing the actual output token with tooltip.
-    
-    Args:
-        activation_data: Activation data containing actual_output
-    
-    Returns:
-        Dash HTML component displaying the actual output token
-    """
-    actual_output = activation_data.get('actual_output')
-    if not actual_output:
-        return None
-    
-    token = actual_output.get('token', 'N/A')
-    probability = actual_output.get('probability', 0.0)
-    
-    tooltip_text = ("The actual output token may differ from the highest probability token shown in the final layer. "
-                   "This is because the model uses residual connections (skip links) that add information across layers. "
-                   "The final output is determined after all residual streams are combined. "
-                   "See transformer layer implementations for details.")
-    
-    return html.Div([
-        html.Div([
-            html.Strong("Actual Model Output: ", style={'color': '#495057', 'fontSize': '14px'}),
-            html.Span(f'"{token}"', style={
-                'backgroundColor': '#e8f5e9', 
-                'padding': '4px 10px', 
-                'borderRadius': '4px',
-                'fontFamily': 'monospace',
-                'fontSize': '14px',
-                'fontWeight': '600',
-                'color': '#2e7d32',
-                'border': '1px solid #4caf50'
-            }),
-            html.Span(f" (probability: {probability:.4f})", style={
-                'color': '#6c757d',
-                'fontSize': '13px',
-                'marginLeft': '8px'
-            }),
-            html.I(
-                className="fas fa-info-circle",
-                id="actual-output-info-icon",
-                style={
-                    'marginLeft': '10px',
-                    'color': '#667eea',
-                    'cursor': 'pointer',
-                    'fontSize': '14px'
-                }
-            )
-        ], style={'marginBottom': '8px'}),
-        html.Div([
-            html.I(className="fas fa-lightbulb", style={'marginRight': '6px', 'color': '#ffa726'}),
-            tooltip_text
-        ], style={
-            'fontSize': '12px',
-            'color': '#6c757d',
-            'backgroundColor': '#fff8e1',
-            'padding': '10px',
-            'borderRadius': '5px',
-            'borderLeft': '3px solid #ffa726',
-            'lineHeight': '1.6'
-        })
-    ], style={
-        'marginTop': '15px',
-        'padding': '12px',
-        'backgroundColor': '#f8f9fa',
-        'borderRadius': '6px',
-        'border': '1px solid #dee2e6'
-    })
-
-
-# Callback to create accordion panels from layer data
+# Update create_layer_accordions to handle scrubber
+# Replaces previous implementation
 @app.callback(
     Output('layer-accordions-container', 'children'),
     [Input('session-activation-store', 'data'),
      Input('session-activation-store-2', 'data'),
-     Input('session-activation-store-original', 'data')],
+     Input('session-activation-store-original', 'data'),
+     Input('sequence-scrubber', 'value')],
     [State('model-dropdown', 'value')]
 )
-def create_layer_accordions(activation_data, activation_data2, original_activation_data, model_name):
+def create_layer_accordions(activation_data, activation_data2, original_activation_data, scrubber_val, model_name):
     """Create accordion panels for each layer with top-5 bar charts and deltas."""
     if not activation_data or not model_name:
         return html.P("Run analysis to see layer-by-layer predictions.", className="placeholder-text")
     
+    # Safety check for invalid data structure (e.g. from storage quota errors)
+    if isinstance(activation_data, list):
+        return html.P("Error: Invalid activation data format. Please refresh the page.", className="placeholder-text", style={'color': 'red'})
+    
+    if isinstance(activation_data2, list):
+        activation_data2 = None
+        
+    if isinstance(original_activation_data, list):
+        original_activation_data = None
+
     try:
         from transformers import AutoModelForCausalLM, AutoTokenizer
         import plotly.graph_objs as go
+        import copy
         
         model = AutoModelForCausalLM.from_pretrained(model_name, attn_implementation='eager')
         tokenizer = AutoTokenizer.from_pretrained(model_name)
         
+        # SLICING LOGIC
+        # We need to slice activation_data to represent the state at step `scrubber_val`
+        # `scrubber_val` corresponds to the position index.
+        # We want to see:
+        # 1. Predictions from that position (based on block_output[pos])
+        # 2. Attention *from* that position (attending to 0..pos)
+        
+        def slice_data(data, pos):
+            if not data: return data
+            sliced = copy.deepcopy(data)
+            
+            # Slice Block Outputs: [batch, seq, hidden] -> [batch, 1, hidden]
+            if 'block_outputs' in sliced:
+                for mod in sliced['block_outputs']:
+                    # output is [1, seq, hidden] list/tensor
+                    out = sliced['block_outputs'][mod]['output']
+                    # Assuming batch=1, out[0] is [seq, hidden]
+                    # Or out is [1, seq, hidden]
+                    # safe_to_serializable converts tensors to lists
+                    # Check structure
+                    if isinstance(out, list):
+                        # Assuming batch 0
+                        if len(out) > 0 and isinstance(out[0], list):
+                             # out[0] is seq_len list
+                             if pos < len(out[0]):
+                                 # Keep structure [1, 1, hidden]
+                                 sliced['block_outputs'][mod]['output'] = [[out[0][pos]]]
+            
+            # Slice Attention Outputs: [batch, heads, seq, seq] -> [batch, heads, 1, seq]
+            # Wait, standard analysis expects full attention matrix for some viz?
+            # extract_layer_data calls `_get_top_attended_tokens`.
+            # It takes `attention_weights[0].mean(dim=0)` which is [seq, seq].
+            # Then `last_pos_attention = avg_attention[-1, :]`.
+            # So if we slice the query dimension to `pos`, we get [batch, heads, 1, seq].
+            # Then `_get_top_attended_tokens` should handle it if it just looks at the last pos.
+            # But the 'key' dimension (last dim) must go up to `pos` (causal masking).
+            # The full matrix already has causal masking (upper tri is -inf/0).
+            # So if we take the row `pos`, it attends to `0..pos`.
+            
+            if 'attention_outputs' in sliced:
+                for mod in sliced['attention_outputs']:
+                    out = sliced['attention_outputs'][mod]['output']
+                    # out is (hidden_states, attentions, ...)
+                    # attentions is out[1]
+                    if len(out) > 1:
+                        attns = out[1] # [batch, heads, seq, seq]
+                        if isinstance(attns, list):
+                            # slice query dim (2nd to last) to just [pos]
+                            # Structure: batch -> heads -> seq(query) -> seq(key)
+                            # We want batch[0] -> all heads -> row[pos] -> all keys
+                            
+                            # Deep copy needed? Yes, done above.
+                            batch_0 = attns[0] # heads list
+                            new_batch_0 = []
+                            for head in batch_0:
+                                # head is [seq, seq]
+                                if pos < len(head):
+                                    # Keep row `pos`, but only cols `0..pos+1`?
+                                    # Actually, let's keep all keys for simplicity, usually masked anyway.
+                                    # But `extract_layer_data` logic might depend on shape.
+                                    # Let's keep it simple: if we slice block outputs, `extract_layer_data`
+                                    # uses block outputs for predictions.
+                                    # For attention, `_get_top_attended_tokens` looks at `-1` (last pos).
+                                    # If we slice attention matrix to be [1, seq], then -1 is 0.
+                                    # So we should make the attention matrix [1, seq] (query len 1).
+                                    new_row = [head[pos]] # [1, seq]
+                                    new_batch_0.append(new_row)
+                            sliced['attention_outputs'][mod]['output'] = [out[0], [new_batch_0]] + out[2:]
+
+            # Slice input_ids: [1, seq] -> [1, seq (up to pos+1??)]
+            # Actually, `_get_top_attended_tokens` maps indices to tokens.
+            # If attention row `pos` has weights for indices `0..pos`, we need input_ids to cover `0..pos`.
+            # So input_ids should NOT be sliced to 1, but truncated to `pos+1`.
+            if 'input_ids' in sliced:
+                ids = sliced['input_ids'][0]
+                if pos < len(ids):
+                    sliced['input_ids'][0] = ids[:pos+1]
+            
+            # Also actual output needs to be updated? 
+            # `actual_output` in `activation_data` is the FINAL token of the WHOLE sequence.
+            # For the scrubber, we might want the actual next token at this step?
+            # We can't easily get it without re-running or having stored it.
+            # `execute_forward_pass` computes `actual_output` from the final logits.
+            # We don't have logits for every step stored (unless we add them).
+            # But we can perhaps infer it from `input_ids[pos+1]` if it exists.
+            if 'input_ids' in data:
+                ids = data['input_ids'][0]
+                if pos + 1 < len(ids):
+                    # The "actual" next token is the next one in the sequence
+                    next_id = ids[pos+1]
+                    next_token = tokenizer.decode([next_id])
+                    sliced['actual_output'] = {'token': next_token, 'probability': 1.0} # Fake prob
+                else:
+                    sliced['actual_output'] = None
+
+            return sliced
+
+        # Slice the data based on scrubber position
+        # Check if scrubber_val is valid
+        # If scrubber_val is None, use last
+        if scrubber_val is None:
+             # Default to last?
+             pass
+        else:
+             activation_data = slice_data(activation_data, scrubber_val)
+             if activation_data2:
+                 activation_data2 = slice_data(activation_data2, scrubber_val)
+             if original_activation_data:
+                 original_activation_data = slice_data(original_activation_data, scrubber_val)
+
+
         # Check if we're in ablation mode
         ablation_mode = activation_data.get('ablated', False) and original_activation_data
         
@@ -1658,18 +1523,6 @@ def update_tokenization_display(activation_data, activation_data2, model_name):
         traceback.print_exc()
         return {'display': 'none'}, []
 
-# Enable Run Analysis button when requirements are met
-@app.callback(
-    Output('run-analysis-btn', 'disabled'),
-    [Input('model-dropdown', 'value'),
-     Input('prompt-input', 'value'),
-     Input('block-modules-dropdown', 'value'),
-     Input('norm-params-dropdown', 'value')]
-)
-def enable_run_button(model, prompt, block_modules, norm_params):
-    """Enable Run Analysis button when model, prompt, layer blocks, and norm parameters are selected."""
-    return not (model and prompt and block_modules and norm_params)
-
 # Sidebar collapse toggle
 @app.callback(
     [Output('sidebar-collapse-store', 'data'),
@@ -1809,7 +1662,6 @@ def handle_head_selection(n_clicks_list, selected_heads):
     triggered_id = ctx.triggered[0]['prop_id']
     
     # Parse the triggered button's head index
-    import json
     try:
         button_id = json.loads(triggered_id.split('.')[0])
         head_idx = button_id['head']

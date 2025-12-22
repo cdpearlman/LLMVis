@@ -23,6 +23,16 @@ def create_sidebar():
         
         # Sidebar content (hidden when collapsed)
         html.Div([
+            # Help / Glossary Button
+            html.Div([
+                html.Button(
+                    [html.I(className="fas fa-book", style={'marginRight': '8px'}), "Glossary"],
+                    id="open-glossary-btn",
+                    className="action-button secondary-button",
+                    style={'marginBottom': '1rem', 'width': '100%'}
+                )
+            ]),
+
             html.H3("Module Selection", className="sidebar-title"),
         
         # Loading/status indicator
@@ -69,12 +79,6 @@ def create_sidebar():
         
             # Action buttons
             html.Div([
-                html.Button(
-                    "Run Analysis", 
-                    id="run-analysis-btn",
-                    className="action-button primary-button",
-                    disabled=True
-                ),
                 html.Button(
                     "Clear Selections", 
                     id="clear-selections-btn",
