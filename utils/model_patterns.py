@@ -92,7 +92,7 @@ def merge_token_probabilities(token_probs: List[Tuple[str, float]]) -> List[Tupl
     return result
 
 
-def compute_global_top5_tokens(model_output, tokenizer, top_k: int = 5) -> List[Tuple[str, float]]:
+def compute_global_top5_tokens(model_output, tokenizer, top_k: int = 5) -> List[Dict[str, Any]]:
     """
     Compute the global top-5 tokens from model's final output with merged probabilities.
     
@@ -102,7 +102,7 @@ def compute_global_top5_tokens(model_output, tokenizer, top_k: int = 5) -> List[
         top_k: Number of top tokens to return (default: 5)
     
     Returns:
-        List of (token_string, probability) tuples for top K tokens with merged probabilities
+        List of dicts {'token': str, 'probability': float} for top K tokens
     """
     with torch.no_grad():
         # Get probabilities for next token (last position)
@@ -121,8 +121,8 @@ def compute_global_top5_tokens(model_output, tokenizer, top_k: int = 5) -> List[
         # Merge tokens with/without leading space
         merged = merge_token_probabilities(candidates)
         
-        # Return top K after merging
-        return merged[:top_k]
+        # Return top K after merging, formatted as dicts
+        return [{'token': t, 'probability': p} for t, p in merged[:top_k]]
 
 
 def get_actual_model_output(model_output, tokenizer) -> Tuple[str, float]:
@@ -1048,7 +1048,12 @@ def extract_layer_data(activation_data: Dict[str, Any], model, tokenizer) -> Lis
     
     # Get global top 5 tokens from final output
     global_top5_tokens = activation_data.get('global_top5_tokens', [])
-    global_top5_token_names = [token for token, _ in global_top5_tokens]
+    
+    # Handle both dicts (new format) and tuples (legacy)
+    if global_top5_tokens and isinstance(global_top5_tokens[0], dict):
+        global_top5_token_names = [t.get('token') for t in global_top5_tokens]
+    else:
+        global_top5_token_names = [token for token, _ in global_top5_tokens]
     
     layer_data = []
     prev_token_probs = {}  # Track previous layer's token probabilities (layer's own top 5)

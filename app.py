@@ -827,7 +827,12 @@ def create_layer_accordions(activation_data, activation_data2, original_activati
         tracking_data = compute_layer_wise_summaries(layer_data, activation_data)
         layer_wise_probs = tracking_data.get('layer_wise_top5_probs', {})
         significant_layers = tracking_data.get('significant_layers', [])
+        # Get global top 5 tokens from activation data
         global_top5 = activation_data.get('global_top5_tokens', [])
+        
+        # Ensure global_top5 is list of dicts (handle legacy tuples/lists from old sessions)
+        if global_top5 and isinstance(global_top5[0], (list, tuple)):
+            global_top5 = [{'token': t, 'probability': p} for t, p in global_top5]
         
         # If in ablation mode, also extract original layer data
         original_layer_data = None
@@ -855,6 +860,10 @@ def create_layer_accordions(activation_data, activation_data2, original_activati
             layer_wise_probs2 = tracking_data2.get('layer_wise_top5_probs', {})
             significant_layers2 = tracking_data2.get('significant_layers', [])
             global_top5_2 = activation_data2.get('global_top5_tokens', [])
+            
+            # Ensure global_top5_2 is list of dicts (handle legacy tuples)
+            if global_top5_2 and isinstance(global_top5_2[0], (list, tuple)):
+                global_top5_2 = [{'token': t, 'probability': p} for t, p in global_top5_2]
         
         # Create accordion panels (reversed to show final layer first)
         accordions = []
