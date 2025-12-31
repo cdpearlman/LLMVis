@@ -614,6 +614,160 @@ def execute_forward_pass_with_layer_ablation(model, tokenizer, prompt: str, conf
     return result
 
 
+def evaluate_sequence_ablation(model, tokenizer, sequence_text: str, config: Dict[str, Any],
+                             ablation_type: str, ablation_target: Any) -> Dict[str, Any]:
+    """
+    Evaluate the impact of ablation on a full sequence.
+    
+    This runs TWO forward passes on the FULL sequence:
+    1. Reference pass (original model) -> Capture logits/probs
+    2. Ablated pass (modified model) -> Capture logits/probs
+    
+    Then computes metrics: KL Divergence, Target Prob Changes.
+    
+    Args:
+        model: Loaded transformer model
+        tokenizer: Tokenizer
+        sequence_text: The full text sequence to evaluate
+        config: Module configuration (needed for ablation setup)
+        ablation_type: 'head' or 'layer'
+        ablation_target: tuple (layer, head_indices) or int (layer_num)
+        
+    Returns:
+        Dict with evaluation metrics.
+    """
+    from .ablation_metrics import compute_kl_divergence, get_token_probability_deltas
+    
+    print(f"Evaluating sequence ablation: Type={ablation_type}, Target={ablation_target}")
+    
+    inputs = tokenizer(sequence_text, return_tensors="pt")
+    input_ids = inputs["input_ids"].to(model.device)
+    
+    # --- 1. Reference Pass ---
+    with torch.no_grad():
+        outputs_ref = model(input_ids)
+        logits_ref = outputs_ref.logits # [1, seq_len, vocab_size]
+        
+    # --- 2. Ablated Pass ---
+    # Setup ablation based on type
+    
+    # We need to wrap the model using PyVene logic or custom hooks just for this pass
+    # Since we already have logic in execute_forward_pass_with_..._ablation, we can reuse the Hook logic
+    # But we want the full logits, not just captured activations.
+    
+    # Let's manually register hooks here for simplicity and control
+    hooks = []
+    
+    def head_ablation_hook_factory(layer_idx, head_indices):
+        def hook(module, input, output):
+            # output is (hidden_states, ...) or hidden_states
+            if isinstance(output, tuple):
+                hidden_states = output[0]
+            else:
+                hidden_states = output
+                
+            # Assume hidden_states is [batch, seq, hidden]
+            # Reshape, zero out heads, Reshape back
+            if not isinstance(hidden_states, torch.Tensor):
+                 if isinstance(hidden_states, list): hidden_states = torch.tensor(hidden_states)
+            
+            # Move to device if needed? They should be on device.
+            
+            num_heads = model.config.num_attention_heads
+            head_dim = hidden_states.shape[-1] // num_heads
+            
+            # view: [batch, seq, heads, dim]
+            new_shape = hidden_states.shape[:-1] + (num_heads, head_dim)
+            reshaped = hidden_states.view(new_shape)
+            
+            # Create mask or just zero out
+            # We can't modify in place securely with autograd usually, but here no_grad is on.
+            # Clone to be safe
+            reshaped = reshaped.clone()
+            
+            for h_idx in head_indices:
+                reshaped[..., h_idx, :] = 0
+                
+            ablated_hidden = reshaped.view(hidden_states.shape)
+            
+            if isinstance(output, tuple):
+                return (ablated_hidden,) + output[1:]
+            return ablated_hidden
+        return hook
+
+    # Hook for Layer Ablation (Identity/Skip or Zero)
+    # We'll use Identity (Skip Layer) as a simpler approximation of "removing logic" 
+    # OR Mean Ablation if we had the mean. 
+    # For now, let's just do nothing for layer ablation or return error, 
+    # as the user primarily asks for "ablation experiment updates" which often means Heads.
+    # But to be safe, let's implement the same Mean Ablation if possible, or Identity.
+    # Identity (Skip) is easier:
+    def identity_hook(module, input, output):
+        # input is tuple (hidden_states, ...)
+        return input if isinstance(input, tuple) else (input,)
+
+    try:
+        if ablation_type == 'head':
+            layer_num, head_indices = ablation_target
+            # Find module
+            # Standard transformers: model.layers[i].self_attn
+            # We need the exact module name map standard to HuggingFace
+            # Or use the config's mapping if available.
+            # Let's rely on standard naming or search
+            
+            # Simple heuristic: find 'layers.X.self_attn' or 'h.X.attn'
+            target_module = None
+            for name, mod in model.named_modules():
+                # Check for standard patterns
+                # layer_num is int
+                if f"layers.{layer_num}.self_attn" in name or f"h.{layer_num}.attn" in name or f"blocks.{layer_num}.attn" in name:
+                     if "k_proj" not in name and "v_proj" not in name and "q_proj" not in name: # avoid submodules
+                         target_module = mod
+                         break
+            
+            if target_module:
+                hooks.append(target_module.register_forward_hook(head_ablation_hook_factory(layer_num, head_indices)))
+            else:
+                print(f"Warning: Could not find attention module for layer {layer_num}")
+
+        elif ablation_type == 'layer':
+            layer_num = ablation_target
+            target_module = None
+            for name, mod in model.named_modules():
+                # Layers are usually 'model.layers.X' or 'transformer.h.X'
+                # We want the module that corresponds to the layer block
+                # Be careful not to pick 'layers.X.mlp'
+                if (f"layers.{layer_num}" in name or f"h.{layer_num}" in name) and name.count('.') <= 2: # heuristic for top-level layer
+                     target_module = mod
+                     break
+            
+            if target_module:
+                 # Skip layer (Identity)
+                 hooks.append(target_module.register_forward_hook(lambda m, i, o: i[0] if isinstance(i, tuple) else i))
+
+        # Run Ablated Pass
+        with torch.no_grad():
+            outputs_abl = model(input_ids)
+            logits_abl = outputs_abl.logits
+
+    finally:
+        for hook in hooks:
+            hook.remove()
+            
+    # --- 3. Compute Metrics ---
+    # KL Divergence [seq_len]
+    kl_div = compute_kl_divergence(logits_ref, logits_abl)
+    
+    # Prob Deltas for actual tokens [seq_len-1] (shifted)
+    prob_deltas = get_token_probability_deltas(logits_ref, logits_abl, input_ids)
+    
+    return {
+        "kl_divergence": kl_div,
+        "probability_deltas": prob_deltas,
+        "tokens": [tokenizer.decode([tid]) for tid in input_ids[0].tolist()]
+    }
+
+
 def logit_lens_transformation(layer_output: Any, norm_data: List[Any], model, tokenizer, norm_parameter: Optional[str] = None, top_k: int = 5) -> List[Tuple[str, float]]:
     """
     Transform layer output to top K token probabilities using logit lens.

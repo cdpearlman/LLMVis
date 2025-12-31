@@ -105,7 +105,10 @@ def create_main_panel():
                             html.I(className="fas fa-spinner fa-spin", style={'fontSize': '24px', 'color': '#667eea', 'marginRight': '10px'}),
                             html.Span("Loading visuals...", style={'fontSize': '16px', 'color': '#495057'})
                         ], style={'display': 'flex', 'alignItems': 'center', 'justifyContent': 'center', 'padding': '2rem'})
-                    )
+                    ),
+                    
+                    # Sequence Ablation Results (New)
+                    html.Div(id='sequence-ablation-results-container', style={'marginTop': '30px', 'display': 'none'})
                 ], className="visualization-section")
             ])
         ], id="analysis-view-container", style={'display': 'none'}) # Hidden by default

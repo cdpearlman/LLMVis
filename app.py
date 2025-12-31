@@ -11,7 +11,8 @@ import json
 import torch
 from utils import (load_model_and_get_patterns, execute_forward_pass, extract_layer_data,
                    categorize_single_layer_heads, format_categorization_summary,
-                   compute_layer_wise_summaries, perform_beam_search, compute_sequence_trajectory)
+                   compute_layer_wise_summaries, perform_beam_search, compute_sequence_trajectory,
+                   execute_forward_pass_with_head_ablation, evaluate_sequence_ablation, score_sequence)
 from utils.model_config import get_auto_selections, get_model_family
 
 # Import modular components
@@ -1729,10 +1730,11 @@ def handle_head_selection(n_clicks_list, selected_heads):
     [State({'type': 'selected-heads-store', 'layer': ALL}, 'data'),
      State('session-activation-store', 'data'),
      State('model-dropdown', 'value'),
-     State('prompt-input', 'value')],
+     State('prompt-input', 'value'),
+     State('generation-results-store', 'data')],
     prevent_initial_call=True
 )
-def run_head_ablation(n_clicks_list, selected_heads_list, activation_data, model_name, prompt):
+def run_head_ablation(n_clicks_list, selected_heads_list, activation_data, model_name, prompt_input, generation_results):
     """Run forward pass with selected heads ablated."""
     # Identify which button was clicked
     ctx = dash.callback_context
@@ -1745,7 +1747,6 @@ def run_head_ablation(n_clicks_list, selected_heads_list, activation_data, model
         return no_update, no_update, no_update
     
     # Find the index in the states_list that corresponds to this layer
-    # ctx.states_list contains the State values in order
     button_index = None
     if hasattr(ctx, 'states_list') and ctx.states_list:
         # states_list[0] corresponds to selected-heads-store
@@ -1756,7 +1757,6 @@ def run_head_ablation(n_clicks_list, selected_heads_list, activation_data, model
     
     # Fallback: if states_list doesn't work, try matching by iterating
     if button_index is None:
-        # This shouldn't happen, but as a fallback, just return error
         return no_update, no_update, html.Div([
             html.I(className="fas fa-exclamation-circle", style={'marginRight': '8px', 'color': '#dc3545'}),
             f"Could not determine button index for layer {layer_num}"
@@ -1772,11 +1772,13 @@ def run_head_ablation(n_clicks_list, selected_heads_list, activation_data, model
     
     try:
         from transformers import AutoModelForCausalLM, AutoTokenizer
-        from utils import execute_forward_pass_with_head_ablation
         
         # Save original activation data before ablation
         import copy
         original_data = copy.deepcopy(activation_data)
+        
+        # Determine the sequence to analyze (prefer activation data prompt over input box)
+        sequence_text = activation_data.get('prompt', prompt_input)
         
         # Load model and tokenizer
         model = AutoModelForCausalLM.from_pretrained(model_name, attn_implementation='eager')
@@ -1789,18 +1791,86 @@ def run_head_ablation(n_clicks_list, selected_heads_list, activation_data, model
             'norm_parameters': activation_data.get('norm_parameters', [])
         }
         
-        # Run ablation
+        # 1. Run Standard Ablation (Forward Pass)
         ablated_data = execute_forward_pass_with_head_ablation(
-            model, tokenizer, prompt, config, layer_num, selected_heads
+            model, tokenizer, sequence_text, config, layer_num, selected_heads
         )
         
+        # 2. Compute Full Sequence Metrics (KL Divergence, Delta Probs)
+        # This requires re-running passes (Original & Ablated) on the full sequence
+        # We use a helper that handles the ablation hooking internally for the metric pass
+        seq_metrics = evaluate_sequence_ablation(
+            model, tokenizer, sequence_text, config, 
+            ablation_type='head', ablation_target=(layer_num, selected_heads)
+        )
+        ablated_data['sequence_metrics'] = seq_metrics
+        
+        # 3. Re-score Top Generated Sequences (if available)
+        if generation_results:
+            top_sequences_comparison = []
+            
+            # Helper to run ablation for scoring (we need to apply hook again)
+            # Since we can't easily pass 'ablated model' around, we re-apply hooks
+            # Simplification: We already have 'evaluate_sequence_ablation'.
+            # But that compares Ref vs Abl.
+            # Here we just want Ablated Score.
+            # Actually, `score_sequence` runs valid forward pass. 
+            # We need to apply ablation hooks to validly score.
+            
+            # Define localized hook manager for scoring
+            def get_ablated_score(seq_text):
+                # Apply hook
+                hooks = []
+                def head_ablation_hook(module, input, output):
+                   # Similar to evaluate_sequence_ablation hook
+                    if isinstance(output, tuple): h = output[0]
+                    else: h = output
+                    if not isinstance(h, torch.Tensor): h = torch.tensor(h)
+                    
+                    num_heads = model.config.num_attention_heads
+                    head_dim = h.shape[-1] // num_heads
+                    new_shape = h.shape[:-1] + (num_heads, head_dim)
+                    reshaped = h.view(new_shape).clone()
+                    for h_idx in selected_heads: reshaped[..., h_idx, :] = 0
+                    ablated = reshaped.view(h.shape)
+                    return (ablated,) + output[1:] if isinstance(output, tuple) else ablated
+
+                # Register
+                target_module = None
+                for name, mod in model.named_modules():
+                    if f"layers.{layer_num}.self_attn" in name or f"h.{layer_num}.attn" in name:
+                        if "k_proj" not in name: 
+                            target_module = mod; break
+                
+                if target_module:
+                    hooks.append(target_module.register_forward_hook(head_ablation_hook))
+                
+                try:
+                    score = score_sequence(model, tokenizer, seq_text)
+                finally:
+                    for hook in hooks: hook.remove()
+                return score
+
+            for res in generation_results:
+                txt = res['text']
+                orig_score = res['score']
+                new_score = get_ablated_score(txt)
+                top_sequences_comparison.append({
+                    'text': txt,
+                    'original_score': orig_score,
+                    'ablated_score': new_score,
+                    'delta': new_score - orig_score
+                })
+            
+            ablated_data['top_sequences_comparison'] = top_sequences_comparison
+
+        
         # Update activation data with ablated results
-        # Mark as ablated for visual indication
         ablated_data['ablated'] = True
         ablated_data['ablated_layer'] = layer_num
         ablated_data['ablated_heads'] = selected_heads
         
-        # Preserve input_ids from original data if not present (prompt is unchanged)
+        # Preserve input_ids if needed
         if 'input_ids' not in ablated_data and 'input_ids' in activation_data:
             ablated_data['input_ids'] = activation_data['input_ids']
         
@@ -1808,7 +1878,7 @@ def run_head_ablation(n_clicks_list, selected_heads_list, activation_data, model
         heads_str = ', '.join([f"H{h}" for h in sorted(selected_heads)])
         success_message = html.Div([
             html.I(className="fas fa-check-circle", style={'marginRight': '8px', 'color': '#28a745'}),
-            f"Ablation complete: Layer {layer_num}, Heads {heads_str} removed"
+            f"Ablation complete: Layer {layer_num}, Heads {heads_str} removed. Scroll down for sequence analysis."
         ], className="status-success")
         
         return ablated_data, original_data, success_message
@@ -1868,6 +1938,134 @@ def reset_ablation(n_clicks, original_data):
     ], className="status-success")
     
     return original_data, {}, success_message
+
+
+
+# Callback to update sequence ablation analysis view
+@app.callback(
+    [Output('sequence-ablation-results-container', 'children'),
+     Output('sequence-ablation-results-container', 'style')],
+    Input('session-activation-store', 'data'),
+    prevent_initial_call=False
+)
+def update_sequence_ablation_view(activation_data):
+    """Update the sequence ablation results view (KL Divergence, Sequence Comparison)."""
+    if not activation_data or not activation_data.get('ablated', False):
+        return [], {'display': 'none'}
+    
+    try:
+        import plotly.graph_objs as go
+        from dash import html, dcc
+        
+        children = []
+        
+        # 1. Header
+        children.append(html.H3("Full Sequence Ablation Analysis", style={'marginTop': '0', 'marginBottom': '20px', 'color': '#2d3748'}))
+        
+        # 2. Top-5 Sequence Comparison Table
+        top_seqs = activation_data.get('top_sequences_comparison', [])
+        if top_seqs:
+            rows = []
+            for i, seq in enumerate(top_seqs):
+                delta = seq['delta']
+                delta_color = '#28a745' if delta > 0 else '#dc3545' if delta < 0 else '#6c757d'
+                
+                rows.append(html.Tr([
+                    html.Td(f"#{i+1}", style={'fontWeight': 'bold'}),
+                    html.Td(seq['text'], style={'fontFamily': 'monospace', 'maxWidth': '400px', 'overflow': 'hidden', 'textOverflow': 'ellipsis', 'whiteSpace': 'nowrap'}),
+                    html.Td(f"{seq['original_score']:.4f}"),
+                    html.Td(f"{seq['ablated_score']:.4f}"),
+                    html.Td(f"{delta:+.4f}", style={'color': delta_color, 'fontWeight': 'bold'})
+                ]))
+            
+            table_header = html.Thead(html.Tr([
+                html.Th("Rank"), html.Th("Sequence"), html.Th("Original Score"), html.Th("Ablated Score"), html.Th("Delta")
+            ]))
+            table_body = html.Tbody(rows)
+            
+            children.append(html.Div([
+                html.H5("Top Sequences Impact", style={'marginBottom': '10px'}),
+                html.Table([table_header, table_body], className="table table-striped table-bordered")
+            ], style={'marginBottom': '30px', 'padding': '15px', 'backgroundColor': '#fff', 'borderRadius': '8px', 'boxShadow': '0 2px 4px rgba(0,0,0,0.05)'}))
+        
+        # 3. KL Divergence Chart
+        seq_metrics = activation_data.get('sequence_metrics', {})
+        kl_divs = seq_metrics.get('kl_divergence', [])
+        tokens = seq_metrics.get('tokens', [])
+        
+        if kl_divs:
+            # KL Chart
+            fig_kl = go.Figure()
+            fig_kl.add_trace(go.Scatter(
+                x=list(range(len(kl_divs))),
+                y=kl_divs,
+                mode='lines+markers',
+                name='KL Divergence',
+                line=dict(color='#6610f2', width=2),
+                hovertext=[f"Token: {t}<br>KL: {v:.4f}" for t, v in zip(tokens, kl_divs)],
+                hoverinfo='text'
+            ))
+            
+            fig_kl.update_layout(
+                title="KL Divergence per Position (Distribution Shift)",
+                xaxis_title="Position / Token",
+                yaxis_title="KL Divergence (nats)",
+                margin=dict(l=20, r=20, t=40, b=20),
+                height=300,
+                xaxis=dict(
+                    tickmode='array',
+                    tickvals=list(range(len(tokens))),
+                    ticktext=tokens
+                )
+            )
+            
+            children.append(html.Div([
+                dcc.Graph(figure=fig_kl, config={'displayModeBar': False})
+            ], style={'marginBottom': '20px', 'padding': '15px', 'backgroundColor': '#fff', 'borderRadius': '8px', 'boxShadow': '0 2px 4px rgba(0,0,0,0.05)'}))
+        
+        # 4. Target Probability Deltas Chart
+        prob_deltas = seq_metrics.get('probability_deltas', [])
+        if prob_deltas:
+            # Shift tokens for x-axis (deltas are for prediction of next token)
+            # Input: T0, T1, T2
+            # Delta 0: Change in P(T1|T0)
+            # So x-axis should be T1, T2...
+            target_tokens = tokens[1:] if len(tokens) > 1 else []
+            
+            fig_delta = go.Figure()
+            fig_delta.add_trace(go.Bar(
+                x=list(range(len(prob_deltas))),
+                y=prob_deltas,
+                name='Prob Delta',
+                marker_color=['#28a745' if v >= 0 else '#dc3545' for v in prob_deltas],
+                hovertext=[f"Target: {t}<br>Change: {v:+.4f}" for t, v in zip(target_tokens, prob_deltas)],
+                hoverinfo='text'
+            ))
+            
+            fig_delta.update_layout(
+                title="Target Probability Change per Position",
+                xaxis_title="Target Token",
+                yaxis_title="Probability Delta",
+                margin=dict(l=20, r=20, t=40, b=20),
+                height=300,
+                xaxis=dict(
+                    tickmode='array',
+                    tickvals=list(range(len(target_tokens))),
+                    ticktext=target_tokens
+                )
+            )
+            
+            children.append(html.Div([
+                dcc.Graph(figure=fig_delta, config={'displayModeBar': False})
+            ], style={'marginBottom': '20px', 'padding': '15px', 'backgroundColor': '#fff', 'borderRadius': '8px', 'boxShadow': '0 2px 4px rgba(0,0,0,0.05)'}))
+        
+        return children, {'display': 'block', 'marginTop': '30px', 'paddingTop': '30px', 'borderTop': '1px solid #dee2e6'}
+        
+    except Exception as e:
+        print(f"Error in ablation view: {e}")
+        import traceback
+        traceback.print_exc()
+        return html.Div(f"Error loading visualization: {str(e)}"), {'display': 'block'}
 
 
 if __name__ == '__main__':
