@@ -691,6 +691,15 @@ details[open] .layer-summary::before {
     background-color: #e9ecef;
 }
 
+/* Hide native details marker to prevent double arrow */
+.transformer-layers-summary::-webkit-details-marker {
+    display: none;
+}
+
+.transformer-layers-summary::marker {
+    display: none;
+}
+
 .transformer-layers-summary::before {
     content: '▶';
     display: inline-block;
@@ -779,4 +788,68 @@ details[open].transformer-layers-container .transformer-layers-summary::before {
         opacity: 1;
         transform: translateY(0);
     }
+}
+
+/* Heatmap visualization styles */
+.heatmap-visualization {
+    margin-top: 1rem;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+#heatmap-graph {
+    width: 100%;
+}
+
+/* Heatmap toggle buttons */
+.heatmap-toggle-btn {
+    transition: all 0.2s ease;
+}
+
+.heatmap-toggle-btn:hover {
+    filter: brightness(0.95);
+}
+
+/* Heatmap modal styles */
+#heatmap-modal-overlay {
+    animation: fadeIn 0.2s ease-out;
+}
+
+#heatmap-modal-inner {
+    animation: slideIn 0.2s ease-out;
+}
+
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateY(-20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+#heatmap-modal-close:hover {
+    color: #333;
+    transform: scale(1.1);
+}
+
+/* Modal content scrollbar styling */
+#heatmap-modal-content::-webkit-scrollbar {
+    width: 8px;
+}
+
+#heatmap-modal-content::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 4px;
+}
+
+#heatmap-modal-content::-webkit-scrollbar-thumb {
+    background: #c1c1c1;
+    border-radius: 4px;
+}
+
+#heatmap-modal-content::-webkit-scrollbar-thumb:hover {
+    background: #a1a1a1;
 }

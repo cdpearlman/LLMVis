@@ -1128,6 +1128,123 @@ def _get_top_attended_tokens(activation_data: Dict[str, Any], layer_num: int, to
         return None
 
 
+def compute_position_layer_matrix(activation_data: Dict[str, Any], model, tokenizer) -> Dict[str, Any]:
+    """
+    Compute a 2D matrix of layer-to-layer deltas for each token position.
+    
+    This function computes the top-token probability delta at each (layer, position) pair,
+    creating a heatmap-ready data structure.
+    
+    Args:
+        activation_data: Activation data from forward pass
+        model: Transformer model for logit lens computation
+        tokenizer: Tokenizer for decoding tokens
+        
+    Returns:
+        Dict with:
+            - 'matrix': 2D list [num_layers, seq_len] of delta values
+            - 'tokens': List of token strings for X-axis labels
+            - 'layer_nums': List of layer numbers for Y-axis labels
+            - 'top_tokens': 2D list [num_layers, seq_len] of top token strings at each cell
+    """
+    import copy
+    import numpy as np
+    
+    input_ids = activation_data.get('input_ids', [[]])
+    if not input_ids or not input_ids[0]:
+        return {'matrix': [], 'tokens': [], 'layer_nums': [], 'top_tokens': []}
+    
+    seq_len = len(input_ids[0])
+    
+    # Get token strings for X-axis labels
+    tokens = [tokenizer.decode([tid]) for tid in input_ids[0]]
+    
+    # Get layer modules and sort by layer number
+    layer_modules = activation_data.get('block_modules', [])
+    if not layer_modules:
+        return {'matrix': [], 'tokens': tokens, 'layer_nums': [], 'top_tokens': []}
+    
+    layer_info = sorted(
+        [(int(re.findall(r'\d+', name)[0]), name) 
+         for name in layer_modules if re.findall(r'\d+', name)]
+    )
+    layer_nums = [ln for ln, _ in layer_info]
+    num_layers = len(layer_nums)
+    
+    # Helper function to slice data to a specific position (adapted from app.py)
+    def slice_data(data, pos):
+        if not data:
+            return data
+        sliced = copy.deepcopy(data)
+        
+        # Slice Block Outputs: [batch, seq, hidden] -> [batch, 1, hidden]
+        if 'block_outputs' in sliced:
+            for mod in sliced['block_outputs']:
+                out = sliced['block_outputs'][mod]['output']
+                if isinstance(out, list) and len(out) > 0 and isinstance(out[0], list):
+                    if pos < len(out[0]):
+                        sliced['block_outputs'][mod]['output'] = [[out[0][pos]]]
+        
+        # Slice Attention Outputs: [batch, heads, seq, seq] -> [batch, heads, 1, seq]
+        if 'attention_outputs' in sliced:
+            for mod in sliced['attention_outputs']:
+                out = sliced['attention_outputs'][mod]['output']
+                if len(out) > 1:
+                    attns = out[1]
+                    if isinstance(attns, list) and len(attns) > 0:
+                        batch_0 = attns[0]
+                        new_batch_0 = []
+                        for head in batch_0:
+                            if pos < len(head):
+                                new_batch_0.append([head[pos]])
+                        sliced['attention_outputs'][mod]['output'] = [out[0], [new_batch_0]] + out[2:]
+        
+        # Slice input_ids
+        if 'input_ids' in sliced:
+            ids = sliced['input_ids'][0]
+            if pos < len(ids):
+                sliced['input_ids'][0] = ids[:pos+1]
+        
+        return sliced
+    
+    # Initialize matrix and top_tokens 2D array
+    matrix = [[0.0] * seq_len for _ in range(num_layers)]
+    top_tokens_matrix = [[''] * seq_len for _ in range(num_layers)]
+    
+    # Compute delta for each position
+    for pos in range(seq_len):
+        sliced = slice_data(activation_data, pos)
+        layer_data = extract_layer_data(sliced, model, tokenizer)
+        
+        if not layer_data:
+            continue
+        
+        # Fill in matrix for this position
+        for layer_info_item in layer_data:
+            layer_num = layer_info_item.get('layer_num')
+            if layer_num is None or layer_num not in layer_nums:
+                continue
+            
+            layer_idx = layer_nums.index(layer_num)
+            
+            # Get top token and its delta (layer-to-layer change)
+            top_token = layer_info_item.get('top_token', '')
+            deltas = layer_info_item.get('deltas', {})
+            
+            # The delta for the top token represents how much it changed from prev layer
+            delta = deltas.get(top_token, 0.0) if top_token else 0.0
+            
+            matrix[layer_idx][pos] = delta
+            top_tokens_matrix[layer_idx][pos] = top_token if top_token else ''
+    
+    return {
+        'matrix': matrix,
+        'tokens': tokens,
+        'layer_nums': layer_nums,
+        'top_tokens': top_tokens_matrix
+    }
+
+
 def compute_layer_wise_summaries(layer_data: List[Dict[str, Any]], activation_data: Dict[str, Any]) -> Dict[str, Any]:
     """
     Compute summary structures from layer data for easy access.

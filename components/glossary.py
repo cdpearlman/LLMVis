@@ -48,7 +48,7 @@ def create_glossary_modal():
                     "Exploring Multiple Paths",
                     "Instead of just picking the single best next word, Beam Search explores several likely future paths simultaneously (like parallel universes) and picks the one that makes the most sense overall."
                 )
-            ], className="glossary-content", style={'maxHeight': '60vh', 'overflowY': 'auto', 'paddingRight': '10px'})
+            ], className="glossary-content", style={'maxHeight': '60vh', 'overflowY': 'auto', 'padding': '0 20px 10px 10px'})
             
         ], id='glossary-modal-content', className="modal-content", style={
             'backgroundColor': 'white',

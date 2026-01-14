@@ -71,7 +71,7 @@ def create_tokenization_panel():
                   style={'color': '#6c757d', 'fontSize': '14px', 'marginBottom': '1.5rem'})
         ]),
         
-        # Static example diagram
+        # Static example diagram (always visible)
         create_static_tokenization_diagram(),
         
         # Dynamic tokenization display container (populated by callback)
@@ -98,45 +98,83 @@ def create_tokenization_display(tokens_list, token_ids_list, color_palette=None)
         # Generate distinct colors for each token
         color_palette = generate_token_colors(len(tokens_list))
     
-    return html.Div([
-        html.H4("Your Prompt's Tokenization:", 
-               style={'marginTop': '1.5rem', 'marginBottom': '1rem', 
-                      'color': '#495057', 'fontSize': '16px'}),
+    preview_token = tokens_list[0] if tokens_list else ""
+    preview_id = token_ids_list[0] if token_ids_list else ""
+    preview_color = color_palette[0] if color_palette else '#f8f9fa'
+    
+    return html.Details([
+        html.Summary(
+            html.Div([
+                html.Span("Tokenization preview:", style={'color': '#6c757d', 'fontSize': '13px'}),
+                html.Span(preview_token, style={
+                    'padding': '4px 8px',
+                    'backgroundColor': preview_color,
+                    'borderRadius': '4px',
+                    'fontFamily': 'monospace',
+                    'fontSize': '12px'
+                }),
+                html.Span('→', style={'color': '#6c757d'}),
+                html.Span(str(preview_id), style={
+                    'padding': '4px 8px',
+                    'backgroundColor': '#ffe5d4',
+                    'borderRadius': '4px',
+                    'fontFamily': 'monospace',
+                    'fontSize': '12px'
+                }),
+                html.Span('→', style={'color': '#6c757d'}),
+                html.Span('[ ... ]', style={
+                    'padding': '4px 8px',
+                    'backgroundColor': '#e5d4ff',
+                    'borderRadius': '4px',
+                    'fontFamily': 'monospace',
+                    'fontSize': '12px'
+                }),
+                html.Span('...', style={'color': '#6c757d'}),
+                html.Span("Expand", style={'marginLeft': 'auto', 'color': '#667eea', 'fontWeight': '500'})
+            ], style={'display': 'flex', 'alignItems': 'center', 'gap': '8px', 'flexWrap': 'wrap'})
+        ),
         
-        # Three-column grid
         html.Div([
-            # Column 1: Tokens
-            html.Div([
-                html.H5("Tokens", style={'marginBottom': '1rem', 'color': '#495057'}),
-                html.Div([
-                    create_token_box(token, color, idx, 'token')
-                    for idx, (token, color) in enumerate(zip(tokens_list, color_palette))
-                ], className='token-column')
-            ], className='tokenization-col', style={'flex': '1'}),
+            html.H4("Full Tokenization:", 
+                   style={'marginTop': '1.5rem', 'marginBottom': '1rem', 
+                          'color': '#495057', 'fontSize': '16px'}),
             
-            # Column 2: Token IDs
+            # Three-column grid
             html.Div([
-                html.H5("Token IDs", style={'marginBottom': '1rem', 'color': '#495057'}),
+                # Column 1: Tokens
                 html.Div([
-                    create_token_box(str(token_id), color, idx, 'id')
-                    for idx, (token_id, color) in enumerate(zip(token_ids_list, color_palette))
-                ], className='token-column')
-            ], className='tokenization-col', style={'flex': '1'}),
-            
-            # Column 3: Embeddings
-            html.Div([
-                html.H5("Embeddings", style={'marginBottom': '1rem', 'color': '#495057'}),
+                    html.H5("Tokens", style={'marginBottom': '1rem', 'color': '#495057'}),
+                    html.Div([
+                        create_token_box(token, color, idx, 'token')
+                        for idx, (token, color) in enumerate(zip(tokens_list, color_palette))
+                    ], className='token-column')
+                ], className='tokenization-col', style={'flex': '1'}),
+                
+                # Column 2: Token IDs
                 html.Div([
-                    create_token_box("[ ... ]", color, idx, 'embedding')
-                    for idx, color in enumerate(color_palette)
-                ], className='token-column')
-            ], className='tokenization-col', style={'flex': '1'})
+                    html.H5("Token IDs", style={'marginBottom': '1rem', 'color': '#495057'}),
+                    html.Div([
+                        create_token_box(str(token_id), color, idx, 'id')
+                        for idx, (token_id, color) in enumerate(zip(token_ids_list, color_palette))
+                    ], className='token-column')
+                ], className='tokenization-col', style={'flex': '1'}),
+                
+                # Column 3: Embeddings
+                html.Div([
+                    html.H5("Embeddings", style={'marginBottom': '1rem', 'color': '#495057'}),
+                    html.Div([
+                        create_token_box("[ ... ]", color, idx, 'embedding')
+                        for idx, color in enumerate(color_palette)
+                    ], className='token-column')
+                ], className='tokenization-col', style={'flex': '1'})
+                
+            ], className='tokenization-grid', 
+               style={'display': 'flex', 'gap': '2rem', 'alignItems': 'flex-start'})
             
-        ], className='tokenization-grid', 
-           style={'display': 'flex', 'gap': '2rem', 'alignItems': 'flex-start'})
+        ], style={'padding': '1rem', 'backgroundColor': '#ffffff', 
+                  'borderRadius': '8px', 'border': '1px solid #dee2e6'})
         
-    ], style={'marginTop': '1rem', 'padding': '1rem', 'backgroundColor': '#ffffff', 
-              'borderRadius': '8px', 'border': '1px solid #dee2e6'})
+    ], open=False, style={'marginTop': '1rem'})
 
 
 def create_token_box(content, color, idx, box_type):

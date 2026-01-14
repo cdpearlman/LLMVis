@@ -77,40 +77,102 @@ def create_main_panel():
             html.Div([
                 html.H3("Sequence Analyzer", className="section-title"),
                 
-                # Scrubber
-                html.Div([
-                    html.Label("Sequence Scrubber (Step):", className="input-label"),
-                    html.P("Drag to see how the model processed each step of the sequence.", style={'fontSize': '12px', 'color': '#6c757d'}),
-                    dcc.Slider(
-                        id='sequence-scrubber',
-                        min=0, max=0, step=1, value=0,
-                        marks={0: 'Start'},
-                        tooltip={"placement": "bottom", "always_visible": True},
-                        disabled=True
-                    )
-                ], id="scrubber-container", style={'marginBottom': '30px', 'padding': '15px', 'backgroundColor': '#e3f2fd', 'borderRadius': '8px'}),
-                
-                # Tokenization Panel
+                # Tokenization Panel (moved above heatmap)
                 create_tokenization_panel(),
                 
-                # Layer Visualizations
+                # Layer Visualizations - Heatmap
                 html.Div([
                     html.H3("Layer-by-Layer Predictions", className="section-title"),
+                    
+                    # Mode toggle buttons (comparison/ablation)
+                    html.Div([
+                        # Comparison mode toggle
+                        html.Div([
+                            html.Button("Prompt 1", id='heatmap-prompt1-btn', n_clicks=0,
+                                       className='heatmap-toggle-btn active',
+                                       style={'padding': '6px 16px', 'marginRight': '4px', 'border': '1px solid #667eea',
+                                              'borderRadius': '4px 0 0 4px', 'backgroundColor': '#667eea', 'color': 'white',
+                                              'cursor': 'pointer', 'fontSize': '13px'}),
+                            html.Button("Prompt 2", id='heatmap-prompt2-btn', n_clicks=0,
+                                       className='heatmap-toggle-btn',
+                                       style={'padding': '6px 16px', 'border': '1px solid #667eea',
+                                              'borderRadius': '0 4px 4px 0', 'backgroundColor': 'white', 'color': '#667eea',
+                                              'cursor': 'pointer', 'fontSize': '13px'})
+                        ], id='comparison-toggle-container', style={'display': 'none', 'marginRight': '20px'}),
+                        
+                        # Ablation mode toggle
+                        html.Div([
+                            html.Button("Original", id='heatmap-original-btn', n_clicks=0,
+                                       className='heatmap-toggle-btn active',
+                                       style={'padding': '6px 16px', 'marginRight': '4px', 'border': '1px solid #28a745',
+                                              'borderRadius': '4px 0 0 4px', 'backgroundColor': '#28a745', 'color': 'white',
+                                              'cursor': 'pointer', 'fontSize': '13px'}),
+                            html.Button("Ablated", id='heatmap-ablated-btn', n_clicks=0,
+                                       className='heatmap-toggle-btn',
+                                       style={'padding': '6px 16px', 'border': '1px solid #28a745',
+                                              'borderRadius': '0 4px 4px 0', 'backgroundColor': 'white', 'color': '#28a745',
+                                              'cursor': 'pointer', 'fontSize': '13px'})
+                        ], id='ablation-toggle-container', style={'display': 'none'})
+                    ], id='heatmap-toggles', style={'display': 'flex', 'marginBottom': '15px'}),
+                    
+                    # Store for active heatmap mode
+                    dcc.Store(id='heatmap-mode-store', data={'comparison': 'prompt1', 'ablation': 'original'}),
+                    
+                    # Heatmap container
                     dcc.Loading(
-                        id="layer-accordions-loading",
+                        id="heatmap-loading",
                         type="default",
-                        children=html.Div(id='layer-accordions-container', className="layer-accordions"),
-                        overlay_style={"visibility":"visible", "opacity": .7, "backgroundColor": "white"},
+                        children=html.Div(id='heatmap-container', className="heatmap-visualization"),
+                        overlay_style={"visibility": "visible", "opacity": .7, "backgroundColor": "white"},
                         custom_spinner=html.Div([
                             html.I(className="fas fa-spinner fa-spin", style={'fontSize': '24px', 'color': '#667eea', 'marginRight': '10px'}),
-                            html.Span("Loading visuals...", style={'fontSize': '16px', 'color': '#495057'})
+                            html.Span("Loading heatmap...", style={'fontSize': '16px', 'color': '#495057'})
                         ], style={'display': 'flex', 'alignItems': 'center', 'justifyContent': 'center', 'padding': '2rem'})
                     ),
                     
-                    # Sequence Ablation Results (New)
+                    # Sequence Ablation Results
                     html.Div(id='sequence-ablation-results-container', style={'marginTop': '30px', 'display': 'none'})
                 ], className="visualization-section")
             ])
-        ], id="analysis-view-container", style={'display': 'none'}) # Hidden by default
+        ], id="analysis-view-container", style={'display': 'none'}),
+        
+        # Modal for layer details (click on heatmap cell)
+        html.Div([
+            html.Div([
+                # Modal header
+                html.Div([
+                    html.H4(id='heatmap-modal-title', style={'margin': '0', 'color': '#495057'}),
+                    html.Button('×', id='heatmap-modal-close', n_clicks=0,
+                               style={'position': 'absolute', 'right': '15px', 'top': '15px',
+                                      'background': 'none', 'border': 'none', 'fontSize': '28px',
+                                      'cursor': 'pointer', 'color': '#6c757d', 'lineHeight': '1'})
+                ], style={'position': 'relative', 'borderBottom': '1px solid #e9ecef', 
+                         'paddingBottom': '15px', 'marginBottom': '15px'}),
+                
+                # Modal content container (populated by callback)
+                html.Div(id='heatmap-modal-content', style={'maxHeight': '70vh', 'overflowY': 'auto'})
+                
+            ], id='heatmap-modal-inner', style={
+                'backgroundColor': 'white',
+                'padding': '25px',
+                'borderRadius': '12px',
+                'maxWidth': '900px',
+                'width': '90%',
+                'maxHeight': '85vh',
+                'boxShadow': '0 10px 40px rgba(0,0,0,0.2)',
+                'position': 'relative'
+            })
+        ], id='heatmap-modal-overlay', style={
+            'position': 'fixed',
+            'top': '0',
+            'left': '0',
+            'width': '100%',
+            'height': '100%',
+            'backgroundColor': 'rgba(0,0,0,0.5)',
+            'zIndex': '1000',
+            'display': 'none',
+            'alignItems': 'center',
+            'justifyContent': 'center'
+        })
         
     ], className="main-panel-content")

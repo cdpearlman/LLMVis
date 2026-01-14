@@ -12,7 +12,8 @@ import torch
 from utils import (load_model_and_get_patterns, execute_forward_pass, extract_layer_data,
                    categorize_single_layer_heads, format_categorization_summary,
                    compute_layer_wise_summaries, perform_beam_search, compute_sequence_trajectory,
-                   execute_forward_pass_with_head_ablation, evaluate_sequence_ablation, score_sequence)
+                   execute_forward_pass_with_head_ablation, evaluate_sequence_ablation, score_sequence,
+                   compute_position_layer_matrix)
 from utils.model_config import get_auto_selections, get_model_family
 
 # Import modular components
@@ -510,11 +511,7 @@ def enable_run_button(model, prompt, block_modules, norm_params):
     [Output('generation-results-container', 'children', allow_duplicate=True),
      Output('generation-results-store', 'data', allow_duplicate=True),
      Output('analysis-view-container', 'style', allow_duplicate=True),
-     Output('session-activation-store', 'data', allow_duplicate=True),
-     Output('sequence-scrubber', 'max'),
-     Output('sequence-scrubber', 'marks'),
-     Output('sequence-scrubber', 'value'),
-     Output('sequence-scrubber', 'disabled')],
+     Output('session-activation-store', 'data', allow_duplicate=True)],
     [Input('generate-btn', 'n_clicks')],
     [State('model-dropdown', 'value'),
      State('prompt-input', 'value'),
@@ -528,7 +525,7 @@ def enable_run_button(model, prompt, block_modules, norm_params):
 )
 def run_generation(n_clicks, model_name, prompt, max_new_tokens, beam_width, patterns_data, attn_patterns, block_patterns, norm_patterns):
     if not n_clicks or not model_name or not prompt:
-        return no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update
+        return no_update, no_update, no_update, no_update
 
     try:
         from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -563,7 +560,7 @@ def run_generation(n_clicks, model_name, prompt, max_new_tokens, beam_width, pat
                 ], style={'marginBottom': '15px', 'padding': '15px', 'backgroundColor': '#f8f9fa', 'borderRadius': '6px', 'border': '1px solid #e9ecef'}))
             
             # Return just the list, hide analyzer
-            return results_ui, results, {'display': 'none'}, {}, 0, {}, 0, True
+            return results_ui, results, {'display': 'none'}, {}
             
         else:
             # Single token case: Run analysis immediately
@@ -574,10 +571,6 @@ def run_generation(n_clicks, model_name, prompt, max_new_tokens, beam_width, pat
             module_patterns = patterns_data.get('module_patterns', {})
             param_patterns = patterns_data.get('param_patterns', {})
             
-            # If selections empty, use auto-selections or defaults
-            # (Simplification: assuming user selected something or auto-select happened)
-            # If not, we should probably warn, but for now let's rely on sidebar state
-            
             config = {
                 'attention_modules': [mod for pattern in (attn_patterns or []) for mod in module_patterns.get(pattern, [])],
                 'block_modules': [mod for pattern in (block_patterns or []) for mod in module_patterns.get(pattern, [])],
@@ -585,33 +578,22 @@ def run_generation(n_clicks, model_name, prompt, max_new_tokens, beam_width, pat
             }
             
             if not config['block_modules']:
-                 return html.Div("Please select modules in the sidebar first.", style={'color': 'red'}), results, {'display': 'none'}, {}, 0, {}, 0, True
+                 return html.Div("Please select modules in the sidebar first.", style={'color': 'red'}), results, {'display': 'none'}, {}
 
             # Run forward pass on the Generated Text
             activation_data = execute_forward_pass(model, tokenizer, text, config)
             
-            # Setup scrubber
-            input_ids = activation_data['input_ids'][0]
-            seq_len = len(input_ids)
-            # We want to scrub 0 to seq_len-1
-            # Marks: Show every 5th or something
-            marks = {i: str(i) for i in range(0, seq_len, max(1, seq_len//10))}
-            
-            return results_ui, results, {'display': 'block'}, activation_data, seq_len-1, marks, seq_len-1, False
+            return results_ui, results, {'display': 'block'}, activation_data
 
     except Exception as e:
         import traceback
         traceback.print_exc()
-        return html.Div(f"Error: {e}", style={'color': 'red'}), [], {'display': 'none'}, {}, 0, {}, 0, True
+        return html.Div(f"Error: {e}", style={'color': 'red'}), [], {'display': 'none'}, {}
 
 # Callback to Analyze a specific sequence from results list
 @app.callback(
     [Output('session-activation-store', 'data', allow_duplicate=True),
-     Output('analysis-view-container', 'style', allow_duplicate=True),
-     Output('sequence-scrubber', 'max', allow_duplicate=True),
-     Output('sequence-scrubber', 'marks', allow_duplicate=True),
-     Output('sequence-scrubber', 'value', allow_duplicate=True),
-     Output('sequence-scrubber', 'disabled', allow_duplicate=True)],
+     Output('analysis-view-container', 'style', allow_duplicate=True)],
     Input({'type': 'result-item', 'index': ALL}, 'n_clicks'),
     [State('generation-results-store', 'data'),
      State('model-dropdown', 'value'),
@@ -623,12 +605,12 @@ def run_generation(n_clicks, model_name, prompt, max_new_tokens, beam_width, pat
 )
 def analyze_selected_sequence(n_clicks_list, results_data, model_name, patterns_data, attn_patterns, block_patterns, norm_patterns):
     if not any(n_clicks_list) or not results_data:
-        return no_update
+        return no_update, no_update
     
     # Find which button was clicked
     ctx = dash.callback_context
     if not ctx.triggered:
-        return no_update
+        return no_update, no_update
         
     triggered_id = json.loads(ctx.triggered[0]['prop_id'].split('.')[0])
     index = triggered_id['index']
@@ -654,41 +636,40 @@ def analyze_selected_sequence(n_clicks_list, results_data, model_name, patterns_
         }
         
         if not config['block_modules']:
-             return no_update # Or show error
+             return no_update, no_update
              
         # Run forward pass
         activation_data = execute_forward_pass(model, tokenizer, text, config)
         
-        # Setup scrubber
-        input_ids = activation_data['input_ids'][0]
-        seq_len = len(input_ids)
-        marks = {i: str(i) for i in range(0, seq_len, max(1, seq_len//10))}
-        
-        return activation_data, {'display': 'block'}, seq_len-1, marks, seq_len-1, False
+        return activation_data, {'display': 'block'}
         
     except Exception as e:
         import traceback
         traceback.print_exc()
-        return no_update
+        return no_update, no_update
 
-# Update create_layer_accordions to handle scrubber
-# Replaces previous implementation
+# Render heatmap visualization (replaces accordion view)
 @app.callback(
-    Output('layer-accordions-container', 'children'),
+    [Output('heatmap-container', 'children'),
+     Output('comparison-toggle-container', 'style'),
+     Output('ablation-toggle-container', 'style')],
     [Input('session-activation-store', 'data'),
      Input('session-activation-store-2', 'data'),
      Input('session-activation-store-original', 'data'),
-     Input('sequence-scrubber', 'value')],
+     Input('heatmap-mode-store', 'data')],
     [State('model-dropdown', 'value')]
 )
-def create_layer_accordions(activation_data, activation_data2, original_activation_data, scrubber_val, model_name):
-    """Create accordion panels for each layer with top-5 bar charts and deltas."""
-    if not activation_data or not model_name:
-        return html.P("Run analysis to see layer-by-layer predictions.", className="placeholder-text")
+def render_heatmap(activation_data, activation_data2, original_activation_data, mode_data, model_name):
+    """Render Position x Layer heatmap visualization."""
+    hide_style = {'display': 'none'}
+    show_style = {'display': 'flex', 'marginRight': '20px'}
     
-    # Safety check for invalid data structure (e.g. from storage quota errors)
+    if not activation_data or not model_name:
+        return html.P("Run analysis to see layer-by-layer predictions.", className="placeholder-text"), hide_style, hide_style
+    
+    # Safety check for invalid data structure
     if isinstance(activation_data, list):
-        return html.P("Error: Invalid activation data format. Please refresh the page.", className="placeholder-text", style={'color': 'red'})
+        return html.P("Error: Invalid activation data format. Please refresh the page.", className="placeholder-text", style={'color': 'red'}), hide_style, hide_style
     
     if isinstance(activation_data2, list):
         activation_data2 = None
@@ -699,788 +680,242 @@ def create_layer_accordions(activation_data, activation_data2, original_activati
     try:
         from transformers import AutoModelForCausalLM, AutoTokenizer
         import plotly.graph_objs as go
-        import copy
         
         model = AutoModelForCausalLM.from_pretrained(model_name, attn_implementation='eager')
         tokenizer = AutoTokenizer.from_pretrained(model_name)
         
-        # SLICING LOGIC
-        # We need to slice activation_data to represent the state at step `scrubber_val`
-        # `scrubber_val` corresponds to the position index.
-        # We want to see:
-        # 1. Predictions from that position (based on block_output[pos])
-        # 2. Attention *from* that position (attending to 0..pos)
+        # Determine which data to visualize based on mode
+        comparison_mode = mode_data.get('comparison', 'prompt1') if mode_data else 'prompt1'
+        ablation_mode = mode_data.get('ablation', 'original') if mode_data else 'original'
         
-        def slice_data(data, pos):
-            if not data: return data
-            sliced = copy.deepcopy(data)
-            
-            # Slice Block Outputs: [batch, seq, hidden] -> [batch, 1, hidden]
-            if 'block_outputs' in sliced:
-                for mod in sliced['block_outputs']:
-                    # output is [1, seq, hidden] list/tensor
-                    out = sliced['block_outputs'][mod]['output']
-                    # Assuming batch=1, out[0] is [seq, hidden]
-                    # Or out is [1, seq, hidden]
-                    # safe_to_serializable converts tensors to lists
-                    # Check structure
-                    if isinstance(out, list):
-                        # Assuming batch 0
-                        if len(out) > 0 and isinstance(out[0], list):
-                             # out[0] is seq_len list
-                             if pos < len(out[0]):
-                                 # Keep structure [1, 1, hidden]
-                                 sliced['block_outputs'][mod]['output'] = [[out[0][pos]]]
-            
-            # Slice Attention Outputs: [batch, heads, seq, seq] -> [batch, heads, 1, seq]
-            # Wait, standard analysis expects full attention matrix for some viz?
-            # extract_layer_data calls `_get_top_attended_tokens`.
-            # It takes `attention_weights[0].mean(dim=0)` which is [seq, seq].
-            # Then `last_pos_attention = avg_attention[-1, :]`.
-            # So if we slice the query dimension to `pos`, we get [batch, heads, 1, seq].
-            # Then `_get_top_attended_tokens` should handle it if it just looks at the last pos.
-            # But the 'key' dimension (last dim) must go up to `pos` (causal masking).
-            # The full matrix already has causal masking (upper tri is -inf/0).
-            # So if we take the row `pos`, it attends to `0..pos`.
-            
-            if 'attention_outputs' in sliced:
-                for mod in sliced['attention_outputs']:
-                    out = sliced['attention_outputs'][mod]['output']
-                    # out is (hidden_states, attentions, ...)
-                    # attentions is out[1]
-                    if len(out) > 1:
-                        attns = out[1] # [batch, heads, seq, seq]
-                        if isinstance(attns, list):
-                            # slice query dim (2nd to last) to just [pos]
-                            # Structure: batch -> heads -> seq(query) -> seq(key)
-                            # We want batch[0] -> all heads -> row[pos] -> all keys
-                            
-                            # Deep copy needed? Yes, done above.
-                            batch_0 = attns[0] # heads list
-                            new_batch_0 = []
-                            for head in batch_0:
-                                # head is [seq, seq]
-                                if pos < len(head):
-                                    # Keep row `pos`, but only cols `0..pos+1`?
-                                    # Actually, let's keep all keys for simplicity, usually masked anyway.
-                                    # But `extract_layer_data` logic might depend on shape.
-                                    # Let's keep it simple: if we slice block outputs, `extract_layer_data`
-                                    # uses block outputs for predictions.
-                                    # For attention, `_get_top_attended_tokens` looks at `-1` (last pos).
-                                    # If we slice attention matrix to be [1, seq], then -1 is 0.
-                                    # So we should make the attention matrix [1, seq] (query len 1).
-                                    new_row = [head[pos]] # [1, seq]
-                                    new_batch_0.append(new_row)
-                            sliced['attention_outputs'][mod]['output'] = [out[0], [new_batch_0]] + out[2:]
-
-            # Slice input_ids: [1, seq] -> [1, seq (up to pos+1??)]
-            # Actually, `_get_top_attended_tokens` maps indices to tokens.
-            # If attention row `pos` has weights for indices `0..pos`, we need input_ids to cover `0..pos`.
-            # So input_ids should NOT be sliced to 1, but truncated to `pos+1`.
-            if 'input_ids' in sliced:
-                ids = sliced['input_ids'][0]
-                if pos < len(ids):
-                    sliced['input_ids'][0] = ids[:pos+1]
-            
-            # Also actual output needs to be updated? 
-            # `actual_output` in `activation_data` is the FINAL token of the WHOLE sequence.
-            # For the scrubber, we might want the actual next token at this step?
-            # We can't easily get it without re-running or having stored it.
-            # `execute_forward_pass` computes `actual_output` from the final logits.
-            # We don't have logits for every step stored (unless we add them).
-            # But we can perhaps infer it from `input_ids[pos+1]` if it exists.
-            if 'input_ids' in data:
-                ids = data['input_ids'][0]
-                if pos + 1 < len(ids):
-                    # The "actual" next token is the next one in the sequence
-                    next_id = ids[pos+1]
-                    next_token = tokenizer.decode([next_id])
-                    sliced['actual_output'] = {'token': next_token, 'probability': 1.0} # Fake prob
-                else:
-                    sliced['actual_output'] = None
-
-            return sliced
-
-        # Slice the data based on scrubber position
-        # Check if scrubber_val is valid
-        # If scrubber_val is None, use last
-        if scrubber_val is None:
-             # Default to last?
-             pass
+        # Show toggles based on available data
+        show_comparison_toggle = activation_data2 is not None
+        show_ablation_toggle = original_activation_data is not None and activation_data.get('ablated', False)
+        
+        # Select the appropriate activation data
+        if show_ablation_toggle and ablation_mode == 'original':
+            active_data = original_activation_data
+        elif show_comparison_toggle and comparison_mode == 'prompt2':
+            active_data = activation_data2
         else:
-             activation_data = slice_data(activation_data, scrubber_val)
-             if activation_data2:
-                 activation_data2 = slice_data(activation_data2, scrubber_val)
-             if original_activation_data:
-                 original_activation_data = slice_data(original_activation_data, scrubber_val)
-
-
-        # Check if we're in ablation mode
-        ablation_mode = activation_data.get('ablated', False) and original_activation_data
+            active_data = activation_data
         
-        # Extract layer data for current activation (may be ablated)
-        layer_data = extract_layer_data(activation_data, model, tokenizer)
+        # Compute the position-layer matrix
+        matrix_data = compute_position_layer_matrix(active_data, model, tokenizer)
         
-        if not layer_data:
-            return html.P("No layer data available.", className="placeholder-text")
+        if not matrix_data['matrix'] or not matrix_data['layer_nums']:
+            return html.P("No layer data available for heatmap.", className="placeholder-text"), hide_style, hide_style
         
-        # Compute layer-wise probability tracking
-        tracking_data = compute_layer_wise_summaries(layer_data, activation_data)
-        layer_wise_probs = tracking_data.get('layer_wise_top5_probs', {})
-        significant_layers = tracking_data.get('significant_layers', [])
-        # Get global top 5 tokens from activation data
-        global_top5 = activation_data.get('global_top5_tokens', [])
+        # Create heatmap
+        z_data = matrix_data['matrix']
+        tokens = matrix_data['tokens']
+        layer_nums = matrix_data['layer_nums']
+        top_tokens = matrix_data['top_tokens']
         
-        # Ensure global_top5 is list of dicts (handle legacy tuples/lists from old sessions)
-        if global_top5 and isinstance(global_top5[0], (list, tuple)):
-            global_top5 = [{'token': t, 'probability': p} for t, p in global_top5]
+        # Reverse layer order so L0 is at bottom
+        z_data_reversed = list(reversed(z_data))
+        layer_nums_reversed = list(reversed(layer_nums))
+        top_tokens_reversed = list(reversed(top_tokens))
         
-        # If in ablation mode, also extract original layer data
-        original_layer_data = None
-        original_layer_wise_probs = {}
-        original_significant_layers = []
-        original_global_top5 = []
+        # Create custom hover text
+        hover_text = []
+        for layer_idx, layer_row in enumerate(z_data_reversed):
+            hover_row = []
+            for pos_idx, delta in enumerate(layer_row):
+                token = tokens[pos_idx] if pos_idx < len(tokens) else ''
+                top_tok = top_tokens_reversed[layer_idx][pos_idx] if pos_idx < len(top_tokens_reversed[layer_idx]) else ''
+                hover_row.append(f"Token: {token}<br>Layer: L{layer_nums_reversed[layer_idx]}<br>Top: '{top_tok}'<br>Delta: {delta:.4f}")
+            hover_text.append(hover_row)
         
-        if ablation_mode:
-            original_layer_data = extract_layer_data(original_activation_data, model, tokenizer)
-            original_tracking_data = compute_layer_wise_summaries(original_layer_data, original_activation_data)
-            original_layer_wise_probs = original_tracking_data.get('layer_wise_top5_probs', {})
-            original_significant_layers = original_tracking_data.get('significant_layers', [])
-            original_global_top5 = original_activation_data.get('global_top5_tokens', [])
+        fig = go.Figure(data=go.Heatmap(
+            z=z_data_reversed,
+            x=[f"{i}: {t[:8]}..." if len(t) > 8 else f"{i}: {t}" for i, t in enumerate(tokens)],
+            y=[f"L{ln}" for ln in layer_nums_reversed],
+            colorscale='Blues',
+            hoverinfo='text',
+            text=hover_text,
+            colorbar=dict(title='Delta', titleside='right')
+        ))
         
-        # Check if second prompt exists and extract its layer data
-        layer_data2 = None
-        layer_wise_probs2 = {}
-        significant_layers2 = []
-        global_top5_2 = []
-        comparison_mode = activation_data2 and activation_data2.get('model') == model_name
+        fig.update_layout(
+            title='Position × Layer Heatmap (Click cell for details)',
+            xaxis_title='Token Position',
+            yaxis_title='Layer',
+            height=max(400, len(layer_nums) * 25 + 100),
+            margin=dict(l=60, r=20, t=50, b=80),
+            xaxis=dict(tickangle=-45, tickfont=dict(size=10)),
+            yaxis=dict(tickfont=dict(size=10))
+        )
         
-        if comparison_mode:
-            layer_data2 = extract_layer_data(activation_data2, model, tokenizer)
-            tracking_data2 = compute_layer_wise_summaries(layer_data2, activation_data2)
-            layer_wise_probs2 = tracking_data2.get('layer_wise_top5_probs', {})
-            significant_layers2 = tracking_data2.get('significant_layers', [])
-            global_top5_2 = activation_data2.get('global_top5_tokens', [])
-            
-            # Ensure global_top5_2 is list of dicts (handle legacy tuples)
-            if global_top5_2 and isinstance(global_top5_2[0], (list, tuple)):
-                global_top5_2 = [{'token': t, 'probability': p} for t, p in global_top5_2]
+        heatmap_graph = dcc.Graph(
+            id='heatmap-graph',
+            figure=fig,
+            config={'displayModeBar': True, 'scrollZoom': False}
+        )
         
-        # Create accordion panels (reversed to show final layer first)
-        accordions = []
-        for i, layer in enumerate(reversed(layer_data)):
-            layer_num = layer['layer_num']
-            top_token = layer.get('top_token', 'N/A')
-            top_prob = layer.get('top_prob', 0.0)
-            top_5 = layer.get('top_5_tokens', [])
-            deltas = layer.get('deltas', {})
-            
-            # Create summary header - different format for comparison mode
-            if comparison_mode and layer_data2:
-                # Find corresponding layer in second prompt
-                layer2 = next((l for l in layer_data2 if l['layer_num'] == layer_num), None)
-                if layer2:
-                    top_token2 = layer2.get('top_token', 'N/A')
-                    top_prob2 = layer2.get('top_prob', 0.0)
-                    
-                    if top_token and top_token2:
-                        summary_text = f"Layer L{layer_num}: '{top_token}' vs '{top_token2}'"
-                    elif top_token:
-                        summary_text = f"Layer L{layer_num}: '{top_token}' vs (no prediction)"
-                    elif top_token2:
-                        summary_text = f"Layer L{layer_num}: (no prediction) vs '{top_token2}'"
-                    else:
-                        summary_text = f"Layer L{layer_num}: (no prediction) vs (no prediction)"
-                else:
-                    summary_text = f"Layer L{layer_num}: '{top_token}' vs (no data)"
-            else:
-                # Single prompt mode
-                if top_token:
-                    summary_text = f"Layer L{layer_num}: '{top_token}' (p={top_prob:.3f})"
-                else:
-                    summary_text = f"Layer L{layer_num}: (no prediction)"
-            
-            # Create accordion panel content
-            content_items = []
-            
-            # Store delta chart for later (will be added after attention head categories)
-            if comparison_mode and layer_data2:
-                # Comparison mode: show grouped delta bars
-                layer2 = next((l for l in layer_data2 if l['layer_num'] == layer_num), None)
-                if layer2:
-                    delta_fig = _create_comparison_delta_chart(layer, layer2, layer_num, global_top5, global_top5_2)
-                else:
-                    delta_fig = _create_token_probability_delta_chart(layer, layer_num, global_top5)
-            else:
-                # Single prompt mode: show delta bars
-                delta_fig = _create_token_probability_delta_chart(layer, layer_num, global_top5)
-            
-            # Store button section for later (will be added after delta chart)
-            num_heads = model.config.num_attention_heads if hasattr(model.config, 'num_attention_heads') else 12
-            explore_button_section = html.Div([
-                # Button to toggle experiments section
-                html.Button(
-                    "Explore These Changes",
-                    id={'type': 'explore-button', 'layer': layer_num},
-                    n_clicks=0,
-                    style={
-                        'padding': '8px 16px',
-                        'backgroundColor': '#667eea',
-                        'color': 'white',
-                        'border': 'none',
-                        'borderRadius': '6px',
-                        'cursor': 'pointer',
-                        'fontSize': '13px',
-                        'fontWeight': '500',
-                        'transition': 'all 0.2s'
-                    }
-                ),
-                
-                # Collapsible experiments section (initially hidden)
-                html.Div([
-                    html.Hr(style={'margin': '15px 0'}),
-                    
-                    # Ablation experiment description
-                    html.Div([
-                        html.H6("Attention Head Ablation", style={'marginBottom': '8px', 'color': '#495057', 'fontSize': '14px'}),
-                        html.P(
-                            "Ablation experiments help us understand which attention heads are important by removing them and seeing what changes. "
-                            "When we 'ablate' a head, we zero out its contribution to the layer's output. "
-                            "If the model's predictions change a lot, that head was important. If they stay similar, that head wasn't doing much.",
-                            style={'fontSize': '12px', 'color': '#6c757d', 'lineHeight': '1.5', 'marginBottom': '10px'}
-                        ),
-                        html.Div([
-                            html.Strong("What we zero out: ", style={'color': '#495057', 'fontSize': '12px'}),
-                            html.Span(
-                                "Each attention head produces a set of values (one per token). We set all these values to zero, "
-                                "effectively removing that head's influence. The model then continues processing without that head's contribution.",
-                                style={'fontSize': '12px', 'color': '#6c757d'}
-                            )
-                        ], style={'padding': '10px', 'backgroundColor': '#f8f9fa', 'borderRadius': '4px', 'marginBottom': '15px', 'border': '1px solid #dee2e6'}),
-                        html.P(
-                            "Select one or more attention heads below, then click 'Run Ablation' to see the results.",
-                            style={'fontSize': '12px', 'color': '#6c757d', 'lineHeight': '1.5', 'marginBottom': '15px'}
-                        )
-                    ]),
-                    
-                    # Head selection interface
-                    html.Div([
-                        html.Label("Select heads to ablate:", style={'fontSize': '13px', 'fontWeight': '500', 'color': '#495057', 'marginBottom': '8px', 'display': 'block'}),
-                        html.Div([
-                            html.Button(
-                                f"Head {h}",
-                                id={'type': 'head-select-btn', 'layer': layer_num, 'head': h},
-                                n_clicks=0,
-                                style={
-                                    'padding': '6px 12px',
-                                    'margin': '4px',
-                                    'backgroundColor': '#f8f9fa',
-                                    'color': '#495057',
-                                    'border': '1px solid #dee2e6',
-                                    'borderRadius': '4px',
-                                    'cursor': 'pointer',
-                                    'fontSize': '12px',
-                                    'transition': 'all 0.2s'
-                                }
-                            ) for h in range(num_heads)
-                        ], style={'display': 'flex', 'flexWrap': 'wrap', 'marginBottom': '15px'}),
-                        
-                        # Run ablation button
-                        html.Button(
-                            "Run Ablation",
-                            id={'type': 'run-ablation-btn', 'layer': layer_num},
-                            n_clicks=0,
-                            disabled=True,
-                            style={
-                                'padding': '8px 16px',
-                                'backgroundColor': '#28a745',
-                                'color': 'white',
-                                'border': 'none',
-                                'borderRadius': '6px',
-                                'cursor': 'pointer',
-                                'fontSize': '13px',
-                                'fontWeight': '500',
-                                'transition': 'all 0.2s'
-                            }
-                        ),
-                        
-                        # Store for selected heads
-                        dcc.Store(id={'type': 'selected-heads-store', 'layer': layer_num}, data=[])
-                    ])
-                ], id={'type': 'experiments-section', 'layer': layer_num}, style={'display': 'none'})
-            ], style={'marginBottom': '15px'})
-            
-            # Add attention head categorization section
-            top_attended = layer.get('top_attended_tokens', [])
-            
-            # Always show attention section
-            content_items.append(html.Hr(style={'margin': '15px 0'}))
-            
-            if top_attended:
-                # Categorize attention heads for this layer
-                total_heads = 0
-                try:
-                    from utils import generate_category_bertviz_html
-                    
-                    categorized_heads = categorize_single_layer_heads(activation_data, layer_num)
-                    total_heads = sum(len(heads) for heads in categorized_heads.values())
-                    
-                    if total_heads > 0:
-                        # Display head categorization with explanation
-                        content_items.append(html.Div([
-                            html.H6("Attention Head Categories", style={'marginBottom': '4px', 'fontSize': '14px', 'color': '#495057', 'display': 'inline-block'}),
-                            html.Small([
-                                html.I(className="fas fa-info-circle", style={'marginLeft': '8px', 'marginRight': '4px', 'color': '#667eea'}),
-                                f"({total_heads} heads total)"
-                            ], style={'color': '#6c757d', 'fontSize': '11px'})
-                        ], style={'marginBottom': '8px'}))
-                        
-                        category_colors = {
-                            'previous_token': '#ff7979',
-                            'first_token': '#74b9ff',
-                            'bow': '#ffeaa7',
-                            'syntactic': '#a29bfe',
-                            'other': '#dfe6e9'
-                        }
-                        
-                        category_names = {
-                            'previous_token': 'Previous-Token',
-                            'first_token': 'First/Positional',
-                            'bow': 'Bag-of-Words',
-                            'syntactic': 'Syntactic',
-                            'other': 'Other'
-                        }
-                        
-                        # Category descriptions for tooltips
-                        category_descriptions = {
-                            'previous_token': "During training, these heads learned to mainly look at the word right before the current word. This helps the model understand word order and grammar - for example, learning that 'the' usually comes before a noun. The strong lines you see show the relationships this head learned.",
-                            'first_token': "These heads learned to pay a lot of attention to the first word in the sentence during training. This helps the model remember the overall topic or structure of the sentence. The visualization shows you which words this head learned to connect to the beginning of the sentence.",
-                            'bow': "These heads learned to look at many words in the sentence at once, without focusing on any particular one. This helps the model get the general meaning by combining information from across the whole sentence. You'll see many lines connecting different words, showing how this head learned to gather information broadly.",
-                            'syntactic': "During training, these heads learned to look for grammatical relationships between words, like connecting a verb to its subject. For example, in 'The dog runs,' they learned to connect 'dog' to 'runs.' The lines show you the grammatical patterns this head discovered.",
-                            'other': "These heads learned attention patterns that don't fit the other categories. They might have discovered special patterns unique to certain tasks or contexts. The visualization shows you what relationships they learned, even if they're not easily categorized."
-                        }
-                        
-                        # BertViz usage instructions (show once before categories)
-                        bertviz_instructions = html.Div([
-                            html.Small([
-                                html.I(className="fas fa-lightbulb", style={'marginRight': '6px', 'color': '#ffc107'}),
-                                html.Strong("How to read the visualizations: ", style={'color': '#495057'}),
-                                "The left side shows the words asking for attention (Query), and the right side shows the words being looked at (Key). "
-                                "Lines connect words that pay attention to each other - thicker lines mean stronger attention. "
-                                "Each color is a different attention head. Double-click a color to see just that head. "
-                                "Hover over words to see the exact attention strength. ",
-                                html.Br(),
-                                html.Strong("Understanding what you're seeing: ", style={'color': '#495057'}),
-                                "These attention patterns were learned during training - the model figured out how to pay attention to word meanings, sentence structure, and grammar on its own. "
-                                "Different attention heads learned different patterns (some focus on word order, others on grammar, etc.). "
-                                "A thicker line means that head learned a stronger relationship between those two words. "
-                                "If there's no line between two words, that specific attention head didn't learn to connect them."
-                            ], style={'fontSize': '11px', 'color': '#6c757d', 'lineHeight': '1.5', 'display': 'block', 'padding': '10px', 'backgroundColor': '#fff9e6', 'borderRadius': '4px', 'border': '1px solid #ffc107'})
-                        ], style={'marginBottom': '12px'})
-                        content_items.append(bertviz_instructions)
-                        
-                        # Create expandable category sections with BertViz visualizations
-                        for cat_key, display_name in category_names.items():
-                            heads = categorized_heads.get(cat_key, [])
-                            if heads:
-                                color = category_colors.get(cat_key, '#dfe6e9')
-                                description = category_descriptions.get(cat_key, '')
-                                
-                                # Generate BertViz visualization for this category
-                                bertviz_html = generate_category_bertviz_html(activation_data, heads)
-                                
-                                # Create collapsible category section with description
-                                category_section = html.Details([
-                                    html.Summary([
-                                        html.Span([
-                                            html.Strong(f"{display_name}: "),
-                                            f"{len(heads)} heads"
-                                        ], style={
-                                            'display': 'inline-block',
-                                            'padding': '4px 10px',
-                                            'backgroundColor': color,
-                                            'borderRadius': '4px',
-                                            'fontSize': '12px',
-                                            'fontWeight': '500',
-                                            'color': '#2d3748'
-                                        })
-                                    ], style={'cursor': 'pointer', 'padding': '4px 0'}),
-                                    html.Div([
-                                        # Category description
-                                        html.P(description, style={
-                                            'fontSize': '12px',
-                                            'color': '#6c757d',
-                                            'marginBottom': '10px',
-                                            'lineHeight': '1.5',
-                                            'fontStyle': 'italic'
-                                        }),
-                                        # BertViz visualization
-                                        html.Iframe(
-                                            srcDoc=bertviz_html,
-                                            style={
-                                                'width': '100%',
-                                                'height': '400px',
-                                                'border': '1px solid #ddd',
-                                                'borderRadius': '4px',
-                                                'marginTop': '10px'
-                                            }
-                                        )
-                                    ])
-                                ], style={'marginBottom': '8px'})
-                                
-                                content_items.append(category_section)
-                        
-                except Exception as e:
-                    print(f"Warning: Could not categorize heads for layer {layer_num}: {e}")
-                    import traceback
-                    traceback.print_exc()
-            
-            # Add delta chart after attention head categories
-            content_items.append(html.Hr(style={'margin': '15px 0'}))
-            
-            # If in ablation mode, show before/after comparison
-            if ablation_mode and original_layer_data:
-                # Find corresponding original layer
-                original_layer = next((l for l in original_layer_data if l['layer_num'] == layer_num), None)
-                
-                if original_layer:
-                    # Add explanatory note about ablation comparison
-                    content_items.append(html.Div([
-                        html.I(className="fas fa-info-circle", style={'marginRight': '8px', 'color': '#667eea'}),
-                        f"Comparing probabilities before and after ablating Layer {activation_data.get('ablated_layer')}, " +
-                        f"Heads {', '.join([f'H{h}' for h in sorted(activation_data.get('ablated_heads', []))])}"
-                    ], style={'fontSize': '12px', 'color': '#6c757d', 'marginBottom': '15px', 'padding': '10px', 
-                             'backgroundColor': '#f8f9fa', 'borderRadius': '6px', 'border': '1px solid #dee2e6'}))
-                    
-                    # Before Ablation Section
-                    content_items.append(html.Div([
-                        html.H6("Before Ablation", style={
-                            'marginBottom': '10px', 'color': '#495057', 'fontSize': '14px', 
-                            'fontWeight': '600', 'borderLeft': '4px solid #74b9ff', 'paddingLeft': '10px'
-                        }),
-                        dcc.Graph(
-                            figure=_create_token_probability_delta_chart(original_layer, layer_num, original_global_top5, '(Before Ablation)'),
-                            config={'displayModeBar': False},
-                            style={'marginBottom': '10px'}
-                        )
-                    ], style={'padding': '15px', 'backgroundColor': '#e3f2fd', 'borderRadius': '8px', 'marginBottom': '15px'}))
-                    
-                    # After Ablation Section  
-                    content_items.append(html.Div([
-                        html.H6("After Ablation", style={
-                            'marginBottom': '10px', 'color': '#495057', 'fontSize': '14px',
-                            'fontWeight': '600', 'borderLeft': '4px solid #ffb74d', 'paddingLeft': '10px'
-                        }),
-                        dcc.Graph(
-                            figure=_create_token_probability_delta_chart(layer, layer_num, global_top5, '(After Ablation)'),
-                            config={'displayModeBar': False},
-                            style={'marginBottom': '10px'}
-                        )
-                    ], style={'padding': '15px', 'backgroundColor': '#fff3e0', 'borderRadius': '8px', 'marginBottom': '15px'}))
-                else:
-                    # Fallback if original layer not found
-                    if delta_fig:
-                        content_items.append(
-                            dcc.Graph(
-                                figure=delta_fig,
-                                config={'displayModeBar': False},
-                                style={'marginBottom': '15px'}
-                            )
-                        )
-            else:
-                # Normal mode (not ablation): show single delta chart
-                if delta_fig:
-                    content_items.append(
-                        dcc.Graph(
-                            figure=delta_fig,
-                            config={'displayModeBar': False},
-                            style={'marginBottom': '15px'}
-                        )
-                    )
-                else:
-                    content_items.append(html.P("No probability changes available", style={'color': '#6c757d', 'fontSize': '13px'}))
-            
-            # Add "Explore These Changes" button after delta chart
-            content_items.append(explore_button_section)
-            
-            # Add CSS class for significant layers (yellow highlighting)
-            accordion_classes = "layer-accordion"
-            if layer_num in significant_layers or (comparison_mode and layer_num in significant_layers2):
-                accordion_classes += " significant-layer"
-            
-            panel = html.Details([
-                html.Summary(summary_text, className="layer-summary"),
-                html.Div(content_items, className="layer-content")
-            ], className=accordion_classes)
-            
-            accordions.append(panel)
+        # Return heatmap and toggle visibility
+        comparison_style = show_style if show_comparison_toggle else hide_style
+        ablation_style = show_style if show_ablation_toggle else hide_style
         
-        # Create line graph(s) for top 5 tokens across layers
-        line_graphs = []
-        
-        # If in ablation mode, show before/after comparison
-        if ablation_mode and original_layer_wise_probs and original_global_top5:
-            # Before Ablation Graph
-            fig_before = _create_top5_by_layer_graph(original_layer_wise_probs, original_significant_layers, original_global_top5)
-            if fig_before:
-                # Update title to indicate "Before Ablation"
-                fig_before.update_layout(title="Top 5 Token Probabilities Across Layers (Before Ablation)")
-                
-                # Build children for before ablation graph
-                before_children = [
-                    html.H5("Before Ablation", style={
-                        'marginBottom': '10px', 'color': '#495057', 'fontSize': '16px',
-                        'fontWeight': '600', 'borderLeft': '4px solid #74b9ff', 'paddingLeft': '10px'
-                    }),
-                    html.Div([
-                        html.I(className="fas fa-info-circle", 
-                              style={'marginRight': '8px', 'color': '#667eea'}),
-                        "This graph shows how the model's confidence in the final top 5 predictions evolves through each layer before ablation."
-                    ], style={'fontSize': '13px', 'color': '#6c757d', 'marginBottom': '10px', 'lineHeight': '1.5'}),
-                    dcc.Graph(figure=fig_before, config={'displayModeBar': False})
-                ]
-                
-                # Add actual output display
-                actual_output_display_before = _create_actual_output_display(original_activation_data)
-                if actual_output_display_before:
-                    before_children.append(actual_output_display_before)
-                
-                graph_container_before = html.Div(before_children, 
-                    style={'padding': '15px', 'backgroundColor': '#e3f2fd', 'borderRadius': '8px', 'marginBottom': '20px'})
-                
-                line_graphs.append(graph_container_before)
-            
-            # After Ablation Graph
-            if layer_wise_probs and global_top5:
-                fig_after = _create_top5_by_layer_graph(layer_wise_probs, significant_layers, global_top5)
-                if fig_after:
-                    # Update title to indicate "After Ablation"
-                    fig_after.update_layout(title="Top 5 Token Probabilities Across Layers (After Ablation)")
-                    
-                    ablated_layer = activation_data.get('ablated_layer')
-                    ablated_heads = activation_data.get('ablated_heads', [])
-                    heads_str = ', '.join([f'H{h}' for h in sorted(ablated_heads)])
-                    
-                    # Build children for after ablation graph
-                    after_children = [
-                        html.H5("After Ablation", style={
-                            'marginBottom': '10px', 'color': '#495057', 'fontSize': '16px',
-                            'fontWeight': '600', 'borderLeft': '4px solid #ffb74d', 'paddingLeft': '10px'
-                        }),
-                        html.Div([
-                            html.I(className="fas fa-info-circle", 
-                                  style={'marginRight': '8px', 'color': '#f57c00'}),
-                            f"This graph shows how probabilities changed after removing Layer {ablated_layer}, Heads {heads_str}. " +
-                            "Compare with the graph above to see the impact of the ablation."
-                        ], style={'fontSize': '13px', 'color': '#6c757d', 'marginBottom': '10px', 'lineHeight': '1.5'}),
-                        dcc.Graph(figure=fig_after, config={'displayModeBar': False})
-                    ]
-                    
-                    # Add actual output display
-                    actual_output_display_after = _create_actual_output_display(activation_data)
-                    if actual_output_display_after:
-                        after_children.append(actual_output_display_after)
-                    
-                    # Add merge note at the end
-                    after_children.append(
-                        html.Small("Note: Tokens with and without leading spaces (e.g., ' cat' and 'cat') are automatically merged.", 
-                                  style={'fontSize': '11px', 'color': '#6c757d', 'fontStyle': 'italic'})
-                    )
-                    
-                    graph_container_after = html.Div(after_children, 
-                        style={'padding': '15px', 'backgroundColor': '#fff3e0', 'borderRadius': '8px', 'marginBottom': '20px'})
-                    
-                    line_graphs.append(graph_container_after)
-        
-        # Normal mode (not ablation): show single line graph
-        elif layer_wise_probs and global_top5:
-            fig = _create_top5_by_layer_graph(layer_wise_probs, significant_layers, global_top5)
-            if fig:
-                tooltip_text = ("This graph shows how confident the model is in its top 5 predictions as it processes through each layer. "
-                               "Yellow highlights mark layers where the model's confidence in the actual output token doubled (100% or more increase). "
-                               "These are the layers where the model made important decisions. "
-                               "Click on the Transformer Layers section to see what each layer did.")
-                
-                merge_note = ("Note: Some tokens appear with a space before them (like ' cat') and some without (like 'cat'). "
-                             "We automatically combine these to make the graph easier to read.")
-                
-                # Create list of children for graph container
-                graph_children = [
-                    html.Div([
-                        html.I(className="fas fa-info-circle", 
-                              style={'marginRight': '8px', 'color': '#667eea'}),
-                        tooltip_text
-                    ], style={'fontSize': '13px', 'color': '#6c757d', 'marginBottom': '10px', 'lineHeight': '1.5'}),
-                    dcc.Graph(figure=fig, config={'displayModeBar': False})
-                ]
-                
-                # Add actual output display
-                actual_output_display = _create_actual_output_display(activation_data)
-                if actual_output_display:
-                    graph_children.append(actual_output_display)
-                
-                # Add merge note at the end
-                graph_children.append(
-                    html.Small(merge_note, 
-                              style={'fontSize': '11px', 'color': '#6c757d', 'fontStyle': 'italic'})
-                )
-                
-                graph_container = html.Div(graph_children, style={'marginBottom': '20px'})
-                
-                line_graphs.append(graph_container)
-        
-        # In comparison mode (two prompts), create a second graph or side-by-side display
-        if comparison_mode and layer_wise_probs2 and global_top5_2:
-            fig2 = _create_top5_by_layer_graph(layer_wise_probs2, significant_layers2, global_top5_2)
-            if fig2:
-                # Build children for second prompt graph
-                children2 = [
-                    html.H6("Prompt 2", style={'color': '#495057', 'marginBottom': '10px'}),
-                    dcc.Graph(figure=fig2, config={'displayModeBar': False})
-                ]
-                
-                # Add actual output display for second prompt
-                actual_output_display2 = _create_actual_output_display(activation_data2)
-                if actual_output_display2:
-                    children2.append(actual_output_display2)
-                
-                graph_container2 = html.Div(children2, style={'marginTop': '20px'})
-                line_graphs.append(graph_container2)
-        
-        # Create stacked visual representation for collapsed state
-        num_layers = len(layer_data)
-        stacked_layers = []
-        for i in range(min(5, num_layers)):  # Show first 5 layers as preview
-            stacked_layers.append(
-                html.Div(f"L{i}", className="stacked-layer-card")
-            )
-        if num_layers > 5:
-            stacked_layers.append(
-                html.Div("...", className="stacked-layer-card")
-            )
-        
-        # Create transformer layer flow diagram
-        transformer_diagram = html.Div([
-            # Input vector
-            html.Div([
-                html.Div("[ ... ]", className="flow-box", title="This layer receives the output from the previous layer. Each layer builds on what earlier layers learned, gradually understanding the text better."),
-                html.Div("Input", style={'fontSize': '11px', 'color': '#6c757d', 'textAlign': 'center'})
-            ], style={'display': 'inline-block', 'verticalAlign': 'middle'}),
-            
-            # Arrow to Self-Attention
-            html.Div("→", style={'display': 'inline-block', 'margin': '0 10px', 'fontSize': '20px', 'color': '#667eea'}),
-            
-            # Self-Attention box
-            html.Div([
-                html.Div("Self-Attention", className="flow-box attention-box", title="Self-attention lets each word 'look at' all other words in the sentence to understand context. For example, in 'The cat sat on it,' the word 'it' can look back at 'cat' to understand what 'it' refers to."),
-                html.Div("Attention", style={'fontSize': '11px', 'color': '#6c757d', 'textAlign': 'center'})
-            ], style={'display': 'inline-block', 'verticalAlign': 'middle'}),
-            
-            # Container for the split arrows showing green arrows going from Self-Attention
-            html.Div([
-                # Green arrow up to Feed-Forward
-                html.Div("↗", style={'fontSize': '20px', 'color': '#28a745', 'lineHeight': '1'}),
-                # Green arrow down to Residual (mirrored)
-                html.Div("↘", style={'fontSize': '20px', 'color': '#28a745', 'lineHeight': '1'})
-            ], style={'display': 'inline-block', 'verticalAlign': 'middle', 'margin': '0 5px'}),
-            
-            # Split into two paths (Feed-Forward on top, Residual on bottom)
-            html.Div([
-                # Feed-forward path (top)
-                html.Div([
-                    html.Div("F(x)", className="flow-box ffn-box", title="The feed-forward network processes the attention results. Think of it as a calculator that transforms the information to extract deeper meaning and patterns."),
-                    html.Div("Feed-Forward", style={'fontSize': '11px', 'color': '#6c757d', 'textAlign': 'center', 'marginTop': '2px'})
-                ], style={'marginBottom': '5px'}),
-                
-                # Residual connection path (bottom)
-                html.Div([
-                    html.Div("⤷", className="flow-box", style={'fontSize': '24px', 'color': '#28a745', 'transform': 'scaleX(2)'}, title="The residual connection is like a shortcut that adds the original input back to the output. This helps preserve important information and makes training more stable."),
-                    html.Div("Residual", style={'fontSize': '11px', 'color': '#6c757d', 'textAlign': 'center', 'marginTop': '2px'})
-                ])
-            ], style={'display': 'inline-block', 'verticalAlign': 'middle', 'textAlign': 'center'}),
-            
-            # Container for the merge arrows showing green arrows going to Output
-            html.Div([
-                # Green arrow from Feed-Forward down
-                html.Div("↘", style={'fontSize': '20px', 'color': '#28a745', 'lineHeight': '1'}),
-                # Green arrow from Residual up
-                html.Div("↗", style={'fontSize': '20px', 'color': '#28a745', 'lineHeight': '1'})
-            ], style={'display': 'inline-block', 'verticalAlign': 'middle', 'margin': '0 5px'}),
-            
-            # Output
-            html.Div([
-                html.Div("[ ... ]", className="flow-box", title="The layer's output shows how the model's predictions changed after processing through this layer."),
-                html.Div("Output", style={'fontSize': '11px', 'color': '#6c757d', 'textAlign': 'center'})
-            ], style={'display': 'inline-block', 'verticalAlign': 'middle'})
-        ], style={
-            'display': 'flex',
-            'alignItems': 'center',
-            'justifyContent': 'center',
-            'padding': '15px',
-            'backgroundColor': '#f8f9fa',
-            'borderRadius': '8px',
-            'flexWrap': 'wrap'
-        })
-        
-        # Create collapsible container for transformer layers
-        layers_container = html.Details([
-            html.Summary([
-                html.Div([
-                    html.Div([
-                        html.H4("Transformer Layers (Click to Expand)", 
-                               style={'margin': 0, 'color': '#495057'}),
-                        html.Div(stacked_layers, className="stacked-layers-visual")
-                    ], style={'display': 'flex', 'alignItems': 'center', 'gap': '20px'}),
-                    html.Div([
-                        html.H6("How This Layer Works", style={'marginBottom': '10px', 'color': '#495057', 'fontSize': '14px'}),
-                        transformer_diagram
-                    ], style={'width': '100%', 'marginTop': '15px'})
-                ], style={'display': 'flex', 'flexDirection': 'column', 'gap': '10px'})
-            ], className="transformer-layers-summary"),
-            html.Div([
-                html.Div(accordions, className="transformer-layers-content")
-            ])
-        ], className="transformer-layers-container", open=False)  # Start collapsed
-        
-        # Create full BertViz button section (below all layer accordions)
-        full_bertviz_section = html.Div([
-            html.Button(
-                [
-                    html.I(className="fas fa-eye", style={'marginRight': '8px'}),
-                    "View All Attention Heads Interactively (BertViz)"
-                ],
-                id='full-bertviz-btn',
-                n_clicks=0,
-                style={
-                    'padding': '12px 24px',
-                    'backgroundColor': '#764ba2',
-                    'color': 'white',
-                    'border': 'none',
-                    'borderRadius': '8px',
-                    'cursor': 'pointer',
-                    'fontSize': '14px',
-                    'fontWeight': '500',
-                    'width': '100%',
-                    'transition': 'all 0.2s',
-                    'marginTop': '1rem'
-                }
-            ),
-            # Container for full BertViz visualization (initially hidden)
-            html.Div(id='full-bertviz-container', style={'marginTop': '1rem'})
-        ], style={'marginTop': '2rem'})
-        
-        # Return all components
-        return html.Div([
-            layers_container,  # Collapsible layers container at top
-            *line_graphs,  # Line graph(s) below (showing outputs)
-            full_bertviz_section  # Full BertViz button at the bottom
-        ])
+        return heatmap_graph, comparison_style, ablation_style
         
     except Exception as e:
-        print(f"Error creating accordions: {e}")
+        print(f"Error rendering heatmap: {e}")
         import traceback
         traceback.print_exc()
-        return html.P(f"Error creating layer view: {str(e)}", className="placeholder-text")
+        return html.P(f"Error rendering heatmap: {str(e)}", className="placeholder-text"), {'display': 'none'}, {'display': 'none'}
+
+
+# Helper function to create modal content for a specific layer/position (reused from old accordion logic)
+def _create_layer_detail_content(activation_data, layer_num, position, model, tokenizer):
+    """Create detailed content for a layer at a specific position (for modal display)."""
+    import copy
+    import plotly.graph_objs as go
+    
+    # Slice data to the specific position
+    def slice_data(data, pos):
+        if not data:
+            return data
+        sliced = copy.deepcopy(data)
+        
+        if 'block_outputs' in sliced:
+            for mod in sliced['block_outputs']:
+                out = sliced['block_outputs'][mod]['output']
+                if isinstance(out, list) and len(out) > 0 and isinstance(out[0], list):
+                    if pos < len(out[0]):
+                        sliced['block_outputs'][mod]['output'] = [[out[0][pos]]]
+        
+        if 'attention_outputs' in sliced:
+            for mod in sliced['attention_outputs']:
+                out = sliced['attention_outputs'][mod]['output']
+                if len(out) > 1:
+                    attns = out[1]
+                    if isinstance(attns, list) and len(attns) > 0:
+                        batch_0 = attns[0]
+                        new_batch_0 = []
+                        for head in batch_0:
+                            if pos < len(head):
+                                new_batch_0.append([head[pos]])
+                        sliced['attention_outputs'][mod]['output'] = [out[0], [new_batch_0]] + out[2:]
+        
+        if 'input_ids' in sliced:
+            ids = sliced['input_ids'][0]
+            if pos < len(ids):
+                sliced['input_ids'][0] = ids[:pos+1]
+        
+        return sliced
+    
+    sliced_data = slice_data(activation_data, position)
+    layer_data_list = extract_layer_data(sliced_data, model, tokenizer)
+    
+    # Find the specific layer
+    layer_info = None
+    for ld in layer_data_list:
+        if ld.get('layer_num') == layer_num:
+            layer_info = ld
+            break
+    
+    if not layer_info:
+        return html.P("Layer data not found.")
+    
+    content_items = []
+    
+    # Top-5 token probabilities bar chart
+    top_5 = layer_info.get('top_5_tokens', [])
+    if top_5:
+        tokens_list = [t[0] for t in top_5]
+        probs = [t[1] for t in top_5]
+        deltas = layer_info.get('deltas', {})
+        
+        fig = go.Figure(data=[
+            go.Bar(
+                x=tokens_list,
+                y=probs,
+                marker_color='#667eea',
+                text=[f"Δ{deltas.get(t, 0):+.3f}" for t in tokens_list],
+                textposition='outside'
+            )
+        ])
+        fig.update_layout(
+            title=f"Top-5 Token Probabilities at Layer {layer_num}",
+            xaxis_title="Token",
+            yaxis_title="Probability",
+            height=300,
+            margin=dict(l=40, r=20, t=40, b=40)
+        )
+        content_items.append(dcc.Graph(figure=fig, config={'displayModeBar': False}))
+    
+    # Top attended tokens
+    top_attended = layer_info.get('top_attended_tokens', [])
+    if top_attended:
+        attended_text = ", ".join([f"'{t}' ({w:.3f})" for t, w in top_attended])
+        content_items.append(html.Div([
+            html.H5("Top Attended Tokens", style={'marginTop': '15px', 'color': '#495057'}),
+            html.P(attended_text, style={'fontSize': '14px', 'color': '#6c757d'})
+        ]))
+    
+    # Attention head categories
+    try:
+        categorized_heads = categorize_single_layer_heads(sliced_data, layer_num)
+        if categorized_heads:
+            total_heads = sum(len(heads) for heads in categorized_heads.values())
+            if total_heads > 0:
+                content_items.append(html.Hr(style={'margin': '20px 0'}))
+                content_items.append(html.H5(f"Attention Head Categories ({total_heads} heads)", 
+                                           style={'marginBottom': '10px', 'color': '#495057'}))
+                
+                category_colors = {
+                    'previous_token': '#ff7979',
+                    'first_token': '#74b9ff',
+                    'bow': '#ffeaa7',
+                    'syntactic': '#a29bfe',
+                    'other': '#dfe6e9'
+                }
+                category_names = {
+                    'previous_token': 'Previous-Token',
+                    'first_token': 'First/Positional',
+                    'bow': 'Bag-of-Words',
+                    'syntactic': 'Syntactic',
+                    'other': 'Other'
+                }
+                
+                for cat_key, display_name in category_names.items():
+                    heads = categorized_heads.get(cat_key, [])
+                    if heads:
+                        badges = [html.Span(f"H{h['head']}", style={
+                            'display': 'inline-block', 'padding': '4px 8px', 'margin': '2px',
+                            'backgroundColor': category_colors.get(cat_key, '#dfe6e9'),
+                            'borderRadius': '4px', 'fontSize': '11px'
+                        }) for h in heads]
+                        content_items.append(html.Div([
+                            html.Strong(f"{display_name}: ", style={'fontSize': '13px'}),
+                            html.Span(badges)
+                        ], style={'marginBottom': '8px'}))
+    except Exception as e:
+        print(f"Warning: Could not categorize heads: {e}")
+    
+    # Ablation controls placeholder
+    num_heads = model.config.num_attention_heads if hasattr(model.config, 'num_attention_heads') else 12
+    content_items.append(html.Hr(style={'margin': '20px 0'}))
+    content_items.append(html.Div([
+        html.H5("Ablation Experiment", style={'marginBottom': '10px', 'color': '#495057'}),
+        html.P("Select heads to ablate and observe how predictions change.", 
+              style={'fontSize': '13px', 'color': '#6c757d', 'marginBottom': '10px'}),
+        html.Div([
+            html.Button(f"H{h}", id={'type': 'modal-head-btn', 'layer': layer_num, 'head': h},
+                       n_clicks=0, style={
+                           'padding': '4px 10px', 'margin': '3px',
+                           'backgroundColor': '#f8f9fa', 'border': '1px solid #dee2e6',
+                           'borderRadius': '4px', 'cursor': 'pointer', 'fontSize': '12px'
+                       }) for h in range(num_heads)
+        ], style={'display': 'flex', 'flexWrap': 'wrap', 'marginBottom': '10px'}),
+        html.Button("Run Ablation", id={'type': 'modal-run-ablation', 'layer': layer_num},
+                   className="action-button primary-button", 
+                   style={'fontSize': '13px', 'padding': '8px 16px'})
+    ]))
+    
+    return html.Div(content_items)
+
 
 # Update tokenization display
 @app.callback(
@@ -1532,6 +967,164 @@ def update_tokenization_display(activation_data, activation_data2, model_name):
         import traceback
         traceback.print_exc()
         return {'display': 'none'}, []
+
+
+# Heatmap toggle button callbacks
+@app.callback(
+    [Output('heatmap-mode-store', 'data'),
+     Output('heatmap-prompt1-btn', 'style'),
+     Output('heatmap-prompt2-btn', 'style'),
+     Output('heatmap-original-btn', 'style'),
+     Output('heatmap-ablated-btn', 'style')],
+    [Input('heatmap-prompt1-btn', 'n_clicks'),
+     Input('heatmap-prompt2-btn', 'n_clicks'),
+     Input('heatmap-original-btn', 'n_clicks'),
+     Input('heatmap-ablated-btn', 'n_clicks')],
+    [State('heatmap-mode-store', 'data')],
+    prevent_initial_call=True
+)
+def update_heatmap_mode(p1_clicks, p2_clicks, orig_clicks, abl_clicks, current_mode):
+    """Update heatmap mode based on toggle button clicks."""
+    ctx = dash.callback_context
+    if not ctx.triggered:
+        return no_update, no_update, no_update, no_update, no_update
+    
+    triggered_id = ctx.triggered[0]['prop_id'].split('.')[0]
+    
+    mode = current_mode.copy() if current_mode else {'comparison': 'prompt1', 'ablation': 'original'}
+    
+    # Comparison toggle styles
+    p1_active_style = {'padding': '6px 16px', 'marginRight': '4px', 'border': '1px solid #667eea',
+                       'borderRadius': '4px 0 0 4px', 'backgroundColor': '#667eea', 'color': 'white',
+                       'cursor': 'pointer', 'fontSize': '13px'}
+    p1_inactive_style = {'padding': '6px 16px', 'marginRight': '4px', 'border': '1px solid #667eea',
+                         'borderRadius': '4px 0 0 4px', 'backgroundColor': 'white', 'color': '#667eea',
+                         'cursor': 'pointer', 'fontSize': '13px'}
+    p2_active_style = {'padding': '6px 16px', 'border': '1px solid #667eea',
+                       'borderRadius': '0 4px 4px 0', 'backgroundColor': '#667eea', 'color': 'white',
+                       'cursor': 'pointer', 'fontSize': '13px'}
+    p2_inactive_style = {'padding': '6px 16px', 'border': '1px solid #667eea',
+                         'borderRadius': '0 4px 4px 0', 'backgroundColor': 'white', 'color': '#667eea',
+                         'cursor': 'pointer', 'fontSize': '13px'}
+    
+    # Ablation toggle styles
+    orig_active_style = {'padding': '6px 16px', 'marginRight': '4px', 'border': '1px solid #28a745',
+                         'borderRadius': '4px 0 0 4px', 'backgroundColor': '#28a745', 'color': 'white',
+                         'cursor': 'pointer', 'fontSize': '13px'}
+    orig_inactive_style = {'padding': '6px 16px', 'marginRight': '4px', 'border': '1px solid #28a745',
+                           'borderRadius': '4px 0 0 4px', 'backgroundColor': 'white', 'color': '#28a745',
+                           'cursor': 'pointer', 'fontSize': '13px'}
+    abl_active_style = {'padding': '6px 16px', 'border': '1px solid #28a745',
+                        'borderRadius': '0 4px 4px 0', 'backgroundColor': '#28a745', 'color': 'white',
+                        'cursor': 'pointer', 'fontSize': '13px'}
+    abl_inactive_style = {'padding': '6px 16px', 'border': '1px solid #28a745',
+                          'borderRadius': '0 4px 4px 0', 'backgroundColor': 'white', 'color': '#28a745',
+                          'cursor': 'pointer', 'fontSize': '13px'}
+    
+    # Update mode based on which button was clicked
+    if triggered_id == 'heatmap-prompt1-btn':
+        mode['comparison'] = 'prompt1'
+    elif triggered_id == 'heatmap-prompt2-btn':
+        mode['comparison'] = 'prompt2'
+    elif triggered_id == 'heatmap-original-btn':
+        mode['ablation'] = 'original'
+    elif triggered_id == 'heatmap-ablated-btn':
+        mode['ablation'] = 'ablated'
+    
+    # Determine button styles
+    p1_style = p1_active_style if mode['comparison'] == 'prompt1' else p1_inactive_style
+    p2_style = p2_active_style if mode['comparison'] == 'prompt2' else p2_inactive_style
+    orig_style = orig_active_style if mode['ablation'] == 'original' else orig_inactive_style
+    abl_style = abl_active_style if mode['ablation'] == 'ablated' else abl_inactive_style
+    
+    return mode, p1_style, p2_style, orig_style, abl_style
+
+
+# Heatmap click -> Modal callback
+@app.callback(
+    [Output('heatmap-modal-overlay', 'style'),
+     Output('heatmap-modal-title', 'children'),
+     Output('heatmap-modal-content', 'children')],
+    [Input('heatmap-graph', 'clickData'),
+     Input('heatmap-modal-close', 'n_clicks')],
+    [State('session-activation-store', 'data'),
+     State('session-activation-store-2', 'data'),
+     State('session-activation-store-original', 'data'),
+     State('heatmap-mode-store', 'data'),
+     State('model-dropdown', 'value')],
+    prevent_initial_call=True
+)
+def handle_heatmap_click(click_data, close_clicks, activation_data, activation_data2, 
+                         original_activation_data, mode_data, model_name):
+    """Handle clicks on heatmap cells to show modal with layer details."""
+    ctx = dash.callback_context
+    if not ctx.triggered:
+        return no_update, no_update, no_update
+    
+    triggered_id = ctx.triggered[0]['prop_id'].split('.')[0]
+    
+    # Modal styles
+    hidden_style = {'position': 'fixed', 'top': '0', 'left': '0', 'width': '100%', 'height': '100%',
+                    'backgroundColor': 'rgba(0,0,0,0.5)', 'zIndex': '1000', 'display': 'none',
+                    'alignItems': 'center', 'justifyContent': 'center'}
+    visible_style = {'position': 'fixed', 'top': '0', 'left': '0', 'width': '100%', 'height': '100%',
+                     'backgroundColor': 'rgba(0,0,0,0.5)', 'zIndex': '1000', 'display': 'flex',
+                     'alignItems': 'center', 'justifyContent': 'center'}
+    
+    # Handle close button
+    if triggered_id == 'heatmap-modal-close':
+        return hidden_style, '', ''
+    
+    # Handle heatmap click
+    if triggered_id == 'heatmap-graph' and click_data:
+        try:
+            point = click_data['points'][0]
+            # Extract position and layer from click
+            # x is like "0: Hello" -> extract position index
+            x_label = point['x']
+            position = int(x_label.split(':')[0])
+            # y is like "L5" -> extract layer number
+            y_label = point['y']
+            layer_num = int(y_label[1:])  # Remove 'L' prefix
+            
+            # Select appropriate data based on mode
+            comparison_mode = mode_data.get('comparison', 'prompt1') if mode_data else 'prompt1'
+            ablation_mode = mode_data.get('ablation', 'original') if mode_data else 'original'
+            
+            show_ablation = original_activation_data is not None and activation_data.get('ablated', False)
+            
+            if show_ablation and ablation_mode == 'original':
+                active_data = original_activation_data
+            elif activation_data2 and comparison_mode == 'prompt2':
+                active_data = activation_data2
+            else:
+                active_data = activation_data
+            
+            if not active_data or not model_name:
+                return hidden_style, '', html.P("No data available.")
+            
+            # Load model for detail content
+            from transformers import AutoModelForCausalLM, AutoTokenizer
+            model = AutoModelForCausalLM.from_pretrained(model_name, attn_implementation='eager')
+            tokenizer = AutoTokenizer.from_pretrained(model_name)
+            
+            # Get token at this position
+            input_ids = active_data.get('input_ids', [[]])[0]
+            token_str = tokenizer.decode([input_ids[position]]) if position < len(input_ids) else f"Position {position}"
+            
+            title = f"Layer {layer_num} at Position {position}: '{token_str}'"
+            content = _create_layer_detail_content(active_data, layer_num, position, model, tokenizer)
+            
+            return visible_style, title, content
+            
+        except Exception as e:
+            print(f"Error handling heatmap click: {e}")
+            import traceback
+            traceback.print_exc()
+            return hidden_style, '', html.P(f"Error: {str(e)}")
+    
+    return no_update, no_update, no_update
+
 
 # Sidebar collapse toggle
 @app.callback(
