@@ -54,3 +54,11 @@
 - [x] Add callback on heatmap `clickData` to extract (layer, position)
 - [x] Populate modal with top-5 chart, attention viz, deltas
 - [x] Add close button and context header
+
+---
+
+## Debug: Heatmap Render Error
+- [x] Add runtime logs around heatmap figure/colorbar creation
+- [x] Reproduce and capture logs for heatmap render error
+- [x] Fix invalid Plotly props based on log evidence
+- [ ] Verify fix with logs, then remove instrumentation

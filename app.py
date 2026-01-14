@@ -680,6 +680,32 @@ def render_heatmap(activation_data, activation_data2, original_activation_data, 
     try:
         from transformers import AutoModelForCausalLM, AutoTokenizer
         import plotly.graph_objs as go
+        import plotly
+        
+        # #region agent log
+        try:
+            import json as _json
+            import time as _time
+            with open(r"c:\Users\cdpea\OneDrive\Documents\GradProject\.cursor\debug.log", "a", encoding="utf-8") as _f:
+                _f.write(_json.dumps({
+                    "sessionId": "debug-session",
+                    "runId": "pre-fix",
+                    "hypothesisId": "H1",
+                    "location": "app.py:render_heatmap:entry",
+                    "message": "render_heatmap entry",
+                    "data": {
+                        "has_activation_data": bool(activation_data),
+                        "has_activation_data2": activation_data2 is not None,
+                        "has_original_activation_data": original_activation_data is not None,
+                        "mode_data": mode_data,
+                        "model_name": model_name,
+                        "plotly_version": getattr(plotly, "__version__", "unknown")
+                    },
+                    "timestamp": int(_time.time() * 1000)
+                }) + "\n")
+        except Exception:
+            pass
+        # #endregion
         
         model = AutoModelForCausalLM.from_pretrained(model_name, attn_implementation='eager')
         tokenizer = AutoTokenizer.from_pretrained(model_name)
@@ -700,6 +726,34 @@ def render_heatmap(activation_data, activation_data2, original_activation_data, 
         else:
             active_data = activation_data
         
+        # #region agent log
+        try:
+            import json as _json
+            import time as _time
+            with open(r"c:\Users\cdpea\OneDrive\Documents\GradProject\.cursor\debug.log", "a", encoding="utf-8") as _f:
+                _f.write(_json.dumps({
+                    "sessionId": "debug-session",
+                    "runId": "pre-fix",
+                    "hypothesisId": "H2",
+                    "location": "app.py:render_heatmap:active_data",
+                    "message": "selected active data source",
+                    "data": {
+                        "comparison_mode": comparison_mode,
+                        "ablation_mode": ablation_mode,
+                        "show_comparison_toggle": show_comparison_toggle,
+                        "show_ablation_toggle": show_ablation_toggle,
+                        "active_data_source": (
+                            "original_activation_data" if show_ablation_toggle and ablation_mode == "original"
+                            else "activation_data2" if show_comparison_toggle and comparison_mode == "prompt2"
+                            else "activation_data"
+                        )
+                    },
+                    "timestamp": int(_time.time() * 1000)
+                }) + "\n")
+        except Exception:
+            pass
+        # #endregion
+        
         # Compute the position-layer matrix
         matrix_data = compute_position_layer_matrix(active_data, model, tokenizer)
         
@@ -717,6 +771,30 @@ def render_heatmap(activation_data, activation_data2, original_activation_data, 
         layer_nums_reversed = list(reversed(layer_nums))
         top_tokens_reversed = list(reversed(top_tokens))
         
+        # #region agent log
+        try:
+            import json as _json
+            import time as _time
+            with open(r"c:\Users\cdpea\OneDrive\Documents\GradProject\.cursor\debug.log", "a", encoding="utf-8") as _f:
+                _f.write(_json.dumps({
+                    "sessionId": "debug-session",
+                    "runId": "pre-fix",
+                    "hypothesisId": "H3",
+                    "location": "app.py:render_heatmap:matrix_data",
+                    "message": "matrix data summary",
+                    "data": {
+                        "rows": len(z_data_reversed),
+                        "cols": len(z_data_reversed[0]) if z_data_reversed else 0,
+                        "tokens_len": len(tokens),
+                        "layers_len": len(layer_nums_reversed),
+                        "top_tokens_rows": len(top_tokens_reversed)
+                    },
+                    "timestamp": int(_time.time() * 1000)
+                }) + "\n")
+        except Exception:
+            pass
+        # #endregion
+        
         # Create custom hover text
         hover_text = []
         for layer_idx, layer_row in enumerate(z_data_reversed):
@@ -727,6 +805,26 @@ def render_heatmap(activation_data, activation_data2, original_activation_data, 
                 hover_row.append(f"Token: {token}<br>Layer: L{layer_nums_reversed[layer_idx]}<br>Top: '{top_tok}'<br>Delta: {delta:.4f}")
             hover_text.append(hover_row)
         
+        colorbar_config = {"title": {"text": "Delta", "side": "right"}}
+        
+        # #region agent log
+        try:
+            import json as _json
+            import time as _time
+            with open(r"c:\Users\cdpea\OneDrive\Documents\GradProject\.cursor\debug.log", "a", encoding="utf-8") as _f:
+                _f.write(_json.dumps({
+                    "sessionId": "debug-session",
+                    "runId": "pre-fix",
+                    "hypothesisId": "H1",
+                    "location": "app.py:render_heatmap:colorbar_config",
+                    "message": "heatmap colorbar config",
+                    "data": {"colorbar_config": colorbar_config},
+                    "timestamp": int(_time.time() * 1000)
+                }) + "\n")
+        except Exception:
+            pass
+        # #endregion
+        
         fig = go.Figure(data=go.Heatmap(
             z=z_data_reversed,
             x=[f"{i}: {t[:8]}..." if len(t) > 8 else f"{i}: {t}" for i, t in enumerate(tokens)],
@@ -734,7 +832,7 @@ def render_heatmap(activation_data, activation_data2, original_activation_data, 
             colorscale='Blues',
             hoverinfo='text',
             text=hover_text,
-            colorbar=dict(title='Delta', titleside='right')
+            colorbar=colorbar_config
         ))
         
         fig.update_layout(
@@ -760,6 +858,23 @@ def render_heatmap(activation_data, activation_data2, original_activation_data, 
         return heatmap_graph, comparison_style, ablation_style
         
     except Exception as e:
+        # #region agent log
+        try:
+            import json as _json
+            import time as _time
+            with open(r"c:\Users\cdpea\OneDrive\Documents\GradProject\.cursor\debug.log", "a", encoding="utf-8") as _f:
+                _f.write(_json.dumps({
+                    "sessionId": "debug-session",
+                    "runId": "pre-fix",
+                    "hypothesisId": "H1",
+                    "location": "app.py:render_heatmap:exception",
+                    "message": "render_heatmap exception",
+                    "data": {"error": str(e)},
+                    "timestamp": int(_time.time() * 1000)
+                }) + "\n")
+        except Exception:
+            pass
+        # #endregion
         print(f"Error rendering heatmap: {e}")
         import traceback
         traceback.print_exc()
