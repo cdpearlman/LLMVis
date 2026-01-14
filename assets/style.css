@@ -853,3 +853,184 @@ details[open].transformer-layers-container .transformer-layers-summary::before {
 #heatmap-modal-content::-webkit-scrollbar-thumb:hover {
     background: #a1a1a1;
 }
+
+/* ============================================================================
+   PIPELINE VISUALIZATION STYLES
+   ============================================================================ */
+
+/* Pipeline container */
+.pipeline-container {
+    margin-top: 1.5rem;
+}
+
+.pipeline-stages {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+/* Stage container */
+.stage-container {
+    border-radius: 8px;
+    overflow: hidden;
+    transition: all 0.2s ease;
+}
+
+.stage-container[open] {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+/* Stage summary (clickable header) */
+.stage-summary {
+    list-style: none;
+}
+
+.stage-summary::-webkit-details-marker {
+    display: none;
+}
+
+.stage-summary:hover {
+    background-color: #f8f9fa !important;
+}
+
+.stage-container[open] .stage-summary {
+    border-bottom: 1px solid #e2e8f0;
+    border-radius: 8px 8px 0 0;
+}
+
+/* Expand indicator rotation */
+.stage-container[open] .expand-indicator {
+    transform: rotate(90deg);
+}
+
+/* Stage content animation */
+.stage-content {
+    animation: stageExpand 0.2s ease-out;
+}
+
+@keyframes stageExpand {
+    from {
+        opacity: 0;
+        max-height: 0;
+    }
+    to {
+        opacity: 1;
+        max-height: 1000px;
+    }
+}
+
+/* Flow indicator bar */
+.flow-indicator {
+    background: linear-gradient(90deg, #f8f9fa 0%, #ffffff 50%, #f8f9fa 100%);
+}
+
+.flow-stage-chip {
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    transition: transform 0.2s ease;
+}
+
+.flow-stage-chip:hover {
+    transform: translateY(-2px);
+}
+
+/* Stage number badge */
+.stage-number {
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+}
+
+/* ============================================================================
+   INVESTIGATION PANEL STYLES
+   ============================================================================ */
+
+.investigation-panel {
+    margin-top: 1.5rem;
+}
+
+.investigation-tabs {
+    border-bottom: 2px solid #e9ecef;
+    padding-bottom: 12px;
+}
+
+.investigation-tab {
+    transition: all 0.2s ease;
+}
+
+.investigation-tab:hover {
+    transform: translateY(-1px);
+}
+
+.investigation-content {
+    margin-top: 1.5rem;
+}
+
+/* Ablation tool styles */
+.ablation-tool {
+    padding: 1rem;
+    background-color: #fafbfc;
+    border-radius: 8px;
+}
+
+/* Attribution tool styles */
+.attribution-tool {
+    padding: 1rem;
+    background-color: #fafbfc;
+    border-radius: 8px;
+}
+
+/* Head selection buttons */
+.ablation-head-btn {
+    transition: all 0.15s ease;
+}
+
+.ablation-head-btn:hover {
+    transform: scale(1.05);
+}
+
+/* Warning button style */
+.warning-button {
+    background-color: #f6ad55;
+    color: white;
+}
+
+.warning-button:hover {
+    background-color: #ed8936;
+}
+
+/* Radio items styling */
+#attribution-method-radio label {
+    cursor: pointer;
+    padding: 8px 12px;
+    border-radius: 6px;
+    transition: background-color 0.2s ease;
+}
+
+#attribution-method-radio label:hover {
+    background-color: #f8f9fa;
+}
+
+/* ============================================================================
+   RESPONSIVE ADJUSTMENTS FOR PIPELINE
+   ============================================================================ */
+
+@media (max-width: 768px) {
+    .flow-indicator {
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+    
+    .flow-stage-chip {
+        font-size: 10px;
+        padding: 4px 10px;
+    }
+    
+    .stage-summary {
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+    
+    .stage-number {
+        width: 24px;
+        height: 24px;
+        font-size: 12px;
+    }
+}
