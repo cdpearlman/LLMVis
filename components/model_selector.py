@@ -12,9 +12,20 @@ from dash import html, dcc
 AVAILABLE_MODELS = [
     # LLaMA-like models (Qwen)
     {"label": "Qwen2.5-0.5B", "value": "Qwen/Qwen2.5-0.5B"},
+    # {"label": "Qwen2.5-1.5B", "value": "Qwen/Qwen2.5-1.5B"},
     
     # GPT-2 family
     {"label": "GPT-2 (124M)", "value": "gpt2"}
+    # {"label": "GPT-2 Medium (355M)", "value": "gpt2-medium"},
+    # {"label": "GPT-2 Large (774M)", "value": "gpt2-large"},
+    
+    # # OPT family
+    # {"label": "OPT-125M", "value": "facebook/opt-125m"},
+    # {"label": "OPT-350M", "value": "facebook/opt-350m"},
+    
+    # # GPT-NeoX family (Pythia)
+    # {"label": "Pythia-70M", "value": "EleutherAI/pythia-70m"},
+    # {"label": "Pythia-160M", "value": "EleutherAI/pythia-160m"},
 ]
 
 def create_model_selector():

@@ -1,0 +1,62 @@
+---
+description: Rules for dividing work into parallel agent worktrees
+globs:
+  - "plans.md"
+  - "todo.md"
+  - "**/PLAN*.md"
+alwaysApply: false
+---
+
+# Parallel Agent Planning Rules
+
+When creating or updating plans (plan mode active), structure work for independent parallel execution.
+
+## Worktree Division Principles
+
+- **Isolate by file/module**: Each agent task must target a distinct set of files that no other agent will touch.
+- **No shared edits**: If two tasks could modify the same file, merge them into one task.
+- **Define boundaries explicitly**: In your plan file, list the exact files/directories each agent owns.
+
+## Plan Structure for Parallel Agents
+
+When dividing work, create a section like:
+
+```
+## Parallel Worktrees
+
+### Agent A: [Task Name]
+- **Owns**: `utils/feature_a.py`, `tests/test_feature_a.py`
+- **Does not touch**: everything else
+- **Deliverable**: [specific outcome]
+
+### Agent B: [Task Name]
+- **Owns**: `components/widget.py`, `tests/test_widget.py`
+- **Does not touch**: everything else
+- **Deliverable**: [specific outcome]
+
+### Sequential (after parallel completes)
+- Integration task that touches shared files (e.g., `app.py` imports)
+```
+
+## Rules for Each Agent Task
+
+- Each task must be **self-contained**: write, test, verify independently.
+- Each task must specify:
+  1. Files it will create or modify (exclusive ownership)
+  2. Tests it will write/run
+  3. Success criteria
+- Shared dependencies (imports, configs) should be locked before parallel work begins.
+
+## Conflict Prevention Checklist
+
+Before finalizing a parallel plan, verify:
+- [ ] No two agents modify the same file
+- [ ] No two agents add imports to the same `__init__.py`
+- [ ] Shared interfaces are defined and frozen before parallel work
+- [ ] Each agent's tests can run independently
+
+## Git Strategy for Parallel Agents
+
+- Each agent works on its own feature branch: `feature/<agent-task-name>`
+- Branches are merged sequentially after all pass tests
+- Order: merge least-dependent branches first

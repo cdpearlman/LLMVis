@@ -1,5 +1,14 @@
 # Todo
 
+## Completed: Test Suite Setup (Done)
+- [x] Create `tests/` folder with `__init__.py` and `conftest.py` (shared fixtures)
+- [x] Create `test_model_config.py` - 15 tests for model family lookups
+- [x] Create `test_ablation_metrics.py` - 8 tests for KL divergence and probability deltas
+- [x] Create `test_head_detection.py` - 20 tests for attention head categorization
+- [x] Create `test_model_patterns.py` - 16 tests for merge_token_probabilities, safe_to_serializable
+- [x] Create `test_token_attribution.py` - 11 tests for visualization data formatting
+- [x] Verify all 73 tests pass with `pytest tests/ -v`
+
 ## Completed: Pipeline Explanation Refactor
 
 ### Phase 1: New Components (Done)
@@ -16,19 +25,3 @@
 - [x] Delete `prompt_comparison.py`
 - [x] Update `utils/__init__.py` exports
 - [x] Add pipeline CSS styles to `assets/style.css`
-
----
-
-## Next Steps
-
-### Testing
-- [ ] Run the dashboard and verify all pipeline stages render correctly
-- [ ] Test ablation experiment workflow
-- [ ] Test token attribution (both methods)
-- [ ] Verify beam search still works with multi-token generation
-
-### Enhancements (Optional)
-- [ ] Add loading spinners to investigation tools
-- [ ] Improve attention visualization formatting
-- [ ] Add more detailed MLP stage visualization
-- [ ] Consider adding "copy to clipboard" for token data

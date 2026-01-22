@@ -11,6 +11,12 @@ alwaysApply: true
 
 # Minimal Change Rules
 
+- Testing & verification:
+  - For substantial code changes (new files, new functionality), write tests first in `tests/` that describe expected behavior.
+  - Skip tests for UI/frontend changes, trivial additions, and documentation.
+  - After implementing changes, run `pytest` to verify all tests pass.
+  - If tests fail, iterate on debugging until fixed.
+
 - Plan first:
   - Update `todo.md` with the smallest next actions tied to `plans.md`.
   - Keep tasks atomic and check them off as you go.
