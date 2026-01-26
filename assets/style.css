@@ -561,6 +561,46 @@ details[open] .layer-summary::before {
     border: 1px solid #dee2e6;
 }
 
+/* Vertical tokenization rows layout */
+.tokenization-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+
+.token-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-bottom: 8px;
+    padding: 4px 0;
+}
+
+.token-row:last-child {
+    margin-bottom: 0;
+}
+
+.token-row-box {
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    cursor: help;
+}
+
+.token-row-box:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+    z-index: 10;
+}
+
+.token-row-arrow {
+    flex-shrink: 0;
+}
+
+/* Header row styling */
+.tokenization-header-row {
+    padding: 0 4px;
+}
+
+/* Legacy three-column grid styles (kept for backwards compatibility) */
 .tokenization-grid {
     display: flex;
     gap: 2rem;
@@ -589,25 +629,6 @@ details[open] .layer-summary::before {
     transform: translateY(-2px);
     box-shadow: 0 4px 8px rgba(0,0,0,0.15);
     z-index: 10;
-}
-
-/* Connecting lines between token columns (visual only) */
-.token-box-token::after,
-.token-box-id::after {
-    content: '';
-    position: absolute;
-    right: -1rem;
-    top: 50%;
-    width: 2rem;
-    height: 2px;
-    background-color: #dee2e6;
-    transform: translateY(-50%);
-    pointer-events: none;
-}
-
-/* Hide connector lines on hover for cleaner tooltip display */
-.token-box:hover::after {
-    opacity: 0.3;
 }
 
 /* Example diagram styling */
@@ -649,9 +670,22 @@ details[open] .layer-summary::before {
         gap: 1rem;
     }
     
-    /* Hide connecting lines on mobile */
-    .token-box-token::after,
-    .token-box-id::after {
+    /* Vertical token rows - stack boxes on very small screens */
+    .token-row {
+        flex-wrap: wrap;
+        gap: 4px;
+    }
+    
+    .token-row-box {
+        flex: 1 1 auto;
+        min-width: 80px;
+    }
+    
+    .token-row-arrow {
+        display: none;
+    }
+    
+    .tokenization-header-row {
         display: none;
     }
 }

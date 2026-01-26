@@ -33,6 +33,20 @@
 - [x] Remove score display from generated sequences in app.py
 - [x] Update glossary to clarify "Number of Generation Choices" relates to Beam Search
 
+## Completed: Pipeline Clarity Improvements (Agent C)
+
+- [x] Add educational explanation for embedding stage (pre-learned lookup table concept)
+- [x] Add educational explanation for MLP stage (knowledge storage during training)
+- [x] Add educational explanation for attention stage (how to interpret BertViz visualization)
+
+## Completed: Pipeline Clarity Improvements (Agent B)
+
+- [x] Convert tokenization from horizontal three-column layout to vertical rows
+- [x] Each token row shows: [token] → [ID] → [embedding placeholder]
+- [x] Maintain existing color scheme and educational tooltips
+- [x] Update CSS styles for .tokenization-rows and .token-row layout
+- [x] Add responsive styles for mobile (stack on small screens)
+
 ## In Progress: Pipeline Clarity Improvements (Agent D)
 
 - [ ] Switch generate_bertviz_html from model_view to head_view in model_patterns.py

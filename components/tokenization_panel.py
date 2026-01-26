@@ -1,7 +1,7 @@
 """
 Tokenization panel component for visualizing the tokenization process.
 
-Displays three columns: Tokens | IDs | Embeddings with colored connectors.
+Displays tokens in vertical rows: [token] → [ID] → [embedding] per token.
 """
 
 from dash import html, dcc
@@ -84,7 +84,7 @@ def create_tokenization_panel():
 
 def create_tokenization_display(tokens_list, token_ids_list, color_palette=None):
     """
-    Create the three-column tokenization display for actual prompt data.
+    Create a vertical tokenization display showing each token's flow.
     
     Args:
         tokens_list: List of token strings
@@ -92,7 +92,7 @@ def create_tokenization_display(tokens_list, token_ids_list, color_palette=None)
         color_palette: Optional list of colors for each token (auto-generated if None)
     
     Returns:
-        Dash HTML component with three-column layout
+        Dash HTML component with vertical token rows: [token] → [ID] → [embedding]
     """
     if color_palette is None:
         # Generate distinct colors for each token
@@ -139,37 +139,26 @@ def create_tokenization_display(tokens_list, token_ids_list, color_palette=None)
                    style={'marginTop': '1.5rem', 'marginBottom': '1rem', 
                           'color': '#495057', 'fontSize': '16px'}),
             
-            # Three-column grid
+            # Column headers row
             html.Div([
-                # Column 1: Tokens
-                html.Div([
-                    html.H5("Tokens", style={'marginBottom': '1rem', 'color': '#495057'}),
-                    html.Div([
-                        create_token_box(token, color, idx, 'token')
-                        for idx, (token, color) in enumerate(zip(tokens_list, color_palette))
-                    ], className='token-column')
-                ], className='tokenization-col', style={'flex': '1'}),
-                
-                # Column 2: Token IDs
-                html.Div([
-                    html.H5("Token IDs", style={'marginBottom': '1rem', 'color': '#495057'}),
-                    html.Div([
-                        create_token_box(str(token_id), color, idx, 'id')
-                        for idx, (token_id, color) in enumerate(zip(token_ids_list, color_palette))
-                    ], className='token-column')
-                ], className='tokenization-col', style={'flex': '1'}),
-                
-                # Column 3: Embeddings
-                html.Div([
-                    html.H5("Embeddings", style={'marginBottom': '1rem', 'color': '#495057'}),
-                    html.Div([
-                        create_token_box("[ ... ]", color, idx, 'embedding')
-                        for idx, color in enumerate(color_palette)
-                    ], className='token-column')
-                ], className='tokenization-col', style={'flex': '1'})
-                
-            ], className='tokenization-grid', 
-               style={'display': 'flex', 'gap': '2rem', 'alignItems': 'flex-start'})
+                html.Span("Token", className='token-header', 
+                         style={'flex': '1', 'fontWeight': '600', 'color': '#495057', 'fontSize': '13px'}),
+                html.Span("", style={'width': '32px'}),  # Arrow spacer
+                html.Span("ID", className='token-header',
+                         style={'flex': '1', 'fontWeight': '600', 'color': '#495057', 'fontSize': '13px'}),
+                html.Span("", style={'width': '32px'}),  # Arrow spacer
+                html.Span("Embedding", className='token-header',
+                         style={'flex': '1', 'fontWeight': '600', 'color': '#495057', 'fontSize': '13px'})
+            ], className='tokenization-header-row',
+               style={'display': 'flex', 'alignItems': 'center', 'gap': '4px', 
+                      'marginBottom': '0.75rem', 'paddingBottom': '0.5rem',
+                      'borderBottom': '1px solid #e9ecef'}),
+            
+            # Vertical token rows - each row shows [token] → [ID] → [embedding]
+            html.Div([
+                create_token_row(token, token_id, color, idx)
+                for idx, (token, token_id, color) in enumerate(zip(tokens_list, token_ids_list, color_palette))
+            ], className='tokenization-rows')
             
         ], style={'padding': '1rem', 'backgroundColor': '#ffffff', 
                   'borderRadius': '8px', 'border': '1px solid #dee2e6'})
@@ -177,20 +166,20 @@ def create_tokenization_display(tokens_list, token_ids_list, color_palette=None)
     ], open=False, style={'marginTop': '1rem'})
 
 
-def create_token_box(content, color, idx, box_type):
+def create_token_row(token, token_id, color, idx):
     """
-    Create a single token box with colored border and connecting line.
+    Create a single horizontal row showing: [token] → [ID] → [embedding].
     
     Args:
-        content: Text to display in the box
-        color: Background color for the box
-        idx: Index of the token (for connector lines)
-        box_type: Type of box ('token', 'id', or 'embedding') for tooltip
+        token: Token string
+        token_id: Token ID number
+        color: Background color for the token
+        idx: Index of the token (for key uniqueness)
     
     Returns:
-        Dash HTML component for the token box
+        Dash HTML component for a single token row
     """
-    # Tooltip text based on box type (written for high school education level)
+    # Tooltip text for educational purposes
     tooltips = {
         'token': "The text is broken into 'tokens' - small pieces like words or parts of words. "
                 "This is how the model reads text. Breaking words into smaller pieces lets the model "
@@ -204,24 +193,71 @@ def create_token_box(content, color, idx, box_type):
     }
     
     return html.Div([
+        # Token box
         html.Div(
-            content,
-            className=f'token-box token-box-{box_type}',
+            token,
+            className='token-row-box token-row-token',
             style={
+                'flex': '1',
                 'padding': '8px 12px',
-                'margin': '8px 0',
                 'backgroundColor': color,
                 'borderRadius': '6px',
                 'border': f'2px solid {darken_color(color)}',
                 'fontFamily': 'monospace',
                 'fontSize': '13px',
                 'textAlign': 'center',
-                'position': 'relative',
-                'wordBreak': 'break-word'
+                'wordBreak': 'break-word',
+                'minWidth': '60px'
             },
-            title=tooltips[box_type]  # Native HTML tooltip
+            title=tooltips['token']
+        ),
+        
+        # Arrow
+        html.Span('→', className='token-row-arrow',
+                  style={'color': '#6c757d', 'fontSize': '16px', 'padding': '0 8px'}),
+        
+        # ID box
+        html.Div(
+            str(token_id),
+            className='token-row-box token-row-id',
+            style={
+                'flex': '1',
+                'padding': '8px 12px',
+                'backgroundColor': '#ffe5d4',
+                'borderRadius': '6px',
+                'border': '2px solid #e6cfc0',
+                'fontFamily': 'monospace',
+                'fontSize': '13px',
+                'textAlign': 'center',
+                'minWidth': '60px'
+            },
+            title=tooltips['id']
+        ),
+        
+        # Arrow
+        html.Span('→', className='token-row-arrow',
+                  style={'color': '#6c757d', 'fontSize': '16px', 'padding': '0 8px'}),
+        
+        # Embedding box
+        html.Div(
+            '[ ... ]',
+            className='token-row-box token-row-embedding',
+            style={
+                'flex': '1',
+                'padding': '8px 12px',
+                'backgroundColor': '#e5d4ff',
+                'borderRadius': '6px',
+                'border': '2px solid #cfbfe6',
+                'fontFamily': 'monospace',
+                'fontSize': '13px',
+                'textAlign': 'center',
+                'minWidth': '60px'
+            },
+            title=tooltips['embedding']
         )
-    ], style={'position': 'relative'})
+        
+    ], className='token-row',
+       style={'display': 'flex', 'alignItems': 'center', 'gap': '4px', 'marginBottom': '8px'})
 
 
 def generate_token_colors(num_tokens):

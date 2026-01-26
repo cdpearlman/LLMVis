@@ -293,8 +293,13 @@ def create_embedding_content(hidden_dim=None, num_tokens=None):
         html.Div([
             html.H5("What happens here:", style={'color': '#495057', 'marginBottom': '8px'}),
             html.P([
-                "Each token ID is converted into a ", html.Strong(dim_text), " vector (a list of numbers). ",
-                "These embeddings capture the meaning of each token - similar words have similar embeddings."
+                "Each token ID is used to look up a ", html.Strong(dim_text), " vector from a ",
+                html.Strong("pre-learned embedding table"), ". Think of it like a dictionary: the model has already ",
+                "memorized a numeric representation for every word in its vocabulary during training."
+            ], style={'color': '#6c757d', 'fontSize': '14px', 'marginBottom': '12px'}),
+            html.P([
+                "These embeddings capture semantic meaning - words with similar meanings (like 'happy' and 'joyful') ",
+                "have similar vectors, allowing the model to understand relationships between words."
             ], style={'color': '#6c757d', 'fontSize': '14px', 'marginBottom': '16px'})
         ]),
         
@@ -310,6 +315,11 @@ def create_embedding_content(hidden_dim=None, num_tokens=None):
                 }),
                 html.Span('→', style={'margin': '0 16px', 'fontSize': '24px', 'color': '#adb5bd'}),
                 html.Div([
+                    html.I(className='fas fa-table', style={'color': '#764ba2', 'marginRight': '8px', 'fontSize': '18px'}),
+                    html.Span("Lookup Table", style={'fontWeight': '500', 'color': '#495057', 'marginRight': '12px'})
+                ], style={'display': 'inline-flex', 'alignItems': 'center'}),
+                html.Span('→', style={'margin': '0 16px', 'fontSize': '24px', 'color': '#adb5bd'}),
+                html.Div([
                     html.Span('[', style={'fontSize': '20px', 'color': '#495057'}),
                     html.Span(f' {dim_text} vector ', style={
                         'padding': '4px 12px',
@@ -320,14 +330,17 @@ def create_embedding_content(hidden_dim=None, num_tokens=None):
                     }),
                     html.Span(']', style={'fontSize': '20px', 'color': '#495057'})
                 ], style={'display': 'inline-flex', 'alignItems': 'center'})
-            ], style={'display': 'flex', 'alignItems': 'center', 'justifyContent': 'center'})
+            ], style={'display': 'flex', 'alignItems': 'center', 'justifyContent': 'center', 'flexWrap': 'wrap', 'gap': '8px'})
         ], style={'padding': '24px', 'backgroundColor': 'white', 'borderRadius': '8px', 'border': '1px solid #e2e8f0'}),
         
-        # Info box
+        # Info box explaining the lookup table concept
         html.Div([
             html.I(className='fas fa-lightbulb', style={'color': '#ffc107', 'marginRight': '8px'}),
-            html.Span("These embeddings are learned during training - the model discovers which numbers best represent each token's meaning.",
-                     style={'color': '#6c757d', 'fontSize': '13px'})
+            html.Span([
+                html.Strong("How the lookup table was created: "),
+                "During training on billions of text examples, the model learned which numbers best represent each token. ",
+                "This table is frozen after training - every time you use the model, the same token always maps to the same vector."
+            ], style={'color': '#6c757d', 'fontSize': '13px'})
         ], style={'marginTop': '16px', 'padding': '12px', 'backgroundColor': '#fff8e1', 'borderRadius': '6px'})
     ])
 
@@ -347,7 +360,11 @@ def create_attention_content(attention_html=None, top_attended=None, layer_info=
             html.P([
                 "The model looks at ", html.Strong("all tokens at once"), 
                 " and figures out which ones are related to each other. This is called 'attention' - ",
-                "each token 'attends to' other tokens to gather context."
+                "each token 'attends to' other tokens to gather context for its prediction."
+            ], style={'color': '#6c757d', 'fontSize': '14px', 'marginBottom': '12px'}),
+            html.P([
+                "Attention has multiple ", html.Strong("heads"), " - each head learns to look for different types of relationships. ",
+                "For example, one head might track subject-verb agreement, while another tracks pronouns and their referents."
             ], style={'color': '#6c757d', 'fontSize': '14px', 'marginBottom': '16px'})
         ])
     ]
@@ -380,6 +397,33 @@ def create_attention_content(attention_html=None, top_attended=None, layer_info=
     
     # BertViz visualization
     if attention_html:
+        # Add explanation for how to read the visualization
+        content_items.append(
+            html.Div([
+                html.H5("How to Read the Attention Visualization:", style={'color': '#495057', 'marginBottom': '12px'}),
+                html.Div([
+                    html.Div([
+                        html.I(className='fas fa-arrows-alt-h', style={'color': '#f093fb', 'marginRight': '8px'}),
+                        html.Strong("Lines show attention: "),
+                        html.Span("Each line connects a token (left) to the tokens it attends to (right). ",
+                                 style={'color': '#6c757d'})
+                    ], style={'marginBottom': '8px'}),
+                    html.Div([
+                        html.I(className='fas fa-paint-brush', style={'color': '#f093fb', 'marginRight': '8px'}),
+                        html.Strong("Line thickness = attention strength: "),
+                        html.Span("Thicker, darker lines mean stronger attention. The model is focusing more on those tokens.",
+                                 style={'color': '#6c757d'})
+                    ], style={'marginBottom': '8px'}),
+                    html.Div([
+                        html.I(className='fas fa-layer-group', style={'color': '#f093fb', 'marginRight': '8px'}),
+                        html.Strong("Each head sees differently: "),
+                        html.Span("Click on different attention heads to see how each one captures different relationships.",
+                                 style={'color': '#6c757d'})
+                    ])
+                ], style={'padding': '12px', 'backgroundColor': '#fdf4ff', 'borderRadius': '6px', 'marginBottom': '16px'})
+            ])
+        )
+        
         content_items.append(
             html.Div([
                 html.H5("Attention Visualization:", style={'color': '#495057', 'marginBottom': '12px'}),
@@ -414,9 +458,14 @@ def create_mlp_content(layer_count=None, hidden_dim=None, intermediate_dim=None)
         html.Div([
             html.H5("What happens here:", style={'color': '#495057', 'marginBottom': '8px'}),
             html.P([
-                "After attention, each token's representation passes through a ", 
+                "After attention gathers context, each token's representation passes through a ", 
                 html.Strong("Feed-Forward Network (MLP)"),
-                ". This is where the model does its 'thinking' - transforming the representations to capture complex patterns."
+                ". This is where the model's ", html.Strong("factual knowledge"), " is stored."
+            ], style={'color': '#6c757d', 'fontSize': '14px', 'marginBottom': '12px'}),
+            html.P([
+                "During training, the MLP weights learned to encode facts and patterns from the training data. ",
+                "For example, when processing 'The capital of France is', the MLP layers help recall that 'Paris' is the answer. ",
+                "Researchers have found that specific facts are often stored in specific MLP neurons."
             ], style={'color': '#6c757d', 'fontSize': '14px', 'marginBottom': '16px'})
         ]),
         
@@ -469,19 +518,31 @@ def create_mlp_content(layer_count=None, hidden_dim=None, intermediate_dim=None)
             ], style={'display': 'flex', 'alignItems': 'center', 'justifyContent': 'center'})
         ], style={'padding': '24px', 'backgroundColor': 'white', 'borderRadius': '8px', 'border': '1px solid #e2e8f0'}),
         
+        # Knowledge storage explanation
+        html.Div([
+            html.I(className='fas fa-brain', style={'color': '#9c27b0', 'marginRight': '8px'}),
+            html.Span([
+                html.Strong("Why expand then compress? "),
+                "The expansion to a larger dimension creates space for the model to represent complex patterns. ",
+                "Each neuron in the expanded layer can activate for specific concepts or facts. ",
+                "The compression then combines these activations into a refined representation."
+            ], style={'color': '#6c757d', 'fontSize': '13px'})
+        ], style={'marginTop': '16px', 'padding': '12px', 'backgroundColor': '#f3e5f5', 'borderRadius': '6px'}),
+        
         # Layer info
         html.Div([
             html.I(className='fas fa-layer-group', style={'color': '#4facfe', 'marginRight': '8px'}),
             html.Span([
                 f"This happens in each of the model's ",
                 html.Strong(f"{layer_count} layers" if layer_count else "transformer layers"),
-                ", with attention and MLP working together."
+                ", with attention and MLP working together - attention gathers context, MLP retrieves knowledge."
             ], style={'color': '#6c757d', 'fontSize': '13px'})
-        ], style={'marginTop': '16px', 'padding': '12px', 'backgroundColor': '#e3f2fd', 'borderRadius': '6px'})
+        ], style={'marginTop': '12px', 'padding': '12px', 'backgroundColor': '#e3f2fd', 'borderRadius': '6px'})
     ])
 
 
-def create_output_content(top_tokens=None, predicted_token=None, predicted_prob=None, top5_chart=None):
+def create_output_content(top_tokens=None, predicted_token=None, predicted_prob=None, 
+                          top5_chart=None, original_prompt=None):
     """
     Create content for the output selection stage.
     
@@ -490,6 +551,7 @@ def create_output_content(top_tokens=None, predicted_token=None, predicted_prob=
         predicted_token: The final predicted token
         predicted_prob: Probability of the predicted token
         top5_chart: Optional Plotly figure for top-5 visualization
+        original_prompt: Original input prompt to show context with prediction
     """
     content_items = [
         html.Div([
@@ -501,32 +563,49 @@ def create_output_content(top_tokens=None, predicted_token=None, predicted_prob=
         ])
     ]
     
-    # Predicted token highlight
+    # Predicted token display with full prompt context
     if predicted_token:
+        # Build the full prompt + predicted token display
+        prompt_display = original_prompt if original_prompt else ""
+        
         content_items.append(
             html.Div([
                 html.Div([
-                    html.Span("Predicted next token:", style={'color': '#495057', 'marginRight': '12px'}),
-                    html.Span(predicted_token, style={
-                        'padding': '8px 16px',
-                        'backgroundColor': '#00f2fe',
-                        'color': '#1a1a2e',
-                        'borderRadius': '6px',
-                        'fontFamily': 'monospace',
-                        'fontWeight': '600',
-                        'fontSize': '16px'
-                    }),
-                    html.Span(f" ({predicted_prob:.1%} confidence)" if predicted_prob else "", style={
-                        'marginLeft': '12px',
-                        'color': '#6c757d',
-                        'fontSize': '14px'
-                    })
-                ], style={'display': 'flex', 'alignItems': 'center', 'justifyContent': 'center'})
+                    html.Span("Model prediction:", style={'color': '#495057', 'marginBottom': '12px', 'display': 'block', 'fontWeight': '500'}),
+                    html.Div([
+                        # Original prompt (dimmed)
+                        html.Span(prompt_display, style={
+                            'color': '#6c757d',
+                            'fontFamily': 'monospace',
+                            'fontSize': '15px'
+                        }),
+                        # Predicted token (highlighted)
+                        html.Span(predicted_token, style={
+                            'padding': '4px 8px',
+                            'backgroundColor': '#00f2fe',
+                            'color': '#1a1a2e',
+                            'borderRadius': '4px',
+                            'fontFamily': 'monospace',
+                            'fontWeight': '600',
+                            'fontSize': '15px',
+                            'marginLeft': '2px'
+                        })
+                    ], style={'display': 'inline'}),
+                    # Confidence indicator
+                    html.Div([
+                        html.Span(f"{predicted_prob:.1%} confidence" if predicted_prob else "", style={
+                            'color': '#6c757d',
+                            'fontSize': '13px',
+                            'marginTop': '8px',
+                            'display': 'block'
+                        })
+                    ])
+                ], style={'textAlign': 'center'})
             ], style={'padding': '20px', 'backgroundColor': 'white', 'borderRadius': '8px', 
                       'border': '2px solid #00f2fe', 'marginBottom': '16px'})
         )
     
-    # Top-5 bar chart
+    # Top-5 bar chart with improved hover formatting
     if top_tokens:
         tokens = [t[0] for t in top_tokens[:5]]
         probs = [t[1] for t in top_tokens[:5]]
@@ -537,7 +616,9 @@ def create_output_content(top_tokens=None, predicted_token=None, predicted_prob=
             orientation='h',
             marker_color=['#00f2fe' if i == 0 else '#4facfe' for i in range(len(tokens))],
             text=[f"{p:.1%}" for p in probs],
-            textposition='outside'
+            textposition='outside',
+            # Format hover to show "Token (X%)" instead of long decimals
+            hovertemplate='%{y} (%{x:.1%})<extra></extra>'
         ))
         
         fig.update_layout(
