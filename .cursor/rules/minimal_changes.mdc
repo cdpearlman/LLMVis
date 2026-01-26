@@ -32,7 +32,7 @@ alwaysApply: true
 
 - Git workflow:
   - After each coherent set of changes:
-    - git commit -am "[helpful message about what was done]"
+    - git commit -am "[short, concise, and helpful message about what was done]"
   - Between features:
     - git push
     - git checkout -b feature/<short-name>
