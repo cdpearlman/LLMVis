@@ -1064,6 +1064,9 @@ def detect_significant_probability_increases(layer_wise_probs: Dict[int, Dict[st
 
 def _get_top_attended_tokens(activation_data: Dict[str, Any], layer_num: int, tokenizer, top_k: int = 3) -> Optional[List[Tuple[str, float]]]:
     """
+    DEPRECATED: This function is deprecated and will be removed in a future version.
+    Use head categorization from head_detection.py instead for more meaningful attention analysis.
+    
     Get top-K attended input tokens for the current position (last token) in a layer.
     Averages attention across all heads.
     
@@ -1076,6 +1079,12 @@ def _get_top_attended_tokens(activation_data: Dict[str, Any], layer_num: int, to
     Returns:
         List of (token_string, attention_weight) tuples, sorted by weight (highest first)
     """
+    import warnings
+    warnings.warn(
+        "_get_top_attended_tokens is deprecated. Use categorize_all_heads() from head_detection.py instead.",
+        DeprecationWarning,
+        stacklevel=2
+    )
     try:
         attention_outputs = activation_data.get('attention_outputs', {})
         input_ids = activation_data.get('input_ids', [])
@@ -1333,8 +1342,10 @@ def extract_layer_data(activation_data: Dict[str, Any], model, tokenizer) -> Lis
     for layer_num, module_name in layer_info:
         top_tokens = _get_top_tokens(activation_data, module_name, model, tokenizer, top_k=5) if can_compute_predictions else None
         
-        # Get top-3 attended tokens for this layer
-        top_attended = _get_top_attended_tokens(activation_data, layer_num, tokenizer, top_k=3)
+        # NOTE: top_attended_tokens is deprecated. Use categorize_all_heads() from
+        # head_detection.py instead for more meaningful attention analysis.
+        # Kept as None for backward compatibility with existing code.
+        top_attended = None
         
         # Get probabilities for global top 5 tokens at this layer
         global_top5_probs = {}
@@ -1394,20 +1405,21 @@ def extract_layer_data(activation_data: Dict[str, Any], model, tokenizer) -> Lis
 
 def generate_bertviz_html(activation_data: Dict[str, Any], layer_index: int, view_type: str = 'full') -> str:
     """
-    Generate BertViz attention visualization HTML using model_view.
+    Generate BertViz attention visualization HTML using head_view.
     
-    Shows all layers with the specified layer highlighted/focused.
+    Uses head_view for a less overwhelming display that lets users scroll through
+    individual attention heads. Shows all heads with layer/head selectors.
     
     Args:
         activation_data: Output from execute_forward_pass
-        layer_index: Index of layer to visualize (for context; model_view shows all layers)
+        layer_index: Index of layer to visualize (used for initial layer selection)
         view_type: 'full' for complete visualization or 'mini' for preview
     
     Returns:
         HTML string for the visualization
     """
     try:
-        from bertviz import model_view
+        from bertviz import head_view
         from transformers import AutoTokenizer
         
         # Extract attention modules and sort by layer
@@ -1453,12 +1465,12 @@ def generate_bertviz_html(activation_data: Dict[str, Any], layer_index: int, vie
                 <p><strong>Tokens:</strong> {' '.join(tokens[:8])}{'...' if len(tokens) > 8 else ''}</p>
                 <p><strong>Total Layers:</strong> {len(attentions)}</p>
                 <p><strong>Heads per Layer:</strong> {attentions[0].shape[1] if attentions else 'N/A'}</p>
-                <p><em>Click for full model_view visualization</em></p>
+                <p><em>Click for full head_view visualization</em></p>
             </div>
             """
         else:
-            # Full version: complete bertviz model_view visualization (shows all layers)
-            html_result = model_view(attentions, tokens, html_action='return')
+            # Full version: BertViz head_view (less overwhelming, scrollable heads)
+            html_result = head_view(attentions, tokens, html_action='return')
             return html_result.data if hasattr(html_result, 'data') else str(html_result)
             
     except Exception as e:
@@ -1577,3 +1589,71 @@ def generate_category_bertviz_html(activation_data: Dict[str, Any], category_hea
         import traceback
         traceback.print_exc()
         return f"<p>Error generating category visualization: {str(e)}</p>"
+
+
+def generate_head_view_with_categories(activation_data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Generate BertViz head view HTML along with head categorization data.
+    
+    Combines the head_view visualization with categorization from head_detection.py
+    to provide both visual attention patterns and semantic categorization.
+    
+    Args:
+        activation_data: Output from execute_forward_pass with attention data
+    
+    Returns:
+        Dict with:
+            - 'html': BertViz head_view HTML string
+            - 'categories': Dict from categorize_all_heads (category -> list of head info)
+            - 'summary': Formatted text summary of head categorization
+            - 'error': Error message if visualization failed (optional)
+    """
+    from .head_detection import categorize_all_heads, format_categorization_summary
+    
+    result = {
+        'html': None,
+        'categories': {},
+        'summary': '',
+        'error': None
+    }
+    
+    # Generate the base head_view visualization
+    try:
+        result['html'] = generate_bertviz_html(activation_data, layer_index=0, view_type='full')
+    except Exception as e:
+        result['error'] = f"Failed to generate head view: {str(e)}"
+        result['html'] = f"<p>Error generating visualization: {str(e)}</p>"
+    
+    # Generate head categorization
+    try:
+        result['categories'] = categorize_all_heads(activation_data)
+        result['summary'] = format_categorization_summary(result['categories'])
+    except Exception as e:
+        if result['error']:
+            result['error'] += f"; Categorization failed: {str(e)}"
+        else:
+            result['error'] = f"Categorization failed: {str(e)}"
+    
+    return result
+
+
+def get_head_category_counts(activation_data: Dict[str, Any]) -> Dict[str, int]:
+    """
+    Get counts of attention heads in each category.
+    
+    Useful for UI display showing the distribution of head types.
+    
+    Args:
+        activation_data: Output from execute_forward_pass with attention data
+    
+    Returns:
+        Dict mapping category name to count of heads in that category
+    """
+    from .head_detection import categorize_all_heads
+    
+    try:
+        categories = categorize_all_heads(activation_data)
+        return {category: len(heads) for category, heads in categories.items()}
+    except Exception as e:
+        print(f"Warning: Could not categorize heads: {e}")
+        return {}

@@ -33,6 +33,12 @@
 - [x] Remove score display from generated sequences in app.py
 - [x] Update glossary to clarify "Number of Generation Choices" relates to Beam Search
 
+## Completed: Pipeline Clarity Improvements (Agent E)
+
+- [x] Modified output display to show full prompt with predicted token highlighted
+- [x] Fixed top-5 tokens hover to show "Token (X%)" format instead of long decimals
+- [x] Added Plotly hovertemplate for cleaner hover formatting
+
 ## Completed: Pipeline Clarity Improvements (Agent C)
 
 - [x] Add educational explanation for embedding stage (pre-learned lookup table concept)
@@ -47,9 +53,10 @@
 - [x] Update CSS styles for .tokenization-rows and .token-row layout
 - [x] Add responsive styles for mobile (stack on small screens)
 
-## In Progress: Pipeline Clarity Improvements (Agent D)
+## Completed: Pipeline Clarity Improvements (Agent D)
 
-- [ ] Switch generate_bertviz_html from model_view to head_view in model_patterns.py
-- [ ] Deprecate _get_top_attended_tokens function (remove usage in extract_layer_data)
-- [ ] Add generate_head_view_with_categories function for categorized attention heads
-- [ ] Run tests to verify no regressions
+- [x] Switch generate_bertviz_html from model_view to head_view in model_patterns.py
+- [x] Deprecate _get_top_attended_tokens function (remove usage in extract_layer_data)
+- [x] Add generate_head_view_with_categories function for categorized attention heads
+- [x] Add get_head_category_counts helper function for UI display
+- [x] Run tests to verify no regressions (73 tests pass)
