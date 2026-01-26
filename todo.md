@@ -60,3 +60,18 @@
 - [x] Add generate_head_view_with_categories function for categorized attention heads
 - [x] Add get_head_category_counts helper function for UI display
 - [x] Run tests to verify no regressions (73 tests pass)
+
+## Completed: Pipeline Clarity Improvements (Agent F - Analysis Scope)
+
+- [x] Add session-original-prompt-store and session-selected-beam-store to app.py
+- [x] Modify run_generation to analyze ORIGINAL PROMPT only (not generated beam)
+- [x] Store beam generation results separately for post-experiment comparison
+- [x] Update analyze_selected_sequence to store beam for comparison instead of re-analyzing
+- [x] Update ablation experiment to show selected beam context in results
+
+## Completed: Pipeline Clarity Improvements (Agent G - Integration & Attention UI)
+
+- [x] Remove deprecated "Most attended tokens" section from attention stage
+- [x] Wire head categorization into attention stage UI (shows category counts)
+- [x] Add enhanced navigation instructions for BertViz head view
+- [x] Verify all 73 tests pass

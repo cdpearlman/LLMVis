@@ -11,7 +11,8 @@ import json
 import torch
 from utils import (load_model_and_get_patterns, execute_forward_pass, extract_layer_data,
                    categorize_single_layer_heads, perform_beam_search,
-                   execute_forward_pass_with_head_ablation, evaluate_sequence_ablation, score_sequence)
+                   execute_forward_pass_with_head_ablation, evaluate_sequence_ablation, score_sequence,
+                   get_head_category_counts)
 from utils.model_config import get_auto_selections
 from utils.token_attribution import compute_integrated_gradients, compute_simple_gradient_attribution
 
@@ -52,6 +53,9 @@ app.layout = html.Div([
     dcc.Store(id='generation-results-store', storage_type='session'),
     dcc.Store(id='investigation-active-tab', storage_type='session', data='ablation'),
     dcc.Store(id='ablation-selected-heads', storage_type='session', data=[]),
+    # Agent F: Stores for separating original prompt analysis from beam generation
+    dcc.Store(id='session-original-prompt-store', storage_type='memory'),  # Original user prompt
+    dcc.Store(id='session-selected-beam-store', storage_type='memory'),    # Selected beam for comparison
     
     # Main container
     html.Div([
@@ -304,7 +308,9 @@ def enable_run_button(model, prompt, block_modules, norm_params):
      Output('generation-results-store', 'data'),
      Output('pipeline-container', 'style'),
      Output('investigation-panel', 'style'),
-     Output('session-activation-store', 'data', allow_duplicate=True)],
+     Output('session-activation-store', 'data', allow_duplicate=True),
+     Output('session-original-prompt-store', 'data'),
+     Output('session-selected-beam-store', 'data')],
     [Input('generate-btn', 'n_clicks')],
     [State('model-dropdown', 'value'),
      State('prompt-input', 'value'),
@@ -317,8 +323,15 @@ def enable_run_button(model, prompt, block_modules, norm_params):
     prevent_initial_call=True
 )
 def run_generation(n_clicks, model_name, prompt, max_new_tokens, beam_width, patterns_data, attn_patterns, block_patterns, norm_patterns):
+    """
+    Run generation and analysis.
+    
+    Agent F refactor: Pipeline analysis (tokenization, embedding, attention, MLP, output) 
+    always runs on the ORIGINAL PROMPT only. Beam generation results are stored separately 
+    for comparison in experiments.
+    """
     if not n_clicks or not model_name or not prompt:
-        return no_update, no_update, no_update, no_update, no_update
+        return no_update, no_update, no_update, no_update, no_update, no_update, no_update
 
     try:
         from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -326,77 +339,13 @@ def run_generation(n_clicks, model_name, prompt, max_new_tokens, beam_width, pat
         tokenizer = AutoTokenizer.from_pretrained(model_name)
         model.eval()
 
+        # Always run beam search (even with max_new_tokens=1)
         results = perform_beam_search(model, tokenizer, prompt, beam_width, max_new_tokens)
         
-        results_ui = []
-        if max_new_tokens > 1:
-            results_ui.append(html.H4("Generated Sequences", className="section-title"))
-                for i, result in enumerate(results):
-                    results_ui.append(html.Div([
-                        html.Div([
-                            html.Span(f"Rank {i+1}", style={'fontWeight': 'bold', 'marginRight': '10px', 'color': '#667eea'})
-                        ], style={'marginBottom': '5px'}),
-                    html.Div(result['text'], style={'fontFamily': 'monospace', 'backgroundColor': '#fff', 'padding': '10px', 'borderRadius': '4px', 'border': '1px solid #dee2e6'}),
-                    html.Button("Analyze", id={'type': 'result-item', 'index': i}, n_clicks=0,
-                               className="action-button secondary-button", style={'marginTop': '10px', 'fontSize': '12px'})
-                ], style={'marginBottom': '15px', 'padding': '15px', 'backgroundColor': '#f8f9fa', 'borderRadius': '6px'}))
-            return results_ui, results, {'display': 'none'}, {'display': 'none'}, {}
-            
-        else:
-            result = results[0]
-            module_patterns = patterns_data.get('module_patterns', {})
-            param_patterns = patterns_data.get('param_patterns', {})
-            
-            config = {
-                'attention_modules': [mod for pattern in (attn_patterns or []) for mod in module_patterns.get(pattern, [])],
-                'block_modules': [mod for pattern in (block_patterns or []) for mod in module_patterns.get(pattern, [])],
-                'norm_parameters': [param for pattern in (norm_patterns or []) for param in param_patterns.get(pattern, [])]
-            }
-            
-            if not config['block_modules']:
-                return html.Div("Please select modules in the sidebar.", style={'color': 'red'}), results, {'display': 'none'}, {'display': 'none'}, {}
-
-            activation_data = execute_forward_pass(model, tokenizer, result['text'], config)
-            return results_ui, results, {'display': 'block'}, {'display': 'block'}, activation_data
-
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return html.Div(f"Error: {e}", style={'color': 'red'}), [], {'display': 'none'}, {'display': 'none'}, {}
-
-
-@app.callback(
-    [Output('session-activation-store', 'data', allow_duplicate=True),
-     Output('pipeline-container', 'style', allow_duplicate=True),
-     Output('investigation-panel', 'style', allow_duplicate=True)],
-    Input({'type': 'result-item', 'index': ALL}, 'n_clicks'),
-    [State('generation-results-store', 'data'),
-     State('model-dropdown', 'value'),
-     State('session-patterns-store', 'data'),
-     State('attention-modules-dropdown', 'value'),
-     State('block-modules-dropdown', 'value'),
-     State('norm-params-dropdown', 'value')],
-    prevent_initial_call=True
-)
-def analyze_selected_sequence(n_clicks_list, results_data, model_name, patterns_data, attn_patterns, block_patterns, norm_patterns):
-    if not any(n_clicks_list) or not results_data:
-        return no_update, no_update, no_update
-    
-    ctx = dash.callback_context
-    if not ctx.triggered:
-        return no_update, no_update, no_update
+        # Store original prompt for reference
+        original_prompt_data = {'prompt': prompt, 'model': model_name}
         
-    triggered_id = json.loads(ctx.triggered[0]['prop_id'].split('.')[0])
-    index = triggered_id['index']
-    
-    try:
-        from transformers import AutoModelForCausalLM, AutoTokenizer
-        result = results_data[index]
-        
-        model = AutoModelForCausalLM.from_pretrained(model_name, attn_implementation='eager')
-        tokenizer = AutoTokenizer.from_pretrained(model_name)
-        model.eval()
-        
+        # Build module config for analysis
         module_patterns = patterns_data.get('module_patterns', {})
         param_patterns = patterns_data.get('param_patterns', {})
         
@@ -407,15 +356,75 @@ def analyze_selected_sequence(n_clicks_list, results_data, model_name, patterns_
         }
         
         if not config['block_modules']:
-            return no_update, no_update, no_update
-             
-        activation_data = execute_forward_pass(model, tokenizer, result['text'], config)
-        return activation_data, {'display': 'block'}, {'display': 'block'}
+            return (html.Div("Please select modules in the sidebar.", style={'color': 'red'}), 
+                    results, {'display': 'none'}, {'display': 'none'}, {}, original_prompt_data, {})
+
+        # AGENT F KEY CHANGE: Run analysis on ORIGINAL PROMPT only, not generated text
+        # This ensures pipeline stages show how the model processes the user's input,
+        # regardless of what tokens are generated.
+        activation_data = execute_forward_pass(model, tokenizer, prompt, config)
         
+        results_ui = []
+        if max_new_tokens > 1:
+            # Show generated sequences for user selection
+            results_ui.append(html.H4("Generated Sequences", className="section-title"))
+            results_ui.append(html.P("Select a sequence to store for comparison after experiments.", 
+                                    style={'color': '#6c757d', 'fontSize': '13px', 'marginBottom': '12px'}))
+            for i, result in enumerate(results):
+                results_ui.append(html.Div([
+                    html.Div([
+                        html.Span(f"Rank {i+1}", style={'fontWeight': 'bold', 'marginRight': '10px', 'color': '#667eea'})
+                    ], style={'marginBottom': '5px'}),
+                    html.Div(result['text'], style={'fontFamily': 'monospace', 'backgroundColor': '#fff', 'padding': '10px', 'borderRadius': '4px', 'border': '1px solid #dee2e6'}),
+                    html.Button("Select for Comparison", id={'type': 'result-item', 'index': i}, n_clicks=0,
+                               className="action-button secondary-button", style={'marginTop': '10px', 'fontSize': '12px'})
+                ], style={'marginBottom': '15px', 'padding': '15px', 'backgroundColor': '#f8f9fa', 'borderRadius': '6px'}))
+            
+            # Show pipeline immediately (analyzing original prompt)
+            return (results_ui, results, {'display': 'block'}, {'display': 'block'}, 
+                    activation_data, original_prompt_data, {})
+            
+        else:
+            # Single token generation - store the result as selected beam
+            selected_beam_data = {'text': results[0]['text'], 'score': results[0].get('score', 0)}
+            return (results_ui, results, {'display': 'block'}, {'display': 'block'}, 
+                    activation_data, original_prompt_data, selected_beam_data)
+
     except Exception as e:
         import traceback
         traceback.print_exc()
-        return no_update, no_update, no_update
+        return (html.Div(f"Error: {e}", style={'color': 'red'}), [], 
+                {'display': 'none'}, {'display': 'none'}, {}, {}, {})
+
+
+@app.callback(
+    Output('session-selected-beam-store', 'data', allow_duplicate=True),
+    Input({'type': 'result-item', 'index': ALL}, 'n_clicks'),
+    [State('generation-results-store', 'data')],
+    prevent_initial_call=True
+)
+def store_selected_beam(n_clicks_list, results_data):
+    """
+    Agent F: Store selected beam for post-experiment comparison.
+    
+    The pipeline analysis already runs on the original prompt. This callback
+    just stores the selected beam text so we can compare ablation/attribution
+    results against the original generation.
+    """
+    if not any(n_clicks_list) or not results_data:
+        return no_update
+    
+    ctx = dash.callback_context
+    if not ctx.triggered:
+        return no_update
+        
+    triggered_id = json.loads(ctx.triggered[0]['prop_id'].split('.')[0])
+    index = triggered_id['index']
+    
+    result = results_data[index]
+    
+    # Store the selected beam for comparison after experiments
+    return {'text': result['text'], 'score': result.get('score', 0), 'index': index}
 
 
 # ============================================================================
@@ -487,6 +496,13 @@ def update_pipeline_content(activation_data, model_name):
         except:
             pass
         
+        # Agent G: Get head categorization for attention stage UI
+        head_categories = None
+        try:
+            head_categories = get_head_category_counts(activation_data)
+        except:
+            pass
+        
         # Build outputs for each stage
         outputs = []
         
@@ -498,9 +514,9 @@ def update_pipeline_content(activation_data, model_name):
         outputs.append(f"{hidden_dim}-dim vectors")
         outputs.append(create_embedding_content(hidden_dim, len(tokens)))
         
-        # Stage 3: Attention
+        # Stage 3: Attention (Agent G: now includes head_categories)
         outputs.append(f"{num_heads} heads × {num_layers} layers")
-        outputs.append(create_attention_content(attention_html, top_attended))
+        outputs.append(create_attention_content(attention_html, None, head_categories=head_categories))
         
         # Stage 4: MLP
         outputs.append(f"{num_layers} layers")
@@ -663,10 +679,17 @@ def handle_ablation_head_selection(n_clicks_list, selected_heads):
      State('ablation-selected-heads', 'data'),
      State('session-activation-store', 'data'),
      State('model-dropdown', 'value'),
-     State('prompt-input', 'value')],
+     State('prompt-input', 'value'),
+     State('session-selected-beam-store', 'data')],
     prevent_initial_call=True
 )
-def run_ablation_experiment(n_clicks, layer_num, selected_heads, activation_data, model_name, prompt):
+def run_ablation_experiment(n_clicks, layer_num, selected_heads, activation_data, model_name, prompt, selected_beam):
+    """
+    Agent F: Run ablation on ORIGINAL PROMPT and compare results.
+    
+    Shows how ablating attention heads affects the model's prediction on the
+    original input. If a beam was selected, shows it for context.
+    """
     if not n_clicks or layer_num is None or not selected_heads or not activation_data:
         return no_update
     
@@ -676,6 +699,7 @@ def run_ablation_experiment(n_clicks, layer_num, selected_heads, activation_data
         tokenizer = AutoTokenizer.from_pretrained(model_name)
         model.eval()
         
+        # Agent F: Always analyze the original prompt
         sequence_text = activation_data.get('prompt', prompt)
         
         config = {
@@ -684,12 +708,12 @@ def run_ablation_experiment(n_clicks, layer_num, selected_heads, activation_data
             'norm_parameters': activation_data.get('norm_parameters', [])
         }
         
-        # Get original output
+        # Get original output (from analysis of original prompt)
         original_output = activation_data.get('actual_output', {})
         original_token = original_output.get('token', '')
         original_prob = original_output.get('probability', 0)
         
-        # Run ablation
+        # Run ablation on original prompt
         ablated_data = execute_forward_pass_with_head_ablation(
             model, tokenizer, sequence_text, config, layer_num, selected_heads
         )
@@ -698,10 +722,25 @@ def run_ablation_experiment(n_clicks, layer_num, selected_heads, activation_data
         ablated_token = ablated_output.get('token', '')
         ablated_prob = ablated_output.get('probability', 0)
         
-        return create_ablation_results_display(
+        # Build results display
+        results = [create_ablation_results_display(
             original_token, ablated_token, original_prob, ablated_prob,
             layer_num, selected_heads
-        )
+        )]
+        
+        # Agent F: If a beam was selected, show context for comparison
+        if selected_beam and selected_beam.get('text'):
+            results.append(html.Div([
+                html.Hr(style={'margin': '15px 0', 'borderColor': '#dee2e6'}),
+                html.Div([
+                    html.I(className='fas fa-info-circle', style={'color': '#6c757d', 'marginRight': '8px'}),
+                    html.Span("Selected generation for reference: ", style={'fontWeight': '500', 'color': '#495057'}),
+                    html.Span(selected_beam['text'], style={'fontFamily': 'monospace', 'backgroundColor': '#f8f9fa', 
+                                                           'padding': '4px 8px', 'borderRadius': '4px'})
+                ], style={'fontSize': '13px'})
+            ]))
+        
+        return html.Div(results)
         
     except Exception as e:
         import traceback

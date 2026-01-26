@@ -345,14 +345,18 @@ def create_embedding_content(hidden_dim=None, num_tokens=None):
     ])
 
 
-def create_attention_content(attention_html=None, top_attended=None, layer_info=None):
+def create_attention_content(attention_html=None, top_attended=None, layer_info=None, head_categories=None):
     """
     Create content for the attention stage.
     
+    Agent G: Removed "Most attended tokens" section (deprecated). Now shows head categorization
+    to help users understand what different attention heads are doing.
+    
     Args:
         attention_html: BertViz HTML string for attention visualization
-        top_attended: List of (token, weight) tuples for top attended tokens
+        top_attended: DEPRECATED - no longer used, kept for backward compatibility
         layer_info: Optional layer information for context
+        head_categories: Optional dict mapping category names to counts (from get_head_category_counts)
     """
     content_items = [
         html.Div([
@@ -369,55 +373,77 @@ def create_attention_content(attention_html=None, top_attended=None, layer_info=
         ])
     ]
     
-    # Top attended summary
-    if top_attended:
-        attended_chips = []
-        for tok, weight in top_attended[:5]:
-            attended_chips.append(
-                html.Span([
-                    html.Span(tok, style={'fontWeight': '500'}),
-                    html.Span(f" ({weight:.2f})", style={'color': '#6c757d', 'fontSize': '12px'})
-                ], style={
-                    'padding': '6px 12px',
-                    'backgroundColor': '#f093fb20',
-                    'border': '1px solid #f093fb40',
-                    'borderRadius': '16px',
-                    'marginRight': '8px',
-                    'display': 'inline-block',
-                    'marginBottom': '6px'
-                })
-            )
+    # Agent G: Head Categorization Summary (replaces deprecated "Most attended tokens")
+    if head_categories:
+        category_labels = {
+            'previous_token': ('Previous-Token', '#667eea', 'Heads that attend to the immediately preceding token'),
+            'first_token': ('First/Positional', '#764ba2', 'Heads that focus on the first token or positional patterns'),
+            'bow': ('Bag-of-Words', '#f093fb', 'Heads with diffuse attention across many tokens'),
+            'syntactic': ('Syntactic', '#4facfe', 'Heads that capture grammatical relationships'),
+            'other': ('Other', '#6c757d', 'Heads with mixed or specialized patterns')
+        }
         
-        content_items.append(
-            html.Div([
-                html.H5("Most attended tokens:", style={'color': '#495057', 'marginBottom': '12px'}),
-                html.Div(attended_chips)
-            ], style={'marginBottom': '16px'})
-        )
-    
-    # BertViz visualization
-    if attention_html:
-        # Add explanation for how to read the visualization
-        content_items.append(
-            html.Div([
-                html.H5("How to Read the Attention Visualization:", style={'color': '#495057', 'marginBottom': '12px'}),
+        category_chips = []
+        for cat_key, count in head_categories.items():
+            if count > 0 and cat_key in category_labels:
+                label, color, tooltip = category_labels[cat_key]
+                category_chips.append(
+                    html.Span([
+                        html.Span(label, style={'fontWeight': '500'}),
+                        html.Span(f" ({count})", style={'marginLeft': '4px'})
+                    ], style={
+                        'padding': '6px 12px',
+                        'backgroundColor': f'{color}20',
+                        'border': f'1px solid {color}40',
+                        'borderRadius': '16px',
+                        'marginRight': '8px',
+                        'display': 'inline-block',
+                        'marginBottom': '6px',
+                        'cursor': 'help'
+                    }, title=tooltip)
+                )
+        
+        if category_chips:
+            content_items.append(
                 html.Div([
+                    html.H5("Attention Head Categories:", style={'color': '#495057', 'marginBottom': '12px'}),
+                    html.Div(category_chips),
+                    html.P([
+                        html.I(className='fas fa-info-circle', style={'color': '#6c757d', 'marginRight': '6px'}),
+                        "Heads are automatically categorized based on their attention patterns. Hover for descriptions."
+                    ], style={'color': '#6c757d', 'fontSize': '12px', 'marginTop': '8px'})
+                ], style={'marginBottom': '16px'})
+            )
+    
+    # BertViz visualization with navigation instructions
+    if attention_html:
+        # Agent G: Enhanced navigation instructions for head view
+        content_items.append(
+            html.Div([
+                html.H5("How to Navigate the Attention Visualization:", style={'color': '#495057', 'marginBottom': '12px'}),
+                html.Div([
+                    html.Div([
+                        html.I(className='fas fa-mouse-pointer', style={'color': '#f093fb', 'marginRight': '8px'}),
+                        html.Strong("Select heads: "),
+                        html.Span("Click on layer/head numbers at the top to view specific attention heads. ",
+                                 style={'color': '#6c757d'})
+                    ], style={'marginBottom': '8px'}),
                     html.Div([
                         html.I(className='fas fa-arrows-alt-h', style={'color': '#f093fb', 'marginRight': '8px'}),
                         html.Strong("Lines show attention: "),
-                        html.Span("Each line connects a token (left) to the tokens it attends to (right). ",
+                        html.Span("Each line connects a token (left) to tokens it attends to (right). ",
                                  style={'color': '#6c757d'})
                     ], style={'marginBottom': '8px'}),
                     html.Div([
                         html.I(className='fas fa-paint-brush', style={'color': '#f093fb', 'marginRight': '8px'}),
                         html.Strong("Line thickness = attention strength: "),
-                        html.Span("Thicker, darker lines mean stronger attention. The model is focusing more on those tokens.",
+                        html.Span("Thicker, darker lines mean stronger attention.",
                                  style={'color': '#6c757d'})
                     ], style={'marginBottom': '8px'}),
                     html.Div([
-                        html.I(className='fas fa-layer-group', style={'color': '#f093fb', 'marginRight': '8px'}),
-                        html.Strong("Each head sees differently: "),
-                        html.Span("Click on different attention heads to see how each one captures different relationships.",
+                        html.I(className='fas fa-search-plus', style={'color': '#f093fb', 'marginRight': '8px'}),
+                        html.Strong("Hover for details: "),
+                        html.Span("Hover over tokens or lines to see exact attention weights.",
                                  style={'color': '#6c757d'})
                     ])
                 ], style={'padding': '12px', 'backgroundColor': '#fdf4ff', 'borderRadius': '6px', 'marginBottom': '16px'})
