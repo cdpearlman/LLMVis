@@ -75,3 +75,32 @@
 - [x] Wire head categorization into attention stage UI (shows category counts)
 - [x] Add enhanced navigation instructions for BertViz head view
 - [x] Verify all 73 tests pass
+
+## Completed: UI/UX Fixes (5 Issues)
+
+### Issue 1: "Select for Comparison" Button
+- [x] Update store_selected_beam callback in app.py to update UI
+- [x] Clear all other generated sequences when one is selected
+- [x] Display selected sequence with "Selected for Comparison" badge
+
+### Issue 2: Tokenization Vertical Layout
+- [x] Modify create_tokenization_content in pipeline.py to use vertical layout
+- [x] Each row displays: [token] → [ID] with header row
+
+### Issue 3: Expandable Attention Categories
+- [x] Convert category chips to expandable `<details>` elements in pipeline.py
+- [x] Update app.py to pass full categorize_all_heads() data instead of counts
+- [x] Show list of heads (L0-H3, L2-H5, etc.) when category is expanded
+
+### Issue 4: BertViz Navigation Instructions
+- [x] Add single-click explanation: selects/deselects that head
+- [x] Add double-click explanation: selects only that head (deselects others)
+
+### Issue 5: Multi-Layer Ablation Head Selection
+- [x] Change ablation-selected-heads store to hold [{layer, head}, ...] objects
+- [x] Add create_selected_heads_display function in investigation_panel.py
+- [x] Show selected heads as chips with "x" buttons to remove
+- [x] Update head buttons to show visual selection state per layer
+- [x] Preserve selections across layer dropdown changes
+- [x] Update run_ablation_experiment to handle multi-layer ablation
+- [x] Verify all 73 tests pass

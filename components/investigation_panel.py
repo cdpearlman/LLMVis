@@ -110,7 +110,7 @@ def create_ablation_content():
                 id='ablation-layer-dropdown',
                 options=[],  # Populated by callback
                 value=None,
-                placeholder="Choose a layer to ablate...",
+                placeholder="Choose a layer to view heads...",
                 className="module-dropdown"
             )
         ], style={'marginBottom': '16px'}),
@@ -125,6 +125,20 @@ def create_ablation_content():
                 'backgroundColor': '#f8f9fa',
                 'borderRadius': '8px',
                 'border': '1px solid #e2e8f0'
+            })
+        ], style={'marginBottom': '16px'}),
+        
+        # Selected heads display (chips with remove buttons)
+        html.Div([
+            html.Label("Selected Heads:", className="input-label", style={'marginBottom': '8px', 'display': 'block'}),
+            html.Div(id='ablation-selected-display', children=[
+                html.Span("No heads selected yet", style={'color': '#6c757d', 'fontSize': '13px', 'fontStyle': 'italic'})
+            ], style={
+                'padding': '12px',
+                'backgroundColor': '#f8f9fa',
+                'borderRadius': '8px',
+                'border': '1px solid #e2e8f0',
+                'minHeight': '40px'
             })
         ], style={'marginBottom': '16px'}),
         
@@ -206,14 +220,25 @@ def create_ablation_head_buttons(num_heads, layer_num, selected_heads=None):
     Args:
         num_heads: Number of attention heads in the layer
         layer_num: Layer number for button IDs
-        selected_heads: List of currently selected head indices
+        selected_heads: List of currently selected head dicts [{layer: N, head: M}, ...] 
+                       or list of head indices for backward compatibility
     """
     if selected_heads is None:
         selected_heads = []
     
+    # Get head indices selected for THIS layer
+    current_layer_heads = []
+    for item in selected_heads:
+        if isinstance(item, dict):
+            if item.get('layer') == layer_num:
+                current_layer_heads.append(item.get('head'))
+        else:
+            # Backward compatibility: assume it's just a head index
+            current_layer_heads.append(item)
+    
     buttons = []
     for h in range(num_heads):
-        is_selected = h in selected_heads
+        is_selected = h in current_layer_heads
         buttons.append(
             html.Button(
                 f"H{h}",
@@ -238,6 +263,69 @@ def create_ablation_head_buttons(num_heads, layer_num, selected_heads=None):
         'display': 'flex',
         'flexWrap': 'wrap',
         'gap': '4px'
+    })
+
+
+def create_selected_heads_display(selected_heads):
+    """
+    Create display of selected heads as chips with remove buttons.
+    
+    Args:
+        selected_heads: List of {layer: N, head: M} dicts
+    
+    Returns:
+        Dash HTML component showing selected heads as removable chips
+    """
+    if not selected_heads:
+        return html.Div(
+            "No heads selected yet",
+            style={'color': '#6c757d', 'fontSize': '13px', 'fontStyle': 'italic', 'padding': '8px 0'}
+        )
+    
+    chips = []
+    for item in selected_heads:
+        layer = item.get('layer')
+        head = item.get('head')
+        label = f"L{layer}-H{head}"
+        
+        chips.append(
+            html.Span([
+                html.Span(label, style={'marginRight': '6px'}),
+                html.Button(
+                    '×',
+                    id={'type': 'ablation-remove-btn', 'layer': layer, 'head': head},
+                    n_clicks=0,
+                    style={
+                        'background': 'none',
+                        'border': 'none',
+                        'color': '#667eea',
+                        'cursor': 'pointer',
+                        'fontSize': '16px',
+                        'fontWeight': 'bold',
+                        'padding': '0',
+                        'lineHeight': '1',
+                        'verticalAlign': 'middle'
+                    }
+                )
+            ], style={
+                'display': 'inline-flex',
+                'alignItems': 'center',
+                'padding': '6px 10px',
+                'margin': '4px',
+                'backgroundColor': '#667eea20',
+                'border': '1px solid #667eea40',
+                'borderRadius': '16px',
+                'fontSize': '12px',
+                'fontFamily': 'monospace',
+                'fontWeight': '500'
+            })
+        )
+    
+    return html.Div(chips, style={
+        'display': 'flex',
+        'flexWrap': 'wrap',
+        'gap': '4px',
+        'padding': '8px 0'
     })
 
 

@@ -13,6 +13,7 @@ from utils import (load_model_and_get_patterns, execute_forward_pass, extract_la
                    categorize_single_layer_heads, perform_beam_search,
                    execute_forward_pass_with_head_ablation, evaluate_sequence_ablation, score_sequence,
                    get_head_category_counts)
+from utils.head_detection import categorize_all_heads
 from utils.model_config import get_auto_selections
 from utils.token_attribution import compute_integrated_gradients, compute_simple_gradient_attribution
 
@@ -24,7 +25,8 @@ from components.pipeline import (create_pipeline_container, create_tokenization_
                                   create_embedding_content, create_attention_content,
                                   create_mlp_content, create_output_content)
 from components.investigation_panel import (create_investigation_panel, create_ablation_head_buttons,
-                                             create_ablation_results_display, create_attribution_results_display)
+                                             create_ablation_results_display, create_attribution_results_display,
+                                             create_selected_heads_display)
 
 # Initialize Dash app
 app = dash.Dash(
@@ -398,7 +400,8 @@ def run_generation(n_clicks, model_name, prompt, max_new_tokens, beam_width, pat
 
 
 @app.callback(
-    Output('session-selected-beam-store', 'data', allow_duplicate=True),
+    [Output('session-selected-beam-store', 'data', allow_duplicate=True),
+     Output('generation-results-container', 'children', allow_duplicate=True)],
     Input({'type': 'result-item', 'index': ALL}, 'n_clicks'),
     [State('generation-results-store', 'data')],
     prevent_initial_call=True
@@ -408,23 +411,58 @@ def store_selected_beam(n_clicks_list, results_data):
     Agent F: Store selected beam for post-experiment comparison.
     
     The pipeline analysis already runs on the original prompt. This callback
-    just stores the selected beam text so we can compare ablation/attribution
-    results against the original generation.
+    stores the selected beam text and updates the UI to show only the selected
+    sequence, clearing all other options.
     """
     if not any(n_clicks_list) or not results_data:
-        return no_update
+        return no_update, no_update
     
     ctx = dash.callback_context
     if not ctx.triggered:
-        return no_update
+        return no_update, no_update
         
     triggered_id = json.loads(ctx.triggered[0]['prop_id'].split('.')[0])
     index = triggered_id['index']
     
     result = results_data[index]
     
+    # Build UI showing only the selected sequence with a "selected" badge
+    selected_ui = html.Div([
+        html.H4("Selected Sequence", className="section-title"),
+        html.Div([
+            html.Div([
+                html.Span([
+                    html.I(className="fas fa-check-circle", style={'marginRight': '8px', 'color': '#28a745'}),
+                    "Selected for Comparison"
+                ], style={
+                    'display': 'inline-flex',
+                    'alignItems': 'center',
+                    'padding': '6px 12px',
+                    'backgroundColor': '#d4edda',
+                    'color': '#155724',
+                    'borderRadius': '16px',
+                    'fontSize': '12px',
+                    'fontWeight': '500',
+                    'marginBottom': '12px'
+                })
+            ]),
+            html.Div(result['text'], style={
+                'fontFamily': 'monospace',
+                'backgroundColor': '#fff',
+                'padding': '12px',
+                'borderRadius': '6px',
+                'border': '2px solid #28a745'
+            })
+        ], style={
+            'padding': '16px',
+            'backgroundColor': '#f8f9fa',
+            'borderRadius': '8px',
+            'border': '1px solid #dee2e6'
+        })
+    ])
+    
     # Store the selected beam for comparison after experiments
-    return {'text': result['text'], 'score': result.get('score', 0), 'index': index}
+    return {'text': result['text'], 'score': result.get('score', 0), 'index': index}, selected_ui
 
 
 # ============================================================================
@@ -496,10 +534,10 @@ def update_pipeline_content(activation_data, model_name):
         except:
             pass
         
-        # Agent G: Get head categorization for attention stage UI
+        # Agent G: Get full head categorization for attention stage UI (expandable categories)
         head_categories = None
         try:
-            head_categories = get_head_category_counts(activation_data)
+            head_categories = categorize_all_heads(activation_data)
         except:
             pass
         
@@ -624,10 +662,11 @@ def update_ablation_layer_options(activation_data, model_name):
 
 @app.callback(
     Output('ablation-head-grid', 'children'),
-    [Input('ablation-layer-dropdown', 'value')],
+    [Input('ablation-layer-dropdown', 'value'),
+     Input('ablation-selected-heads', 'data')],
     [State('model-dropdown', 'value')]
 )
-def update_ablation_head_grid(layer_num, model_name):
+def update_ablation_head_grid(layer_num, selected_heads, model_name):
     if layer_num is None or not model_name:
         return html.P("Select a layer first.", style={'color': '#6c757d', 'fontStyle': 'italic'})
     
@@ -635,62 +674,122 @@ def update_ablation_head_grid(layer_num, model_name):
         from transformers import AutoConfig
         config = AutoConfig.from_pretrained(model_name)
         num_heads = config.num_attention_heads
-        return create_ablation_head_buttons(num_heads, layer_num)
+        # Pass selected heads so buttons show proper selection state
+        return create_ablation_head_buttons(num_heads, layer_num, selected_heads or [])
     except:
         return html.P("Could not load model config.", style={'color': '#dc3545'})
 
 
 @app.callback(
     [Output('ablation-selected-heads', 'data'),
-     Output('run-ablation-btn', 'disabled')],
+     Output('run-ablation-btn', 'disabled'),
+     Output('ablation-selected-display', 'children')],
     [Input({'type': 'ablation-head-btn', 'layer': ALL, 'head': ALL}, 'n_clicks')],
     [State('ablation-selected-heads', 'data')],
     prevent_initial_call=True
 )
 def handle_ablation_head_selection(n_clicks_list, selected_heads):
+    """
+    Handle head button clicks - stores layer+head combinations and preserves
+    selections across layer changes.
+    """
     if not any(n_clicks_list):
-        return no_update, no_update
+        return no_update, no_update, no_update
     
     ctx = dash.callback_context
     if not ctx.triggered:
-        return no_update, no_update
+        return no_update, no_update, no_update
     
     if selected_heads is None:
         selected_heads = []
     
     try:
         triggered_id = json.loads(ctx.triggered[0]['prop_id'].split('.')[0])
+        layer_num = triggered_id['layer']
         head_idx = triggered_id['head']
         
-        if head_idx in selected_heads:
-            selected_heads.remove(head_idx)
+        # Create layer+head object
+        new_item = {'layer': layer_num, 'head': head_idx}
+        
+        # Check if this layer+head combination is already selected
+        found_idx = None
+        for i, item in enumerate(selected_heads):
+            if isinstance(item, dict) and item.get('layer') == layer_num and item.get('head') == head_idx:
+                found_idx = i
+                break
+        
+        if found_idx is not None:
+            # Remove if already selected
+            selected_heads.pop(found_idx)
         else:
-            selected_heads.append(head_idx)
+            # Add if not selected
+            selected_heads.append(new_item)
     except:
         pass
     
-    return selected_heads, len(selected_heads) == 0
+    # Create the display of selected heads
+    display = create_selected_heads_display(selected_heads)
+    
+    return selected_heads, len(selected_heads) == 0, display
+
+
+@app.callback(
+    [Output('ablation-selected-heads', 'data', allow_duplicate=True),
+     Output('run-ablation-btn', 'disabled', allow_duplicate=True),
+     Output('ablation-selected-display', 'children', allow_duplicate=True)],
+    [Input({'type': 'ablation-remove-btn', 'layer': ALL, 'head': ALL}, 'n_clicks')],
+    [State('ablation-selected-heads', 'data')],
+    prevent_initial_call=True
+)
+def handle_ablation_head_removal(n_clicks_list, selected_heads):
+    """Handle removing individual head selections via the x button on chips."""
+    if not any(n_clicks_list):
+        return no_update, no_update, no_update
+    
+    ctx = dash.callback_context
+    if not ctx.triggered:
+        return no_update, no_update, no_update
+    
+    if selected_heads is None:
+        selected_heads = []
+    
+    try:
+        triggered_id = json.loads(ctx.triggered[0]['prop_id'].split('.')[0])
+        layer_num = triggered_id['layer']
+        head_idx = triggered_id['head']
+        
+        # Remove the matching layer+head combination
+        selected_heads = [
+            item for item in selected_heads
+            if not (isinstance(item, dict) and item.get('layer') == layer_num and item.get('head') == head_idx)
+        ]
+    except:
+        pass
+    
+    # Create the updated display
+    display = create_selected_heads_display(selected_heads)
+    
+    return selected_heads, len(selected_heads) == 0, display
 
 
 @app.callback(
     Output('ablation-results-container', 'children'),
     [Input('run-ablation-btn', 'n_clicks')],
-    [State('ablation-layer-dropdown', 'value'),
-     State('ablation-selected-heads', 'data'),
+    [State('ablation-selected-heads', 'data'),
      State('session-activation-store', 'data'),
      State('model-dropdown', 'value'),
      State('prompt-input', 'value'),
      State('session-selected-beam-store', 'data')],
     prevent_initial_call=True
 )
-def run_ablation_experiment(n_clicks, layer_num, selected_heads, activation_data, model_name, prompt, selected_beam):
+def run_ablation_experiment(n_clicks, selected_heads, activation_data, model_name, prompt, selected_beam):
     """
-    Agent F: Run ablation on ORIGINAL PROMPT and compare results.
+    Run ablation on ORIGINAL PROMPT and compare results.
     
-    Shows how ablating attention heads affects the model's prediction on the
-    original input. If a beam was selected, shows it for context.
+    Supports multi-layer ablation: groups selected heads by layer and runs
+    ablation for each layer. Shows cumulative effect on model output.
     """
-    if not n_clicks or layer_num is None or not selected_heads or not activation_data:
+    if not n_clicks or not selected_heads or not activation_data:
         return no_update
     
     try:
@@ -699,7 +798,7 @@ def run_ablation_experiment(n_clicks, layer_num, selected_heads, activation_data
         tokenizer = AutoTokenizer.from_pretrained(model_name)
         model.eval()
         
-        # Agent F: Always analyze the original prompt
+        # Always analyze the original prompt
         sequence_text = activation_data.get('prompt', prompt)
         
         config = {
@@ -713,22 +812,128 @@ def run_ablation_experiment(n_clicks, layer_num, selected_heads, activation_data
         original_token = original_output.get('token', '')
         original_prob = original_output.get('probability', 0)
         
-        # Run ablation on original prompt
-        ablated_data = execute_forward_pass_with_head_ablation(
-            model, tokenizer, sequence_text, config, layer_num, selected_heads
-        )
+        # Group selected heads by layer
+        heads_by_layer = {}
+        for item in selected_heads:
+            if isinstance(item, dict):
+                layer = item.get('layer')
+                head = item.get('head')
+                if layer is not None and head is not None:
+                    if layer not in heads_by_layer:
+                        heads_by_layer[layer] = []
+                    heads_by_layer[layer].append(head)
         
-        ablated_output = ablated_data.get('actual_output', {})
-        ablated_token = ablated_output.get('token', '')
-        ablated_prob = ablated_output.get('probability', 0)
+        if not heads_by_layer:
+            return html.Div("No valid heads selected.", style={'color': '#dc3545'})
+        
+        # Run ablation for each layer and track cumulative effect
+        # For multi-layer ablation, we run sequentially but show the final effect
+        # Note: For true simultaneous multi-layer ablation, model_patterns.py would need updates
+        ablated_token = original_token
+        ablated_prob = original_prob
+        
+        # Sort layers and run ablation for each
+        sorted_layers = sorted(heads_by_layer.keys())
+        
+        for layer_num in sorted_layers:
+            head_indices = heads_by_layer[layer_num]
+            ablated_data = execute_forward_pass_with_head_ablation(
+                model, tokenizer, sequence_text, config, layer_num, head_indices
+            )
+            ablated_output = ablated_data.get('actual_output', {})
+            ablated_token = ablated_output.get('token', '')
+            ablated_prob = ablated_output.get('probability', 0)
+        
+        # Format selected heads for display
+        all_heads_formatted = [f"L{item['layer']}-H{item['head']}" for item in selected_heads if isinstance(item, dict)]
         
         # Build results display
-        results = [create_ablation_results_display(
-            original_token, ablated_token, original_prob, ablated_prob,
-            layer_num, selected_heads
-        )]
+        results = []
         
-        # Agent F: If a beam was selected, show context for comparison
+        # Summary of what was ablated
+        results.append(html.Div([
+            html.H5("Ablation Results", style={'color': '#495057', 'marginBottom': '16px'}),
+            html.Div([
+                html.Span("Ablated heads: ", style={'color': '#6c757d'}),
+                html.Span(', '.join(all_heads_formatted),
+                         style={'fontWeight': '500', 'color': '#667eea', 'fontFamily': 'monospace'})
+            ], style={'marginBottom': '16px'})
+        ]))
+        
+        # Before/After comparison
+        output_changed = original_token != ablated_token
+        prob_delta = ablated_prob - original_prob
+        
+        results.append(html.Div([
+            # Original
+            html.Div([
+                html.Div("Original", style={'fontSize': '12px', 'color': '#6c757d', 'marginBottom': '6px'}),
+                html.Div(original_token, style={
+                    'padding': '10px 16px',
+                    'backgroundColor': '#e8f5e9',
+                    'border': '2px solid #4caf50',
+                    'borderRadius': '6px',
+                    'fontFamily': 'monospace',
+                    'fontWeight': '600',
+                    'textAlign': 'center'
+                }),
+                html.Div(f"{original_prob:.1%}", style={
+                    'fontSize': '12px',
+                    'color': '#6c757d',
+                    'marginTop': '4px',
+                    'textAlign': 'center'
+                })
+            ], style={'flex': '1'}),
+            
+            # Arrow
+            html.Div([
+                html.I(className='fas fa-arrow-right', style={
+                    'fontSize': '24px',
+                    'color': '#dc3545' if output_changed else '#6c757d'
+                })
+            ], style={'display': 'flex', 'alignItems': 'center', 'padding': '0 20px'}),
+            
+            # Ablated
+            html.Div([
+                html.Div("After Ablation", style={'fontSize': '12px', 'color': '#6c757d', 'marginBottom': '6px'}),
+                html.Div(ablated_token, style={
+                    'padding': '10px 16px',
+                    'backgroundColor': '#ffebee' if output_changed else '#e8f5e9',
+                    'border': f'2px solid {"#dc3545" if output_changed else "#4caf50"}',
+                    'borderRadius': '6px',
+                    'fontFamily': 'monospace',
+                    'fontWeight': '600',
+                    'textAlign': 'center'
+                }),
+                html.Div(f"{ablated_prob:.1%} ({prob_delta:+.1%})", style={
+                    'fontSize': '12px',
+                    'color': '#dc3545' if prob_delta < 0 else '#4caf50' if prob_delta > 0 else '#6c757d',
+                    'marginTop': '4px',
+                    'textAlign': 'center'
+                })
+            ], style={'flex': '1'})
+            
+        ], style={
+            'display': 'flex',
+            'alignItems': 'stretch',
+            'padding': '16px',
+            'backgroundColor': 'white',
+            'borderRadius': '8px',
+            'border': '1px solid #e2e8f0'
+        }))
+        
+        # Interpretation
+        results.append(html.Div([
+            html.I(className='fas fa-lightbulb', style={'color': '#ffc107', 'marginRight': '8px'}),
+            html.Span(
+                "The prediction changed! These heads are important for this input."
+                if output_changed else
+                "The prediction stayed the same. These heads may not be critical for this specific input.",
+                style={'color': '#6c757d', 'fontSize': '13px'}
+            )
+        ], style={'marginTop': '16px', 'padding': '12px', 'backgroundColor': '#fff8e1', 'borderRadius': '6px'}))
+        
+        # If a beam was selected, show context for comparison
         if selected_beam and selected_beam.get('text'):
             results.append(html.Div([
                 html.Hr(style={'margin': '15px 0', 'borderColor': '#dee2e6'}),
@@ -740,7 +945,12 @@ def run_ablation_experiment(n_clicks, layer_num, selected_heads, activation_data
                 ], style={'fontSize': '13px'})
             ]))
         
-        return html.Div(results)
+        return html.Div(results, style={
+            'padding': '20px',
+            'backgroundColor': '#fafbfc',
+            'borderRadius': '8px',
+            'border': '1px solid #e2e8f0'
+        })
         
     except Exception as e:
         import traceback

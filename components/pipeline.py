@@ -229,6 +229,8 @@ def create_tokenization_content(tokens, token_ids, model_name=None):
     """
     Create content for the tokenization stage.
     
+    Displays tokens in vertical rows: each row shows [token] → [ID]
+    
     Args:
         tokens: List of token strings
         token_ids: List of token IDs
@@ -238,28 +240,47 @@ def create_tokenization_content(tokens, token_ids, model_name=None):
         return html.P("Run analysis to see tokenization details.", 
                      style={'color': '#6c757d', 'fontStyle': 'italic'})
     
-    # Create token chips showing the mapping
-    token_chips = []
+    # Create vertical token rows - each token is its own row
+    token_rows = []
     for i, (tok, tid) in enumerate(zip(tokens, token_ids)):
-        token_chips.append(
+        token_rows.append(
             html.Div([
+                # Token box
                 html.Span(tok, style={
-                    'padding': '4px 10px',
+                    'display': 'inline-block',
+                    'minWidth': '80px',
+                    'padding': '6px 12px',
                     'backgroundColor': '#667eea20',
-                    'borderRadius': '4px',
+                    'borderRadius': '6px',
                     'fontFamily': 'monospace',
                     'fontSize': '13px',
-                    'border': '1px solid #667eea40'
+                    'border': '1px solid #667eea40',
+                    'textAlign': 'center'
                 }),
-                html.Span('→', style={'color': '#adb5bd', 'margin': '0 6px'}),
+                # Arrow
+                html.Span('→', style={
+                    'color': '#adb5bd',
+                    'margin': '0 12px',
+                    'fontSize': '16px'
+                }),
+                # ID box
                 html.Span(str(tid), style={
-                    'padding': '4px 8px',
+                    'display': 'inline-block',
+                    'minWidth': '60px',
+                    'padding': '6px 12px',
                     'backgroundColor': '#764ba220',
-                    'borderRadius': '4px',
+                    'borderRadius': '6px',
                     'fontFamily': 'monospace',
-                    'fontSize': '12px'
+                    'fontSize': '13px',
+                    'border': '1px solid #764ba240',
+                    'textAlign': 'center'
                 })
-            ], style={'display': 'inline-flex', 'alignItems': 'center', 'marginRight': '16px', 'marginBottom': '8px'})
+            ], style={
+                'display': 'flex',
+                'alignItems': 'center',
+                'marginBottom': '8px',
+                'padding': '4px 0'
+            })
         )
     
     return html.Div([
@@ -274,7 +295,37 @@ def create_tokenization_content(tokens, token_ids, model_name=None):
         
         html.Div([
             html.H5("Your tokens:", style={'color': '#495057', 'marginBottom': '12px'}),
-            html.Div(token_chips, style={'display': 'flex', 'flexWrap': 'wrap'})
+            # Header row
+            html.Div([
+                html.Span("Token", style={
+                    'display': 'inline-block',
+                    'minWidth': '80px',
+                    'fontWeight': '600',
+                    'color': '#495057',
+                    'fontSize': '12px',
+                    'textAlign': 'center'
+                }),
+                html.Span('', style={'margin': '0 12px', 'width': '16px'}),
+                html.Span("ID", style={
+                    'display': 'inline-block',
+                    'minWidth': '60px',
+                    'fontWeight': '600',
+                    'color': '#495057',
+                    'fontSize': '12px',
+                    'textAlign': 'center'
+                })
+            ], style={
+                'display': 'flex',
+                'alignItems': 'center',
+                'marginBottom': '12px',
+                'paddingBottom': '8px',
+                'borderBottom': '1px solid #e9ecef'
+            }),
+            # Token rows (vertical layout)
+            html.Div(token_rows, style={
+                'display': 'flex',
+                'flexDirection': 'column'
+            })
         ], style={'padding': '16px', 'backgroundColor': 'white', 'borderRadius': '8px', 'border': '1px solid #e2e8f0'})
     ])
 
@@ -356,7 +407,9 @@ def create_attention_content(attention_html=None, top_attended=None, layer_info=
         attention_html: BertViz HTML string for attention visualization
         top_attended: DEPRECATED - no longer used, kept for backward compatibility
         layer_info: Optional layer information for context
-        head_categories: Optional dict mapping category names to counts (from get_head_category_counts)
+        head_categories: Dict mapping category names to lists of head info dicts (from categorize_all_heads)
+                        Each head info has: {'layer': N, 'head': M, 'label': 'LN-HM', ...}
+                        Can also accept counts dict for backward compatibility.
     """
     content_items = [
         html.Div([
@@ -373,7 +426,7 @@ def create_attention_content(attention_html=None, top_attended=None, layer_info=
         ])
     ]
     
-    # Agent G: Head Categorization Summary (replaces deprecated "Most attended tokens")
+    # Agent G: Head Categorization Summary with expandable categories
     if head_categories:
         category_labels = {
             'previous_token': ('Previous-Token', '#667eea', 'Heads that attend to the immediately preceding token'),
@@ -383,35 +436,91 @@ def create_attention_content(attention_html=None, top_attended=None, layer_info=
             'other': ('Other', '#6c757d', 'Heads with mixed or specialized patterns')
         }
         
-        category_chips = []
-        for cat_key, count in head_categories.items():
+        category_sections = []
+        for cat_key in ['previous_token', 'first_token', 'bow', 'syntactic', 'other']:
+            cat_data = head_categories.get(cat_key, [])
+            
+            # Handle both list format (full data) and int format (counts only, backward compat)
+            if isinstance(cat_data, int):
+                count = cat_data
+                head_list = []
+            else:
+                count = len(cat_data) if cat_data else 0
+                head_list = cat_data
+            
             if count > 0 and cat_key in category_labels:
                 label, color, tooltip = category_labels[cat_key]
-                category_chips.append(
-                    html.Span([
-                        html.Span(label, style={'fontWeight': '500'}),
-                        html.Span(f" ({count})", style={'marginLeft': '4px'})
-                    ], style={
-                        'padding': '6px 12px',
-                        'backgroundColor': f'{color}20',
-                        'border': f'1px solid {color}40',
-                        'borderRadius': '16px',
-                        'marginRight': '8px',
-                        'display': 'inline-block',
-                        'marginBottom': '6px',
-                        'cursor': 'help'
-                    }, title=tooltip)
+                
+                # Build head list display (only if we have full data)
+                head_chips = []
+                if head_list:
+                    for head_info in head_list:
+                        head_label = head_info.get('label', f"L{head_info.get('layer', '?')}-H{head_info.get('head', '?')}")
+                        head_chips.append(
+                            html.Span(head_label, style={
+                                'display': 'inline-block',
+                                'padding': '4px 8px',
+                                'margin': '2px',
+                                'backgroundColor': f'{color}15',
+                                'border': f'1px solid {color}30',
+                                'borderRadius': '4px',
+                                'fontSize': '12px',
+                                'fontFamily': 'monospace'
+                            })
+                        )
+                
+                # Create expandable section for this category
+                category_sections.append(
+                    html.Details([
+                        html.Summary([
+                            html.Span(label, style={'fontWeight': '500', 'color': '#495057'}),
+                            html.Span(f" ({count})", style={'marginLeft': '4px', 'color': '#6c757d'})
+                        ], style={
+                            'padding': '8px 12px',
+                            'backgroundColor': f'{color}15',
+                            'border': f'1px solid {color}30',
+                            'borderRadius': '8px',
+                            'cursor': 'pointer',
+                            'userSelect': 'none',
+                            'listStyle': 'none',
+                            'display': 'flex',
+                            'alignItems': 'center'
+                        }, title=tooltip),
+                        # Expanded content - list of heads
+                        html.Div([
+                            html.P(tooltip, style={
+                                'color': '#6c757d',
+                                'fontSize': '12px',
+                                'marginBottom': '8px',
+                                'fontStyle': 'italic'
+                            }),
+                            html.Div(head_chips if head_chips else [
+                                html.Span("Head details not available", style={'color': '#999', 'fontSize': '12px'})
+                            ], style={
+                                'display': 'flex',
+                                'flexWrap': 'wrap',
+                                'gap': '4px'
+                            })
+                        ], style={
+                            'padding': '12px',
+                            'backgroundColor': '#fafbfc',
+                            'borderRadius': '0 0 8px 8px',
+                            'marginTop': '-1px',
+                            'border': f'1px solid {color}30',
+                            'borderTop': 'none'
+                        })
+                    ], style={'marginBottom': '8px'})
                 )
         
-        if category_chips:
+        if category_sections:
             content_items.append(
                 html.Div([
                     html.H5("Attention Head Categories:", style={'color': '#495057', 'marginBottom': '12px'}),
-                    html.Div(category_chips),
                     html.P([
                         html.I(className='fas fa-info-circle', style={'color': '#6c757d', 'marginRight': '6px'}),
-                        "Heads are automatically categorized based on their attention patterns. Hover for descriptions."
-                    ], style={'color': '#6c757d', 'fontSize': '12px', 'marginTop': '8px'})
+                        "Click each category to expand and see which heads belong to it."
+                    ], style={'color': '#6c757d', 'fontSize': '12px', 'marginBottom': '12px'}),
+                    html.Div(category_sections)
                 ], style={'marginBottom': '16px'})
             )
     
@@ -425,9 +534,22 @@ def create_attention_content(attention_html=None, top_attended=None, layer_info=
                     html.Div([
                         html.I(className='fas fa-mouse-pointer', style={'color': '#f093fb', 'marginRight': '8px'}),
                         html.Strong("Select heads: "),
-                        html.Span("Click on layer/head numbers at the top to view specific attention heads. ",
+                        html.Span("Click on layer/head numbers at the top to view specific attention heads.",
                                  style={'color': '#6c757d'})
-                    ], style={'marginBottom': '8px'}),
+                    ], style={'marginBottom': '4px'}),
+                    # Sub-points for click behaviors
+                    html.Div([
+                        html.Span("• ", style={'color': '#f093fb', 'fontWeight': 'bold'}),
+                        html.Strong("Single click ", style={'color': '#495057'}),
+                        html.Span("on a colored head square: selects or deselects that head",
+                                 style={'color': '#6c757d'})
+                    ], style={'marginLeft': '28px', 'marginBottom': '4px', 'fontSize': '13px'}),
+                    html.Div([
+                        html.Span("• ", style={'color': '#f093fb', 'fontWeight': 'bold'}),
+                        html.Strong("Double click ", style={'color': '#495057'}),
+                        html.Span("on a colored head square: selects only that head (deselects all others)",
+                                 style={'color': '#6c757d'})
+                    ], style={'marginLeft': '28px', 'marginBottom': '12px', 'fontSize': '13px'}),
                     html.Div([
                         html.I(className='fas fa-arrows-alt-h', style={'color': '#f093fb', 'marginRight': '8px'}),
                         html.Strong("Lines show attention: "),
