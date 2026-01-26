@@ -674,8 +674,12 @@ def update_ablation_head_grid(layer_num, selected_heads, model_name):
         from transformers import AutoConfig
         config = AutoConfig.from_pretrained(model_name)
         num_heads = config.num_attention_heads
-        # Pass selected heads so buttons show proper selection state
-        return create_ablation_head_buttons(num_heads, layer_num, selected_heads or [])
+        # Filter to only valid dict entries and pass to button creator
+        valid_selected = [
+            item for item in (selected_heads or [])
+            if isinstance(item, dict) and 'layer' in item and 'head' in item
+        ]
+        return create_ablation_head_buttons(num_heads, layer_num, valid_selected)
     except:
         return html.P("Could not load model config.", style={'color': '#dc3545'})
 
@@ -693,18 +697,31 @@ def handle_ablation_head_selection(n_clicks_list, selected_heads):
     Handle head button clicks - stores layer+head combinations and preserves
     selections across layer changes.
     """
-    if not any(n_clicks_list):
+    # Check if any button was actually clicked (n_clicks > 0)
+    if not n_clicks_list or not any(n for n in n_clicks_list if n and n > 0):
         return no_update, no_update, no_update
     
     ctx = dash.callback_context
     if not ctx.triggered:
         return no_update, no_update, no_update
     
+    # Get the triggered button's n_clicks value
+    triggered_prop = ctx.triggered[0]
+    triggered_value = triggered_prop.get('value', 0)
+    
+    # Only process if this is an actual click (not initial render)
+    if not triggered_value or triggered_value == 0:
+        return no_update, no_update, no_update
+    
+    # Initialize or clean up selected_heads - ensure it's a list of dicts
     if selected_heads is None:
         selected_heads = []
+    else:
+        # Filter out any non-dict entries (cleanup old format data)
+        selected_heads = [item for item in selected_heads if isinstance(item, dict)]
     
     try:
-        triggered_id = json.loads(ctx.triggered[0]['prop_id'].split('.')[0])
+        triggered_id = json.loads(triggered_prop['prop_id'].split('.')[0])
         layer_num = triggered_id['layer']
         head_idx = triggered_id['head']
         
@@ -724,7 +741,8 @@ def handle_ablation_head_selection(n_clicks_list, selected_heads):
         else:
             # Add if not selected
             selected_heads.append(new_item)
-    except:
+    except Exception as e:
+        print(f"Error in handle_ablation_head_selection: {e}")
         pass
     
     # Create the display of selected heads
@@ -743,18 +761,27 @@ def handle_ablation_head_selection(n_clicks_list, selected_heads):
 )
 def handle_ablation_head_removal(n_clicks_list, selected_heads):
     """Handle removing individual head selections via the x button on chips."""
-    if not any(n_clicks_list):
+    # Check if any button was actually clicked
+    if not n_clicks_list or not any(n for n in n_clicks_list if n and n > 0):
         return no_update, no_update, no_update
     
     ctx = dash.callback_context
     if not ctx.triggered:
         return no_update, no_update, no_update
     
+    # Get the triggered button's n_clicks value
+    triggered_prop = ctx.triggered[0]
+    triggered_value = triggered_prop.get('value', 0)
+    
+    # Only process if this is an actual click
+    if not triggered_value or triggered_value == 0:
+        return no_update, no_update, no_update
+    
     if selected_heads is None:
         selected_heads = []
     
     try:
-        triggered_id = json.loads(ctx.triggered[0]['prop_id'].split('.')[0])
+        triggered_id = json.loads(triggered_prop['prop_id'].split('.')[0])
         layer_num = triggered_id['layer']
         head_idx = triggered_id['head']
         
@@ -763,7 +790,8 @@ def handle_ablation_head_removal(n_clicks_list, selected_heads):
             item for item in selected_heads
             if not (isinstance(item, dict) and item.get('layer') == layer_num and item.get('head') == head_idx)
         ]
-    except:
+    except Exception as e:
+        print(f"Error in handle_ablation_head_removal: {e}")
         pass
     
     # Create the updated display

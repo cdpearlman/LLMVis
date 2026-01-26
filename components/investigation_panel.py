@@ -284,8 +284,17 @@ def create_selected_heads_display(selected_heads):
     
     chips = []
     for item in selected_heads:
+        # Skip invalid items (non-dict entries from old format)
+        if not isinstance(item, dict):
+            continue
+            
         layer = item.get('layer')
         head = item.get('head')
+        
+        # Skip if missing required fields
+        if layer is None or head is None:
+            continue
+            
         label = f"L{layer}-H{head}"
         
         chips.append(
@@ -319,6 +328,12 @@ def create_selected_heads_display(selected_heads):
                 'fontFamily': 'monospace',
                 'fontWeight': '500'
             })
+        )
+    
+    if not chips:
+        return html.Div(
+            "No heads selected yet",
+            style={'color': '#6c757d', 'fontSize': '13px', 'fontStyle': 'italic', 'padding': '8px 0'}
         )
     
     return html.Div(chips, style={
