@@ -25,3 +25,17 @@
 - [x] Delete `prompt_comparison.py`
 - [x] Update `utils/__init__.py` exports
 - [x] Add pipeline CSS styles to `assets/style.css`
+
+## Completed: Pipeline Clarity Improvements (Agent A)
+
+- [x] Rename "Max New Tokens:" to "Number of New Tokens:" in app.py
+- [x] Rename "Beam Width:" to "Number of Generation Choices:" in app.py
+- [x] Remove score display from generated sequences in app.py
+- [x] Update glossary to clarify "Number of Generation Choices" relates to Beam Search
+
+## In Progress: Pipeline Clarity Improvements (Agent D)
+
+- [ ] Switch generate_bertviz_html from model_view to head_view in model_patterns.py
+- [ ] Deprecate _get_top_attended_tokens function (remove usage in extract_layer_data)
+- [ ] Add generate_head_view_with_categories function for categorized attention heads
+- [ ] Run tests to verify no regressions

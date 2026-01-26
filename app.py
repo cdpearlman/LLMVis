@@ -82,7 +82,7 @@ app.layout = html.Div([
                         
                         html.Div([
                             html.Div([
-                                html.Label("Max New Tokens:", className="input-label"),
+                                html.Label("Number of New Tokens:", className="input-label"),
                                 dcc.Slider(
                                     id='max-new-tokens-slider',
                                     min=1, max=20, step=1, value=1,
@@ -92,7 +92,7 @@ app.layout = html.Div([
                             ], style={'flex': '1', 'marginRight': '20px'}),
                             
                             html.Div([
-                                html.Label("Beam Width:", className="input-label"),
+                                html.Label("Number of Generation Choices:", className="input-label"),
                                 dcc.Slider(
                                     id='beam-width-slider',
                                     min=1, max=5, step=1, value=1,
@@ -331,12 +331,11 @@ def run_generation(n_clicks, model_name, prompt, max_new_tokens, beam_width, pat
         results_ui = []
         if max_new_tokens > 1:
             results_ui.append(html.H4("Generated Sequences", className="section-title"))
-            for i, result in enumerate(results):
-                results_ui.append(html.Div([
-                    html.Div([
-                        html.Span(f"Rank {i+1}", style={'fontWeight': 'bold', 'marginRight': '10px', 'color': '#667eea'}),
-                        html.Span(f"Score: {result['score']:.4f}", style={'fontSize': '12px', 'color': '#6c757d'})
-                    ], style={'marginBottom': '5px'}),
+                for i, result in enumerate(results):
+                    results_ui.append(html.Div([
+                        html.Div([
+                            html.Span(f"Rank {i+1}", style={'fontWeight': 'bold', 'marginRight': '10px', 'color': '#667eea'})
+                        ], style={'marginBottom': '5px'}),
                     html.Div(result['text'], style={'fontFamily': 'monospace', 'backgroundColor': '#fff', 'padding': '10px', 'borderRadius': '4px', 'border': '1px solid #dee2e6'}),
                     html.Button("Analyze", id={'type': 'result-item', 'index': i}, n_clicks=0,
                                className="action-button secondary-button", style={'marginTop': '10px', 'fontSize': '12px'})
@@ -508,8 +507,11 @@ def update_pipeline_content(activation_data, model_name):
         outputs.append(create_mlp_content(num_layers, hidden_dim, intermediate_dim))
         
         # Stage 5: Output
+        # Get original prompt for context display
+        original_prompt = activation_data.get('prompt', '')
         outputs.append(f"→ {predicted_token}")
-        outputs.append(create_output_content(top_tokens, predicted_token, predicted_prob))
+        outputs.append(create_output_content(top_tokens, predicted_token, predicted_prob, 
+                                             original_prompt=original_prompt))
         
         return tuple(outputs)
         

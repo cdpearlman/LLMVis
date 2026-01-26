@@ -46,7 +46,7 @@ def create_glossary_modal():
                 _create_term_entry(
                     "Beam Search", 
                     "Exploring Multiple Paths",
-                    "Instead of just picking the single best next word, Beam Search explores several likely future paths simultaneously (like parallel universes) and picks the one that makes the most sense overall."
+                    "Instead of just picking the single best next word, Beam Search explores several likely future paths simultaneously (like parallel universes) and picks the one that makes the most sense overall. The 'Number of Generation Choices' setting controls how many paths are explored at once."
                 )
             ], className="glossary-content", style={'maxHeight': '60vh', 'overflowY': 'auto', 'padding': '0 20px 10px 10px'})
             
