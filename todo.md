@@ -104,3 +104,11 @@
 - [x] Preserve selections across layer dropdown changes
 - [x] Update run_ablation_experiment to handle multi-layer ablation
 - [x] Verify all 73 tests pass
+
+## Completed: Fix Multi-Layer Ablation Bug
+
+- [x] Create `execute_forward_pass_with_multi_layer_head_ablation` in model_patterns.py
+- [x] Export new function in utils/__init__.py
+- [x] Replace per-layer ablation loop in app.py with single call to new function
+- [x] Add 5 tests for multi-layer ablation in test_model_patterns.py
+- [x] Verify all 78 tests pass
