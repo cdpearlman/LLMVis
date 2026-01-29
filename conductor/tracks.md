@@ -4,5 +4,5 @@ This file tracks all major tracks for the project. Each track has its own detail
 
 ---
 
-- [~] **Track: Implement interactive ablation studies for attention heads in the Dash dashboard.**
+- [x] **Track: Implement interactive ablation studies for attention heads in the Dash dashboard.**
   *Link: [./tracks/ablation_20260129/](./tracks/ablation_20260129/)*
