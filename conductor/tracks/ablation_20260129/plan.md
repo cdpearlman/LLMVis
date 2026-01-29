@@ -1,6 +1,6 @@
 # Implementation Plan - Interactive Attention Head Ablation
 
-## Phase 1: Backend Support for Ablation
+## Phase 1: Backend Support for Ablation [checkpoint: 5fc7374]
 - [x] Task: Create a reproduction script to test manual PyVene interventions for head ablation. [43cf4ff]
     - [x] Sub-task: Write a standalone script that loads a small model (e.g., GPT-2) and uses PyVene to zero out a specific head (e.g., L0H0).
     - [x] Sub-task: Verify that the output logits change compared to the baseline run.
