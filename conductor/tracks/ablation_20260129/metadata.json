@@ -1,0 +1,8 @@
+{
+  "track_id": "ablation_20260129",
+  "type": "feature",
+  "status": "new",
+  "created_at": "2026-01-29T12:40:00Z",
+  "updated_at": "2026-01-29T12:40:00Z",
+  "description": "Implement interactive ablation studies for attention heads in the Dash dashboard."
+}
