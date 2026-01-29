@@ -12,7 +12,7 @@
     - [ ] Sub-task: Ensure the pipeline correctly applies the mask before running the forward pass.
 - [ ] Task: Conductor - User Manual Verification 'Backend Support for Ablation' (Protocol in workflow.md)
 
-## Phase 2: Frontend Control Panel
+## Phase 2: Frontend Control Panel [checkpoint: 24bd049]
 - [x] Task: Create an `AblationPanel` component in `components/`. [e2e8f0]
     - [x] Sub-task: Integrate BertViz Model View to visualize attention heads (replacing custom heatmap/grid).
     - [x] Sub-task: Implement the callback to handle clicks on the grid and update a `dcc.Store` with the list of disabled heads.
