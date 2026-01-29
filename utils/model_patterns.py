@@ -446,6 +446,197 @@ def execute_forward_pass_with_head_ablation(model, tokenizer, prompt: str, confi
     return result
 
 
+def execute_forward_pass_with_multi_layer_head_ablation(model, tokenizer, prompt: str, config: Dict[str, Any],
+                                                        heads_by_layer: Dict[int, List[int]]) -> Dict[str, Any]:
+    """
+    Execute forward pass with specific attention heads zeroed out across multiple layers simultaneously.
+    
+    Args:
+        model: Loaded transformer model
+        tokenizer: Loaded tokenizer
+        prompt: Input text prompt
+        config: Dict with module lists like {"attention_modules": [...], "block_modules": [...], ...}
+        heads_by_layer: Dict mapping layer numbers to lists of head indices to ablate
+                        e.g., {0: [1, 3], 2: [0, 5]} ablates heads 1,3 in layer 0 and heads 0,5 in layer 2
+    
+    Returns:
+        JSON-serializable dict with captured activations (with all specified heads ablated)
+    """
+    # Format ablation info for logging
+    ablation_info = ", ".join([f"L{layer}: H{heads}" for layer, heads in sorted(heads_by_layer.items())])
+    print(f"Executing forward pass with multi-layer head ablation: {ablation_info}")
+    
+    # Handle empty heads_by_layer - just run normal forward pass
+    if not heads_by_layer:
+        from utils.model_patterns import execute_forward_pass
+        return execute_forward_pass(model, tokenizer, prompt, config)
+    
+    # Extract module lists from config
+    attention_modules = config.get("attention_modules", [])
+    block_modules = config.get("block_modules", [])
+    norm_parameters = config.get("norm_parameters", [])
+    logit_lens_parameter = config.get("logit_lens_parameter")
+    
+    all_modules = attention_modules + block_modules
+    if not all_modules:
+        return {"error": "No modules specified"}
+    
+    # Build mapping from layer number to attention module name
+    layer_to_attention_module = {}
+    for mod_name in attention_modules:
+        layer_match = re.search(r'\.(\d+)(?:\.|$)', mod_name)
+        if layer_match:
+            layer_num = int(layer_match.group(1))
+            layer_to_attention_module[layer_num] = mod_name
+    
+    # Find target attention modules for all layers to ablate
+    target_modules_to_heads = {}  # module_name -> list of head indices
+    for layer_num, head_indices in heads_by_layer.items():
+        if layer_num in layer_to_attention_module:
+            mod_name = layer_to_attention_module[layer_num]
+            target_modules_to_heads[mod_name] = head_indices
+        else:
+            return {"error": f"Could not find attention module for layer {layer_num}"}
+    
+    # Build IntervenableConfig
+    intervenable_representations = []
+    for mod_name in all_modules:
+        layer_match = re.search(r'\.(\d+)(?:\.|$)', mod_name)
+        if not layer_match:
+            return {"error": f"Invalid module name format: {mod_name}"}
+        
+        if 'attn' in mod_name or 'attention' in mod_name:
+            component = 'attention_output'
+        else:
+            component = 'block_output'
+        
+        intervenable_representations.append(
+            RepresentationConfig(layer=int(layer_match.group(1)), component=component, unit="pos")
+        )
+    
+    intervenable_config = IntervenableConfig(
+        intervenable_representations=intervenable_representations
+    )
+    intervenable_model = IntervenableModel(intervenable_config, model)
+    
+    # Prepare inputs
+    inputs = tokenizer(prompt, return_tensors="pt")
+    
+    # Register hooks to capture activations
+    captured = {}
+    name_to_module = dict(intervenable_model.model.named_modules())
+    
+    def make_hook(mod_name: str):
+        return lambda module, inputs, output: captured.update({mod_name: {"output": safe_to_serializable(output)}})
+    
+    # Create parameterized head ablation hook factory
+    def make_head_ablation_hook(target_mod_name: str, ablate_head_indices: List[int]):
+        """Create a hook that zeros out specific attention heads and captures the output."""
+        def head_ablation_hook(module, input, output):
+            ablated_output = output  # Default to original output
+            
+            if isinstance(output, tuple):
+                # Attention modules typically return (hidden_states, attention_weights, ...)
+                hidden_states = output[0]  # [batch, seq_len, hidden_dim]
+                
+                # Convert to tensor if needed
+                if not isinstance(hidden_states, torch.Tensor):
+                    hidden_states = torch.tensor(hidden_states)
+                
+                batch_size, seq_len, hidden_dim = hidden_states.shape
+                
+                # Determine head dimension
+                num_heads = model.config.num_attention_heads
+                head_dim = hidden_dim // num_heads
+                
+                # Reshape to [batch, seq_len, num_heads, head_dim]
+                hidden_states_reshaped = hidden_states.view(batch_size, seq_len, num_heads, head_dim)
+                
+                # Zero out specified heads
+                for head_idx in ablate_head_indices:
+                    if 0 <= head_idx < num_heads:
+                        hidden_states_reshaped[:, :, head_idx, :] = 0.0
+                
+                # Reshape back to [batch, seq_len, hidden_dim]
+                ablated_hidden = hidden_states_reshaped.view(batch_size, seq_len, hidden_dim)
+                
+                # Reconstruct output tuple
+                if len(output) > 1:
+                    ablated_output = (ablated_hidden,) + output[1:]
+                else:
+                    ablated_output = (ablated_hidden,)
+            
+            # Capture the ablated output
+            captured.update({target_mod_name: {"output": safe_to_serializable(ablated_output)}})
+            
+            return ablated_output
+        return head_ablation_hook
+    
+    # Register hooks
+    hooks = []
+    for mod_name in all_modules:
+        if mod_name in name_to_module:
+            if mod_name in target_modules_to_heads:
+                # Apply head ablation hook for this module
+                head_indices = target_modules_to_heads[mod_name]
+                hooks.append(name_to_module[mod_name].register_forward_hook(
+                    make_head_ablation_hook(mod_name, head_indices)
+                ))
+            else:
+                # Regular capture hook
+                hooks.append(name_to_module[mod_name].register_forward_hook(make_hook(mod_name)))
+    
+    # Execute forward pass
+    with torch.no_grad():
+        model_output = intervenable_model.model(**inputs, use_cache=False)
+    
+    # Remove hooks
+    for hook in hooks:
+        hook.remove()
+    
+    # Separate outputs by type
+    attention_outputs = {}
+    block_outputs = {}
+    
+    for mod_name, output in captured.items():
+        if 'attn' in mod_name or 'attention' in mod_name:
+            attention_outputs[mod_name] = output
+        else:
+            block_outputs[mod_name] = output
+    
+    # Capture normalization parameters
+    all_params = dict(model.named_parameters())
+    norm_data = [safe_to_serializable(all_params[p]) for p in norm_parameters if p in all_params]
+    
+    # Extract predicted token from model output
+    actual_output = None
+    global_top5_tokens = []
+    try:
+        output_token, output_prob = get_actual_model_output(model_output, tokenizer)
+        actual_output = {"token": output_token, "probability": output_prob}
+        global_top5_tokens = compute_global_top5_tokens(model_output, tokenizer, top_k=5)
+    except Exception as e:
+        print(f"Warning: Could not extract model output: {e}")
+    
+    # Build output dictionary
+    result = {
+        "model": getattr(model.config, "name_or_path", "unknown"),
+        "prompt": prompt,
+        "input_ids": safe_to_serializable(inputs["input_ids"]),
+        "attention_modules": list(attention_outputs.keys()),
+        "attention_outputs": attention_outputs,
+        "block_modules": list(block_outputs.keys()),
+        "block_outputs": block_outputs,
+        "norm_parameters": norm_parameters,
+        "norm_data": norm_data,
+        "actual_output": actual_output,
+        "global_top5_tokens": global_top5_tokens,
+        "ablated_heads_by_layer": heads_by_layer  # Include ablation info in result
+    }
+    
+    return result
+
+
 def execute_forward_pass_with_layer_ablation(model, tokenizer, prompt: str, config: Dict[str, Any], 
                                              ablate_layer_num: int, reference_activation_data: Dict[str, Any]) -> Dict[str, Any]:
     """

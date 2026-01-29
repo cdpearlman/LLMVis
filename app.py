@@ -11,7 +11,9 @@ import json
 import torch
 from utils import (load_model_and_get_patterns, execute_forward_pass, extract_layer_data,
                    categorize_single_layer_heads, perform_beam_search,
-                   execute_forward_pass_with_head_ablation, evaluate_sequence_ablation, score_sequence,
+                   execute_forward_pass_with_head_ablation,
+                   execute_forward_pass_with_multi_layer_head_ablation,
+                   evaluate_sequence_ablation, score_sequence,
                    get_head_category_counts)
 from utils.head_detection import categorize_all_heads
 from utils.model_config import get_auto_selections
@@ -854,23 +856,13 @@ def run_ablation_experiment(n_clicks, selected_heads, activation_data, model_nam
         if not heads_by_layer:
             return html.Div("No valid heads selected.", style={'color': '#dc3545'})
         
-        # Run ablation for each layer and track cumulative effect
-        # For multi-layer ablation, we run sequentially but show the final effect
-        # Note: For true simultaneous multi-layer ablation, model_patterns.py would need updates
-        ablated_token = original_token
-        ablated_prob = original_prob
-        
-        # Sort layers and run ablation for each
-        sorted_layers = sorted(heads_by_layer.keys())
-        
-        for layer_num in sorted_layers:
-            head_indices = heads_by_layer[layer_num]
-            ablated_data = execute_forward_pass_with_head_ablation(
-                model, tokenizer, sequence_text, config, layer_num, head_indices
-            )
-            ablated_output = ablated_data.get('actual_output', {})
-            ablated_token = ablated_output.get('token', '')
-            ablated_prob = ablated_output.get('probability', 0)
+        # Run ablation for all layers simultaneously in a single forward pass
+        ablated_data = execute_forward_pass_with_multi_layer_head_ablation(
+            model, tokenizer, sequence_text, config, heads_by_layer
+        )
+        ablated_output = ablated_data.get('actual_output', {})
+        ablated_token = ablated_output.get('token', '')
+        ablated_prob = ablated_output.get('probability', 0)
         
         # Format selected heads for display
         all_heads_formatted = [f"L{item['layer']}-H{item['head']}" for item in selected_heads if isinstance(item, dict)]

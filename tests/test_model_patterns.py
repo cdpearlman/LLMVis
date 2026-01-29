@@ -4,12 +4,14 @@ Tests for utils/model_patterns.py
 Tests pure logic functions that don't require model loading:
 - merge_token_probabilities
 - safe_to_serializable
+- execute_forward_pass_with_multi_layer_head_ablation (import/signature tests)
 """
 
 import pytest
 import torch
 import numpy as np
 from utils.model_patterns import merge_token_probabilities, safe_to_serializable
+from utils import execute_forward_pass_with_multi_layer_head_ablation
 
 
 class TestMergeTokenProbabilities:
@@ -178,3 +180,84 @@ class TestSafeToSerializableEdgeCases:
         assert result[1] == "string"
         assert result[2] == 42
         assert result[3] == {"key": [2]}
+
+
+class TestMultiLayerHeadAblation:
+    """Tests for execute_forward_pass_with_multi_layer_head_ablation function.
+    
+    These tests verify the function exists, is importable, and has the expected signature.
+    Full integration tests would require loading a model.
+    """
+    
+    def test_function_is_importable(self):
+        """Function should be importable from utils."""
+        from utils import execute_forward_pass_with_multi_layer_head_ablation
+        assert callable(execute_forward_pass_with_multi_layer_head_ablation)
+    
+    def test_function_has_expected_signature(self):
+        """Function should accept model, tokenizer, prompt, config, heads_by_layer."""
+        import inspect
+        sig = inspect.signature(execute_forward_pass_with_multi_layer_head_ablation)
+        params = list(sig.parameters.keys())
+        
+        assert 'model' in params
+        assert 'tokenizer' in params
+        assert 'prompt' in params
+        assert 'config' in params
+        assert 'heads_by_layer' in params
+    
+    def test_heads_by_layer_type_annotation(self):
+        """heads_by_layer parameter should accept Dict[int, List[int]]."""
+        import inspect
+        from typing import Dict, List, get_type_hints
+        
+        # Get annotations (may not be available at runtime if not using from __future__)
+        sig = inspect.signature(execute_forward_pass_with_multi_layer_head_ablation)
+        heads_param = sig.parameters.get('heads_by_layer')
+        
+        # The parameter should exist
+        assert heads_param is not None
+        # Annotation may be a string or the actual type
+        if heads_param.annotation != inspect.Parameter.empty:
+            annotation_str = str(heads_param.annotation)
+            assert 'Dict' in annotation_str or 'dict' in annotation_str.lower()
+    
+    def test_returns_error_for_no_modules(self):
+        """Should return error dict when config has no modules.
+        
+        Note: This test uses a mock model that won't actually run forward pass.
+        The function should return early with an error before trying to run.
+        """
+        from unittest.mock import MagicMock
+        
+        mock_model = MagicMock()
+        mock_tokenizer = MagicMock()
+        empty_config = {}  # No modules specified
+        heads_by_layer = {0: [1]}  # Non-empty to avoid early return
+        
+        result = execute_forward_pass_with_multi_layer_head_ablation(
+            mock_model, mock_tokenizer, "test prompt", empty_config, heads_by_layer
+        )
+        
+        assert 'error' in result
+        assert 'No modules specified' in result['error']
+    
+    def test_returns_error_for_invalid_layer(self):
+        """Should return error when layer number doesn't match any module."""
+        from unittest.mock import MagicMock
+        
+        mock_model = MagicMock()
+        mock_tokenizer = MagicMock()
+        # Config has layer 0 and 1, but we'll request layer 99
+        config = {
+            'attention_modules': ['model.layers.0.self_attn', 'model.layers.1.self_attn'],
+            'block_modules': ['model.layers.0', 'model.layers.1']
+        }
+        heads_by_layer = {99: [0, 1]}  # Layer 99 doesn't exist
+        
+        result = execute_forward_pass_with_multi_layer_head_ablation(
+            mock_model, mock_tokenizer, "test prompt", config, heads_by_layer
+        )
+        
+        assert 'error' in result
+        assert '99' in result['error']  # Should mention the invalid layer
