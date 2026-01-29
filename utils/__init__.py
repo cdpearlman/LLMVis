@@ -8,7 +8,7 @@ from .model_patterns import (load_model_and_get_patterns, execute_forward_pass,
                              merge_token_probabilities, 
                              compute_global_top5_tokens, detect_significant_probability_increases, 
                              compute_layer_wise_summaries, evaluate_sequence_ablation, 
-                             compute_position_layer_matrix)
+                             compute_position_layer_matrix, generate_bertviz_model_view_html)
 from .model_config import get_model_family, get_family_config, get_auto_selections, MODEL_TO_FAMILY, MODEL_FAMILIES
 from .head_detection import categorize_all_heads, categorize_single_layer_heads, format_categorization_summary, HeadCategorizationConfig
 from .beam_search import perform_beam_search, compute_sequence_trajectory
@@ -36,6 +36,7 @@ __all__ = [
     'detect_significant_probability_increases',
     'compute_layer_wise_summaries',
     'compute_position_layer_matrix',
+    'generate_bertviz_model_view_html',
     
     # Model config
     'get_model_family',
