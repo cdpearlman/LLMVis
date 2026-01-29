@@ -148,7 +148,7 @@ def get_actual_model_output(model_output, tokenizer) -> Tuple[str, float]:
         return token_str, top_prob.item()
 
 
-def execute_forward_pass(model, tokenizer, prompt: str, config: Dict[str, Any]) -> Dict[str, Any]:
+def execute_forward_pass(model, tokenizer, prompt: str, config: Dict[str, Any], ablation_config: Optional[Dict[int, List[int]]] = None) -> Dict[str, Any]:
     """
     Execute forward pass with PyVene IntervenableModel to capture activations from specified modules.
     
@@ -157,10 +157,14 @@ def execute_forward_pass(model, tokenizer, prompt: str, config: Dict[str, Any]) 
         tokenizer: Loaded tokenizer
         prompt: Input text prompt
         config: Dict with module lists like {"attention_modules": [...], "block_modules": [...], ...}
+        ablation_config: Optional dict mapping layer numbers to list of head indices to ablate.
     
     Returns:
         JSON-serializable dict with captured activations and metadata
     """
+    if ablation_config:
+        return execute_forward_pass_with_multi_layer_head_ablation(model, tokenizer, prompt, config, ablation_config)
+
     print(f"Executing forward pass with prompt: '{prompt}'")
     
     # Extract module lists from config
