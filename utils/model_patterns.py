@@ -223,7 +223,7 @@ def execute_forward_pass(model, tokenizer, prompt: str, config: Dict[str, Any], 
     
     # Execute forward pass through underlying model and capture actual output
     with torch.no_grad():
-        model_output = intervenable_model.model(**inputs, use_cache=False)
+        model_output = intervenable_model.model(**inputs, use_cache=False, output_attentions=True)
     
     # Remove hooks
     for hook in hooks:
@@ -1596,6 +1596,66 @@ def extract_layer_data(activation_data: Dict[str, Any], model, tokenizer) -> Lis
             prev_global_probs = {}
     
     return layer_data
+
+
+def generate_bertviz_model_view_html(activation_data: Dict[str, Any]) -> str:
+    """
+    Generate BertViz model view HTML.
+    
+    Shows a comprehensive view of attention across all layers and heads.
+    
+    Args:
+        activation_data: Output from execute_forward_pass
+    
+    Returns:
+        HTML string for the visualization
+    """
+    try:
+        from bertviz import model_view
+        from transformers import AutoTokenizer
+        
+        # Extract attention modules and sort by layer
+        attention_outputs = activation_data.get('attention_outputs', {})
+        if not attention_outputs:
+            return f"<p>No attention data available</p>"
+        
+        # Sort attention modules by layer number
+        layer_attention_pairs = []
+        for module_name in attention_outputs.keys():
+            numbers = re.findall(r'\d+', module_name)
+            if numbers:
+                layer_num = int(numbers[0])
+                attention_output = attention_outputs[module_name]['output']
+                if isinstance(attention_output, list) and len(attention_output) >= 2:
+                    # Get attention weights (element 1 of the output tuple)
+                    attention_weights = torch.tensor(attention_output[1])  # [batch, heads, seq, seq]
+                    layer_attention_pairs.append((layer_num, attention_weights))
+        
+        if not layer_attention_pairs:
+            return f"<p>No valid attention data found</p>"
+        
+        # Sort by layer number and extract attention tensors
+        layer_attention_pairs.sort(key=lambda x: x[0])
+        attentions = tuple(attn for _, attn in layer_attention_pairs)
+        
+        # Get tokens
+        input_ids = torch.tensor(activation_data['input_ids'])
+        model_name = activation_data.get('model', 'unknown')
+        
+        # Load tokenizer and convert to tokens
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        raw_tokens = tokenizer.convert_ids_to_tokens(input_ids[0])
+        # Clean up tokens (remove special tokenizer artifacts like Ġ for GPT-2)
+        tokens = [token.replace('Ġ', ' ') if token.startswith('Ġ') else token for token in raw_tokens]
+        
+        # Generate model_view
+        html_result = model_view(attentions, tokens, html_action='return')
+        return html_result.data if hasattr(html_result, 'data') else str(html_result)
+            
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return f"<p>Error generating visualization: {str(e)}</p>"
 
 
 def generate_bertviz_html(activation_data: Dict[str, Any], layer_index: int, view_type: str = 'full') -> str:

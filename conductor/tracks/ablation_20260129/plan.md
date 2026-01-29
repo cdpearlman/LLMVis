@@ -13,10 +13,10 @@
 - [ ] Task: Conductor - User Manual Verification 'Backend Support for Ablation' (Protocol in workflow.md)
 
 ## Phase 2: Frontend Control Panel
-- [ ] Task: Create an `AblationPanel` component in `components/`.
-    - [ ] Sub-task: Design a layout (e.g., Heatmap or Grid) that displays all heads (Layers rows x Heads columns).
-    - [ ] Sub-task: Implement the callback to handle clicks on the grid and update a `dcc.Store` with the list of disabled heads.
-- [ ] Task: Integrate the `AblationPanel` into `app.py`.
+- [x] Task: Create an `AblationPanel` component in `components/`. [e2e8f0]
+    - [x] Sub-task: Integrate BertViz Model View to visualize attention heads (replacing custom heatmap/grid).
+    - [x] Sub-task: Implement the callback to handle clicks on the grid and update a `dcc.Store` with the list of disabled heads.
+- [x] Task: Integrate the `AblationPanel` into `app.py`. [e2e8f0]
     - [ ] Sub-task: Add the panel to the main layout (likely in a new "Experiments" tab or collapsible sidebar).
     - [ ] Sub-task: Connect the global "Run" or "Update" callback to include the ablation state from the store.
 - [ ] Task: Conductor - User Manual Verification 'Frontend Control Panel' (Protocol in workflow.md)

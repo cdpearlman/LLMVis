@@ -14,7 +14,7 @@ from utils import (load_model_and_get_patterns, execute_forward_pass, extract_la
                    execute_forward_pass_with_head_ablation,
                    execute_forward_pass_with_multi_layer_head_ablation,
                    evaluate_sequence_ablation, score_sequence,
-                   get_head_category_counts)
+                   get_head_category_counts, generate_bertviz_model_view_html)
 from utils.head_detection import categorize_all_heads
 from utils.model_config import get_auto_selections
 from utils.token_attribution import compute_integrated_gradients, compute_simple_gradient_attribution
@@ -26,9 +26,8 @@ from components.glossary import create_glossary_modal
 from components.pipeline import (create_pipeline_container, create_tokenization_content,
                                   create_embedding_content, create_attention_content,
                                   create_mlp_content, create_output_content)
-from components.investigation_panel import (create_investigation_panel, create_ablation_head_buttons,
-                                             create_ablation_results_display, create_attribution_results_display,
-                                             create_selected_heads_display)
+from components.investigation_panel import create_investigation_panel, create_attribution_results_display
+from components.ablation_panel import create_selected_heads_display, create_ablation_results_display
 
 # Initialize Dash app
 app = dash.Dash(
@@ -636,170 +635,128 @@ def switch_investigation_tab(abl_clicks, attr_clicks, current_tab):
 
 
 # ============================================================================
-# CALLBACKS: Investigation Panel - Ablation
+# CALLBACKS: Investigation Panel - Ablation (Updated for New UI)
 # ============================================================================
 
 @app.callback(
-    Output('ablation-layer-dropdown', 'options'),
-    [Input('session-activation-store', 'data')],
-    [State('model-dropdown', 'value')]
+    Output('ablation-model-view-container', 'children'),
+    [Input('session-activation-store', 'data')]
 )
-def update_ablation_layer_options(activation_data, model_name):
-    if not activation_data or not model_name:
-        return []
+def update_ablation_model_view(activation_data):
+    """Update BertViz model view when new analysis is run."""
+    if not activation_data:
+        return html.Div("Run analysis to see attention visualization.", 
+                       style={'padding': '20px', 'color': '#6c757d', 'textAlign': 'center'})
     
-    block_modules = activation_data.get('block_modules', [])
-    import re
-    layer_options = []
-    for mod in block_modules:
-        match = re.search(r'\.(\d+)(?:\.|$)', mod)
-        if match:
-            layer_num = int(match.group(1))
-            layer_options.append({'label': f'Layer {layer_num}', 'value': layer_num})
-    
-    # Sort and dedupe
-    layer_options = sorted(list({opt['value']: opt for opt in layer_options}.values()), key=lambda x: x['value'])
-    return layer_options
+    try:
+        html_content = generate_bertviz_model_view_html(activation_data)
+        return html.Iframe(
+            srcDoc=html_content,
+            style={'width': '100%', 'height': '100%', 'border': 'none'}
+        )
+    except Exception as e:
+        return html.Div(f"Error generating visualization: {str(e)}", style={'color': 'red', 'padding': '20px'})
 
 
 @app.callback(
-    Output('ablation-head-grid', 'children'),
-    [Input('ablation-layer-dropdown', 'value'),
-     Input('ablation-selected-heads', 'data')],
+    [Output('ablation-layer-select', 'options'),
+     Output('ablation-head-select', 'options')],
+    [Input('session-activation-store', 'data'),
+     Input('ablation-layer-select', 'value')],
     [State('model-dropdown', 'value')]
 )
-def update_ablation_head_grid(layer_num, selected_heads, model_name):
-    if layer_num is None or not model_name:
-        return html.P("Select a layer first.", style={'color': '#6c757d', 'fontStyle': 'italic'})
+def update_ablation_selectors(activation_data, selected_layer, model_name):
+    """Update options for layer and head dropdowns."""
+    ctx = dash.callback_context
+    trigger_id = ctx.triggered[0]['prop_id'].split('.')[0] if ctx.triggered else None
     
+    if not activation_data or not model_name:
+        return [], []
+    
+    # Get model config
     try:
         from transformers import AutoConfig
         config = AutoConfig.from_pretrained(model_name)
+        num_layers = config.num_hidden_layers
         num_heads = config.num_attention_heads
-        # Filter to only valid dict entries and pass to button creator
-        valid_selected = [
-            item for item in (selected_heads or [])
-            if isinstance(item, dict) and 'layer' in item and 'head' in item
-        ]
-        return create_ablation_head_buttons(num_heads, layer_num, valid_selected)
     except:
-        return html.P("Could not load model config.", style={'color': '#dc3545'})
+        return [], []
+    
+    # Update layer options (only if data changed or init)
+    layer_options = [{'label': f'Layer {i}', 'value': i} for i in range(num_layers)]
+    
+    # Update head options based on selected layer
+    head_options = []
+    if selected_layer is not None:
+        head_options = [{'label': f'Head {i}', 'value': i} for i in range(num_heads)]
+    
+    # If only layer changed, return no_update for layer options to avoid flickering
+    if trigger_id == 'ablation-layer-select':
+        return no_update, head_options
+        
+    return layer_options, head_options
 
 
 @app.callback(
     [Output('ablation-selected-heads', 'data'),
      Output('run-ablation-btn', 'disabled'),
-     Output('ablation-selected-display', 'children')],
-    [Input({'type': 'ablation-head-btn', 'layer': ALL, 'head': ALL}, 'n_clicks')],
-    [State('ablation-selected-heads', 'data')],
+     Output('ablation-selected-display', 'children'),
+     Output('ablation-head-select', 'value')],
+    [Input('ablation-add-head-btn', 'n_clicks'),
+     Input('clear-ablation-btn', 'n_clicks'),
+     Input({'type': 'ablation-remove-btn', 'layer': ALL, 'head': ALL}, 'n_clicks')],
+    [State('ablation-layer-select', 'value'),
+     State('ablation-head-select', 'value'),
+     State('ablation-selected-heads', 'data')],
     prevent_initial_call=True
 )
-def handle_ablation_head_selection(n_clicks_list, selected_heads):
+def manage_ablation_heads(add_clicks, clear_clicks, remove_clicks, 
+                         layer_val, head_val, selected_heads):
     """
-    Handle head button clicks - stores layer+head combinations and preserves
-    selections across layer changes.
+    Manage the list of selected heads (Add, Clear, Remove).
     """
-    # Check if any button was actually clicked (n_clicks > 0)
-    if not n_clicks_list or not any(n for n in n_clicks_list if n and n > 0):
-        return no_update, no_update, no_update
-    
     ctx = dash.callback_context
     if not ctx.triggered:
-        return no_update, no_update, no_update
+        return no_update, no_update, no_update, no_update
     
-    # Get the triggered button's n_clicks value
-    triggered_prop = ctx.triggered[0]
-    triggered_value = triggered_prop.get('value', 0)
+    triggered_id = ctx.triggered[0]['prop_id']
     
-    # Only process if this is an actual click (not initial render)
-    if not triggered_value or triggered_value == 0:
-        return no_update, no_update, no_update
-    
-    # Initialize or clean up selected_heads - ensure it's a list of dicts
-    if selected_heads is None:
-        selected_heads = []
-    else:
-        # Filter out any non-dict entries (cleanup old format data)
-        selected_heads = [item for item in selected_heads if isinstance(item, dict)]
-    
-    try:
-        triggered_id = json.loads(triggered_prop['prop_id'].split('.')[0])
-        layer_num = triggered_id['layer']
-        head_idx = triggered_id['head']
-        
-        # Create layer+head object
-        new_item = {'layer': layer_num, 'head': head_idx}
-        
-        # Check if this layer+head combination is already selected
-        found_idx = None
-        for i, item in enumerate(selected_heads):
-            if isinstance(item, dict) and item.get('layer') == layer_num and item.get('head') == head_idx:
-                found_idx = i
-                break
-        
-        if found_idx is not None:
-            # Remove if already selected
-            selected_heads.pop(found_idx)
-        else:
-            # Add if not selected
-            selected_heads.append(new_item)
-    except Exception as e:
-        print(f"Error in handle_ablation_head_selection: {e}")
-        pass
-    
-    # Create the display of selected heads
-    display = create_selected_heads_display(selected_heads)
-    
-    return selected_heads, len(selected_heads) == 0, display
-
-
-@app.callback(
-    [Output('ablation-selected-heads', 'data', allow_duplicate=True),
-     Output('run-ablation-btn', 'disabled', allow_duplicate=True),
-     Output('ablation-selected-display', 'children', allow_duplicate=True)],
-    [Input({'type': 'ablation-remove-btn', 'layer': ALL, 'head': ALL}, 'n_clicks')],
-    [State('ablation-selected-heads', 'data')],
-    prevent_initial_call=True
-)
-def handle_ablation_head_removal(n_clicks_list, selected_heads):
-    """Handle removing individual head selections via the x button on chips."""
-    # Check if any button was actually clicked
-    if not n_clicks_list or not any(n for n in n_clicks_list if n and n > 0):
-        return no_update, no_update, no_update
-    
-    ctx = dash.callback_context
-    if not ctx.triggered:
-        return no_update, no_update, no_update
-    
-    # Get the triggered button's n_clicks value
-    triggered_prop = ctx.triggered[0]
-    triggered_value = triggered_prop.get('value', 0)
-    
-    # Only process if this is an actual click
-    if not triggered_value or triggered_value == 0:
-        return no_update, no_update, no_update
-    
+    # Initialize selected_heads
     if selected_heads is None:
         selected_heads = []
     
-    try:
-        triggered_id = json.loads(triggered_prop['prop_id'].split('.')[0])
-        layer_num = triggered_id['layer']
-        head_idx = triggered_id['head']
+    # Handle "Add"
+    if 'ablation-add-head-btn' in triggered_id:
+        if layer_val is not None and head_val is not None:
+            # Check for duplicate
+            exists = any(item['layer'] == layer_val and item['head'] == head_val 
+                        for item in selected_heads if isinstance(item, dict))
+            if not exists:
+                selected_heads.append({'layer': layer_val, 'head': head_val})
+                # Sort for cleaner display
+                selected_heads.sort(key=lambda x: (x['layer'], x['head']))
+        # Clear head selection after add
+        return selected_heads, len(selected_heads) == 0, create_selected_heads_display(selected_heads), None
         
-        # Remove the matching layer+head combination
+    # Handle "Clear"
+    elif 'clear-ablation-btn' in triggered_id:
+        return [], True, create_selected_heads_display([]), no_update
+        
+    # Handle "Remove" (pattern matching)
+    elif 'ablation-remove-btn' in triggered_id:
+        # Determine which button was clicked
+        # Note: remove_clicks is a list, but we need the id from context
+        prop_id = json.loads(triggered_id.split('.')[0])
+        rm_layer = prop_id['layer']
+        rm_head = prop_id['head']
+        
         selected_heads = [
-            item for item in selected_heads
-            if not (isinstance(item, dict) and item.get('layer') == layer_num and item.get('head') == head_idx)
+            item for item in selected_heads 
+            if not (isinstance(item, dict) and item.get('layer') == rm_layer and item.get('head') == rm_head)
         ]
-    except Exception as e:
-        print(f"Error in handle_ablation_head_removal: {e}")
-        pass
+        return selected_heads, len(selected_heads) == 0, create_selected_heads_display(selected_heads), no_update
     
-    # Create the updated display
-    display = create_selected_heads_display(selected_heads)
-    
-    return selected_heads, len(selected_heads) == 0, display
+    return no_update, no_update, no_update, no_update
 
 
 @app.callback(
@@ -813,12 +770,7 @@ def handle_ablation_head_removal(n_clicks_list, selected_heads):
     prevent_initial_call=True
 )
 def run_ablation_experiment(n_clicks, selected_heads, activation_data, model_name, prompt, selected_beam):
-    """
-    Run ablation on ORIGINAL PROMPT and compare results.
-    
-    Supports multi-layer ablation: groups selected heads by layer and runs
-    ablation for each layer. Shows cumulative effect on model output.
-    """
+    """Run ablation on ORIGINAL PROMPT and compare results."""
     if not n_clicks or not selected_heads or not activation_data:
         return no_update
     
@@ -828,7 +780,6 @@ def run_ablation_experiment(n_clicks, selected_heads, activation_data, model_nam
         tokenizer = AutoTokenizer.from_pretrained(model_name)
         model.eval()
         
-        # Always analyze the original prompt
         sequence_text = activation_data.get('prompt', prompt)
         
         config = {
@@ -837,12 +788,12 @@ def run_ablation_experiment(n_clicks, selected_heads, activation_data, model_nam
             'norm_parameters': activation_data.get('norm_parameters', [])
         }
         
-        # Get original output (from analysis of original prompt)
+        # Original output
         original_output = activation_data.get('actual_output', {})
         original_token = original_output.get('token', '')
         original_prob = original_output.get('probability', 0)
         
-        # Group selected heads by layer
+        # Group heads by layer
         heads_by_layer = {}
         for item in selected_heads:
             if isinstance(item, dict):
@@ -856,7 +807,7 @@ def run_ablation_experiment(n_clicks, selected_heads, activation_data, model_nam
         if not heads_by_layer:
             return html.Div("No valid heads selected.", style={'color': '#dc3545'})
         
-        # Run ablation for all layers simultaneously in a single forward pass
+        # Run ablation
         ablated_data = execute_forward_pass_with_multi_layer_head_ablation(
             model, tokenizer, sequence_text, config, heads_by_layer
         )
@@ -864,113 +815,15 @@ def run_ablation_experiment(n_clicks, selected_heads, activation_data, model_nam
         ablated_token = ablated_output.get('token', '')
         ablated_prob = ablated_output.get('probability', 0)
         
-        # Format selected heads for display
-        all_heads_formatted = [f"L{item['layer']}-H{item['head']}" for item in selected_heads if isinstance(item, dict)]
+        return create_ablation_results_display(
+            original_token, ablated_token, original_prob, ablated_prob,
+            selected_heads, selected_beam
+        )
         
-        # Build results display
-        results = []
-        
-        # Summary of what was ablated
-        results.append(html.Div([
-            html.H5("Ablation Results", style={'color': '#495057', 'marginBottom': '16px'}),
-            html.Div([
-                html.Span("Ablated heads: ", style={'color': '#6c757d'}),
-                html.Span(', '.join(all_heads_formatted),
-                         style={'fontWeight': '500', 'color': '#667eea', 'fontFamily': 'monospace'})
-            ], style={'marginBottom': '16px'})
-        ]))
-        
-        # Before/After comparison
-        output_changed = original_token != ablated_token
-        prob_delta = ablated_prob - original_prob
-        
-        results.append(html.Div([
-            # Original
-            html.Div([
-                html.Div("Original", style={'fontSize': '12px', 'color': '#6c757d', 'marginBottom': '6px'}),
-                html.Div(original_token, style={
-                    'padding': '10px 16px',
-                    'backgroundColor': '#e8f5e9',
-                    'border': '2px solid #4caf50',
-                    'borderRadius': '6px',
-                    'fontFamily': 'monospace',
-                    'fontWeight': '600',
-                    'textAlign': 'center'
-                }),
-                html.Div(f"{original_prob:.1%}", style={
-                    'fontSize': '12px',
-                    'color': '#6c757d',
-                    'marginTop': '4px',
-                    'textAlign': 'center'
-                })
-            ], style={'flex': '1'}),
-            
-            # Arrow
-            html.Div([
-                html.I(className='fas fa-arrow-right', style={
-                    'fontSize': '24px',
-                    'color': '#dc3545' if output_changed else '#6c757d'
-                })
-            ], style={'display': 'flex', 'alignItems': 'center', 'padding': '0 20px'}),
-            
-            # Ablated
-            html.Div([
-                html.Div("After Ablation", style={'fontSize': '12px', 'color': '#6c757d', 'marginBottom': '6px'}),
-                html.Div(ablated_token, style={
-                    'padding': '10px 16px',
-                    'backgroundColor': '#ffebee' if output_changed else '#e8f5e9',
-                    'border': f'2px solid {"#dc3545" if output_changed else "#4caf50"}',
-                    'borderRadius': '6px',
-                    'fontFamily': 'monospace',
-                    'fontWeight': '600',
-                    'textAlign': 'center'
-                }),
-                html.Div(f"{ablated_prob:.1%} ({prob_delta:+.1%})", style={
-                    'fontSize': '12px',
-                    'color': '#dc3545' if prob_delta < 0 else '#4caf50' if prob_delta > 0 else '#6c757d',
-                    'marginTop': '4px',
-                    'textAlign': 'center'
-                })
-            ], style={'flex': '1'})
-            
-        ], style={
-            'display': 'flex',
-            'alignItems': 'stretch',
-            'padding': '16px',
-            'backgroundColor': 'white',
-            'borderRadius': '8px',
-            'border': '1px solid #e2e8f0'
-        }))
-        
-        # Interpretation
-        results.append(html.Div([
-            html.I(className='fas fa-lightbulb', style={'color': '#ffc107', 'marginRight': '8px'}),
-            html.Span(
-                "The prediction changed! These heads are important for this input."
-                if output_changed else
-                "The prediction stayed the same. These heads may not be critical for this specific input.",
-                style={'color': '#6c757d', 'fontSize': '13px'}
-            )
-        ], style={'marginTop': '16px', 'padding': '12px', 'backgroundColor': '#fff8e1', 'borderRadius': '6px'}))
-        
-        # If a beam was selected, show context for comparison
-        if selected_beam and selected_beam.get('text'):
-            results.append(html.Div([
-                html.Hr(style={'margin': '15px 0', 'borderColor': '#dee2e6'}),
-                html.Div([
-                    html.I(className='fas fa-info-circle', style={'color': '#6c757d', 'marginRight': '8px'}),
-                    html.Span("Selected generation for reference: ", style={'fontWeight': '500', 'color': '#495057'}),
-                    html.Span(selected_beam['text'], style={'fontFamily': 'monospace', 'backgroundColor': '#f8f9fa', 
-                                                           'padding': '4px 8px', 'borderRadius': '4px'})
-                ], style={'fontSize': '13px'})
-            ]))
-        
-        return html.Div(results, style={
-            'padding': '20px',
-            'backgroundColor': '#fafbfc',
-            'borderRadius': '8px',
-            'border': '1px solid #e2e8f0'
-        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return html.Div(f"Ablation error: {str(e)}", style={'color': '#dc3545'})
         
     except Exception as e:
         import traceback
