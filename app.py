@@ -312,6 +312,7 @@ def enable_run_button(model, prompt, block_modules, norm_params):
      Output('pipeline-container', 'style'),
      Output('investigation-panel', 'style'),
      Output('session-activation-store', 'data', allow_duplicate=True),
+     Output('session-activation-store-original', 'data', allow_duplicate=True),
      Output('session-original-prompt-store', 'data'),
      Output('session-selected-beam-store', 'data')],
     [Input('generate-btn', 'n_clicks')],
@@ -360,7 +361,7 @@ def run_generation(n_clicks, model_name, prompt, max_new_tokens, beam_width, pat
         
         if not config['block_modules']:
             return (html.Div("Please select modules in the sidebar.", style={'color': 'red'}), 
-                    results, {'display': 'none'}, {'display': 'none'}, {}, original_prompt_data, {})
+                    results, {'display': 'none'}, {'display': 'none'}, {}, {}, original_prompt_data, {})
 
         # AGENT F KEY CHANGE: Run analysis on ORIGINAL PROMPT only, not generated text
         # This ensures pipeline stages show how the model processes the user's input,
@@ -385,19 +386,19 @@ def run_generation(n_clicks, model_name, prompt, max_new_tokens, beam_width, pat
             
             # Show pipeline immediately (analyzing original prompt)
             return (results_ui, results, {'display': 'block'}, {'display': 'block'}, 
-                    activation_data, original_prompt_data, {})
+                    activation_data, activation_data, original_prompt_data, {})
             
         else:
             # Single token generation - store the result as selected beam
             selected_beam_data = {'text': results[0]['text'], 'score': results[0].get('score', 0)}
             return (results_ui, results, {'display': 'block'}, {'display': 'block'}, 
-                    activation_data, original_prompt_data, selected_beam_data)
+                    activation_data, activation_data, original_prompt_data, selected_beam_data)
 
     except Exception as e:
         import traceback
         traceback.print_exc()
         return (html.Div(f"Error: {e}", style={'color': 'red'}), [], 
-                {'display': 'none'}, {'display': 'none'}, {}, {}, {})
+                {'display': 'none'}, {'display': 'none'}, {}, {}, {}, {})
 
 
 @app.callback(
@@ -760,7 +761,8 @@ def manage_ablation_heads(add_clicks, clear_clicks, remove_clicks,
 
 
 @app.callback(
-    Output('ablation-results-container', 'children'),
+    [Output('ablation-results-container', 'children'),
+     Output('session-activation-store', 'data', allow_duplicate=True)],
     [Input('run-ablation-btn', 'n_clicks')],
     [State('ablation-selected-heads', 'data'),
      State('session-activation-store', 'data'),
@@ -772,7 +774,7 @@ def manage_ablation_heads(add_clicks, clear_clicks, remove_clicks,
 def run_ablation_experiment(n_clicks, selected_heads, activation_data, model_name, prompt, selected_beam):
     """Run ablation on ORIGINAL PROMPT and compare results."""
     if not n_clicks or not selected_heads or not activation_data:
-        return no_update
+        return no_update, no_update
     
     try:
         from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -805,25 +807,31 @@ def run_ablation_experiment(n_clicks, selected_heads, activation_data, model_nam
                     heads_by_layer[layer].append(head)
         
         if not heads_by_layer:
-            return html.Div("No valid heads selected.", style={'color': '#dc3545'})
+            return html.Div("No valid heads selected.", style={'color': '#dc3545'}), no_update
         
         # Run ablation
         ablated_data = execute_forward_pass_with_multi_layer_head_ablation(
             model, tokenizer, sequence_text, config, heads_by_layer
         )
+        
+        # Mark as ablated so UI knows
+        ablated_data['ablated'] = True
+        
         ablated_output = ablated_data.get('actual_output', {})
         ablated_token = ablated_output.get('token', '')
         ablated_prob = ablated_output.get('probability', 0)
         
-        return create_ablation_results_display(
+        results_display = create_ablation_results_display(
             original_token, ablated_token, original_prob, ablated_prob,
             selected_heads, selected_beam
         )
         
+        return results_display, ablated_data
+        
     except Exception as e:
         import traceback
         traceback.print_exc()
-        return html.Div(f"Ablation error: {str(e)}", style={'color': '#dc3545'})
+        return html.Div(f"Ablation error: {str(e)}", style={'color': '#dc3545'}), no_update
         
     except Exception as e:
         import traceback

@@ -22,7 +22,7 @@
 - [ ] Task: Conductor - User Manual Verification 'Frontend Control Panel' (Protocol in workflow.md)
 
 ## Phase 3: Visualization & Feedback Loop
-- [ ] Task: Connect the Frontend Ablation State to the Backend Inference.
+- [~] Task: Connect the Frontend Ablation State to the Backend Inference.
     - [ ] Sub-task: Update the main `app.py` callback to pass the `disabled_heads` list to the backend capture function.
     - [ ] Sub-task: Verify that toggling a head in the UI updates the Logit Lens/Output display.
 - [ ] Task: Visual Polish for Ablated State.

@@ -566,7 +566,23 @@ def execute_forward_pass_with_multi_layer_head_ablation(model, tokenizer, prompt
                 
                 # Reconstruct output tuple
                 if len(output) > 1:
-                    ablated_output = (ablated_hidden,) + output[1:]
+                    # Check for attention weights (usually index 2 if output_attentions=True)
+                    if len(output) > 2:
+                        attn_weights = output[2] # [batch, heads, seq, seq]
+                        if isinstance(attn_weights, torch.Tensor):
+                            # Zero out specified heads in attention weights too
+                            # Clone to avoid in-place modification errors if any
+                            attn_weights_mod = attn_weights.clone()
+                            for head_idx in ablate_head_indices:
+                                if 0 <= head_idx < num_heads:
+                                    attn_weights_mod[:, head_idx, :, :] = 0.0
+                            
+                            # Reconstruct tuple with modified weights
+                            ablated_output = (ablated_hidden, output[1], attn_weights_mod) + output[3:]
+                        else:
+                            ablated_output = (ablated_hidden,) + output[1:]
+                    else:
+                        ablated_output = (ablated_hidden,) + output[1:]
                 else:
                     ablated_output = (ablated_hidden,)
             
@@ -592,7 +608,7 @@ def execute_forward_pass_with_multi_layer_head_ablation(model, tokenizer, prompt
     
     # Execute forward pass
     with torch.no_grad():
-        model_output = intervenable_model.model(**inputs, use_cache=False)
+        model_output = intervenable_model.model(**inputs, use_cache=False, output_attentions=True)
     
     # Remove hooks
     for hook in hooks:
