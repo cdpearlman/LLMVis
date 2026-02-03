@@ -171,13 +171,14 @@
 - [x] Update `requirements.txt`: remove `google-genai`, add `requests>=2.28.0`
 - [x] Environment variable: `GEMINI_API_KEY` → `OPENROUTER_API_KEY`
 
-## Completed: Switch to Free Models
+## Completed: Switch to Paid OpenRouter Models (Cost-Optimized)
 
-- [x] Evaluate OpenRouter free models for chatbot use case
-- [x] Switch chat model: `google/gemini-2.0-flash-001` → `qwen/qwen3-next-80b-a3b-instruct:free`
-- [x] Implement local embeddings using `sentence-transformers` (all-MiniLM-L6-v2)
-  - 384-dimensional embeddings, runs locally (free)
-  - Lazy-loaded to avoid slow startup
-- [x] Remove OpenRouter embedding dependency (no free embedding models available)
-- [x] Add `sentence-transformers>=2.2.0` to requirements.txt
-- [x] Clear old embeddings cache (different dimensions: 1536 → 384)
+- [x] Evaluate OpenRouter models for chatbot use case (cost vs quality)
+- [x] Switch chat model: `google/gemini-2.5-flash-lite`
+  - $0.10/$0.40 per 1M tokens (input/output)
+  - 1M context window, 318 tok/s, multimodal
+- [x] Switch embedding model: `openai/text-embedding-3-small`
+  - $0.02 per 1M tokens
+  - 1536 dimensions, high quality
+- [x] Remove local `sentence-transformers` dependency (simpler, no TF conflicts)
+- [x] Estimated cost: ~$1.50/month for moderate usage
