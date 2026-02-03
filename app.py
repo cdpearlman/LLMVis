@@ -5,6 +5,10 @@ A dashboard focused on explaining how transformer models process input and arriv
 Uses a linear pipeline visualization with expandable stages.
 """
 
+# Disable TensorFlow before any imports (fixes transformers/TF version incompatibility)
+import os
+os.environ["USE_TF"] = "0"
+
 from dotenv import load_dotenv
 load_dotenv()  # Load environment variables from .env file
 
