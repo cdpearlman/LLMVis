@@ -979,6 +979,18 @@ def evaluate_sequence_ablation(model, tokenizer, sequence_text: str, config: Dic
     }
 
 
+def _prepare_hidden_state(layer_output: Any) -> torch.Tensor:
+    """Helper to convert layer output to tensor, handling tuple outputs."""
+    # Handle PyVene captured tuple outputs where 2nd element is None (e.g. use_cache=False)
+    if isinstance(layer_output, (list, tuple)) and len(layer_output) > 1 and layer_output[1] is None:
+        layer_output = layer_output[0]
+        
+    hidden = torch.tensor(layer_output) if not isinstance(layer_output, torch.Tensor) else layer_output
+    if hidden.dim() == 4:
+        hidden = hidden.squeeze(0)
+    return hidden
+
+
 def logit_lens_transformation(layer_output: Any, norm_data: List[Any], model, tokenizer, norm_parameter: Optional[str] = None, top_k: int = 5) -> List[Tuple[str, float]]:
     """
     Transform layer output to top K token probabilities using logit lens.
@@ -1003,9 +1015,7 @@ def logit_lens_transformation(layer_output: Any, norm_data: List[Any], model, to
     """
     with torch.no_grad():
         # Convert to tensor and ensure proper shape [batch, seq_len, hidden_dim]
-        hidden = torch.tensor(layer_output) if not isinstance(layer_output, torch.Tensor) else layer_output
-        if hidden.dim() == 4:
-            hidden = hidden.squeeze(0)
+        hidden = _prepare_hidden_state(layer_output)
         
         # Step 1: Apply final layer normalization (critical for intermediate layers)
         final_norm = get_norm_layer_from_parameter(model, norm_parameter)
@@ -1096,9 +1106,7 @@ def _get_token_probabilities_for_layer(activation_data: Dict[str, Any], module_n
         lm_head = model.get_output_embeddings()
         
         with torch.no_grad():
-            hidden = torch.tensor(layer_output) if not isinstance(layer_output, torch.Tensor) else layer_output
-            if hidden.dim() == 4:
-                hidden = hidden.squeeze(0)
+            hidden = _prepare_hidden_state(layer_output)
             
             if final_norm is not None:
                 hidden = final_norm(hidden)

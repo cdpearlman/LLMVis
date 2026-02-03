@@ -640,26 +640,6 @@ def switch_investigation_tab(abl_clicks, attr_clicks, current_tab):
 # ============================================================================
 
 @app.callback(
-    Output('ablation-model-view-container', 'children'),
-    [Input('session-activation-store', 'data')]
-)
-def update_ablation_model_view(activation_data):
-    """Update BertViz model view when new analysis is run."""
-    if not activation_data:
-        return html.Div("Run analysis to see attention visualization.", 
-                       style={'padding': '20px', 'color': '#6c757d', 'textAlign': 'center'})
-    
-    try:
-        html_content = generate_bertviz_model_view_html(activation_data)
-        return html.Iframe(
-            srcDoc=html_content,
-            style={'width': '100%', 'height': '100%', 'border': 'none'}
-        )
-    except Exception as e:
-        return html.Div(f"Error generating visualization: {str(e)}", style={'color': 'red', 'padding': '20px'})
-
-
-@app.callback(
     [Output('ablation-layer-select', 'options'),
      Output('ablation-head-select', 'options')],
     [Input('session-activation-store', 'data'),
@@ -768,11 +748,13 @@ def manage_ablation_heads(add_clicks, clear_clicks, remove_clicks,
      State('session-activation-store', 'data'),
      State('model-dropdown', 'value'),
      State('prompt-input', 'value'),
-     State('session-selected-beam-store', 'data')],
+     State('session-selected-beam-store', 'data'),
+     State('max-new-tokens-slider', 'value'),
+     State('beam-width-slider', 'value')],
     prevent_initial_call=True
 )
-def run_ablation_experiment(n_clicks, selected_heads, activation_data, model_name, prompt, selected_beam):
-    """Run ablation on ORIGINAL PROMPT and compare results."""
+def run_ablation_experiment(n_clicks, selected_heads, activation_data, model_name, prompt, selected_beam, max_new_tokens, beam_width):
+    """Run ablation on ORIGINAL PROMPT and compare results, including beam generation."""
     if not n_clicks or not selected_heads or not activation_data:
         return no_update, no_update
     
@@ -809,7 +791,7 @@ def run_ablation_experiment(n_clicks, selected_heads, activation_data, model_nam
         if not heads_by_layer:
             return html.Div("No valid heads selected.", style={'color': '#dc3545'}), no_update
         
-        # Run ablation
+        # Run ablation for analysis (single pass)
         ablated_data = execute_forward_pass_with_multi_layer_head_ablation(
             model, tokenizer, sequence_text, config, heads_by_layer
         )
@@ -821,9 +803,25 @@ def run_ablation_experiment(n_clicks, selected_heads, activation_data, model_nam
         ablated_token = ablated_output.get('token', '')
         ablated_prob = ablated_output.get('probability', 0)
         
+        # Run ablation for generation
+        ablated_beam = None
+        try:
+            # Always perform beam search during ablation to show comparison
+            beam_results = perform_beam_search(
+                model, tokenizer, sequence_text, 
+                beam_width=beam_width, 
+                max_new_tokens=max_new_tokens,
+                ablation_config=heads_by_layer
+            )
+            if beam_results:
+                # Select the top beam
+                ablated_beam = {'text': beam_results[0]['text'], 'score': beam_results[0].get('score', 0)}
+        except Exception as e:
+            print(f"Error during ablated generation: {e}")
+        
         results_display = create_ablation_results_display(
             original_token, ablated_token, original_prob, ablated_prob,
-            selected_heads, selected_beam
+            selected_heads, selected_beam, ablated_beam
         )
         
         return results_display, ablated_data
@@ -832,11 +830,6 @@ def run_ablation_experiment(n_clicks, selected_heads, activation_data, model_nam
         import traceback
         traceback.print_exc()
         return html.Div(f"Ablation error: {str(e)}", style={'color': '#dc3545'}), no_update
-        
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return html.Div(f"Ablation error: {str(e)}", style={'color': '#dc3545'})
 
 
 # ============================================================================

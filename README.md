@@ -1,210 +1,105 @@
-# Transformer Activation Capture and Visualization
+# Transformer Explanation Dashboard
 
-This project provides tools for capturing activations from transformer models and visualizing attention patterns using bertviz and an interactive Dash web application.
+A comprehensive, interactive tool for capturing, visualizing, and experimenting with Transformer-based Large Language Models (LLMs). This project demystifies the inner workings of models by transforming abstract architectural concepts into tangible, observable phenomena.
 
-## Overview
+## Vision
 
-The project consists of multiple components:
-1. **Interactive Dashboard** (`app.py`) - Web-based visualization with automatic model family detection
-2. **Model Configuration** (`utils/model_config.py`) - Hard-coded mappings for common model families
-3. **Activation Capture** (`utils/model_patterns.py`) - PyVene-based activation capture utilities
-4. **Legacy Tools** (`agnostic_capture.py`, `bertviz_head_model_view.py`) - Command-line tools
+To foster a deep, intuitive understanding of how powerful models process information by combining interactive visualizations with hands-on experimentation capabilities.
 
-## New Feature: Automatic Model Family Detection
+## Key Features
 
-The dashboard now automatically detects model families and pre-fills dropdown selections with appropriate modules and parameters. This eliminates manual selection for common architectures.
+### 🔍 Interactive Pipeline Visualization
+Follow the data flow step-by-step through the model's architecture:
+1.  **Tokenization**: See how text is split and assigned IDs.
+2.  **Embedding**: Visualize the look-up of semantic vectors.
+3.  **Attention**: Explore head-level attention patterns using **BertViz**.
+4.  **MLP (Feed-Forward)**: Understand where factual knowledge is stored.
+5.  **Output Selection**: View probability distributions and top predictions.
 
-### Supported Model Families
+### 🧪 Experiments & Investigation
+Go beyond static observation with interactive experiments:
+*   **Ablation Studies**: Selectively disable specific attention heads across different layers to observe their impact on generation and probability.
+*   **Token Attribution**: Use **Integrated Gradients** to see which input tokens contributed most to a specific prediction.
+*   **Beam Search Analysis**: Visualize how multiple generation choices are explored.
 
-- **LLaMA-like**: LLaMA 2/3, Mistral, Mixtral, Qwen2/2.5
-- **GPT-2**: GPT-2, GPT-2 Medium/Large/XL
-- **OPT**: Facebook OPT models (125M - 30B)
-- **GPT-NeoX**: EleutherAI Pythia, GPT-NeoX-20B
-- **BLOOM**: BigScience BLOOM models
-- **Falcon**: TII Falcon models
-- **MPT**: MosaicML MPT models
+### 🤖 Broad Model Support
+The dashboard features **Automatic Model Family Detection**, supporting a wide range of architectures without manual configuration:
+*   **LLaMA-like**: LLaMA 2/3, Mistral, Mixtral, Qwen2/2.5
+*   **GPT-2**: GPT-2 (Small/Medium/Large/XL)
+*   **OPT**: Facebook OPT models
+*   **GPT-NeoX**: Pythia, GPT-NeoX
+*   **BLOOM**: BigScience BLOOM
+*   **Falcon**: TII Falcon
+*   **MPT**: MosaicML MPT
 
-### How It Works
+## Getting Started
 
-1. Select a model from the dropdown
-2. The app detects the model family (e.g., "gpt2", "llama_like")
-3. Dropdowns auto-fill with family-specific patterns:
-   - **Attention modules**: e.g., `transformer.h.{N}.attn` for GPT-2
-   - **MLP modules**: e.g., `model.layers.{N}.mlp` for LLaMA
-   - **Normalization parameters**: e.g., `model.norm.weight` for LLaMA
-   - **Logit lens parameter**: e.g., `lm_head.weight`
-4. You can still manually adjust selections if needed
+### Prerequisites
+*   Python 3.11+ recommended
+*   PyTorch
 
-### Adding New Models
+### Installation
 
-Edit `utils/model_config.py` and add entries to `MODEL_TO_FAMILY`:
+1.  Clone the repository:
+    ```bash
+    git clone https://github.com/yourusername/transformer-dashboard.git
+    cd transformer-dashboard
+    ```
 
-```python
-MODEL_TO_FAMILY = {
-    "your-org/your-model": "llama_like",  # or gpt2, opt, etc.
-    # ...
-}
-```
+2.  Install dependencies:
+    ```bash
+    pip install -r requirements.txt
+    ```
 
-No code changes needed if the model follows an existing family's architecture!
+### Running the Dashboard
 
-## Files
-
-### `agnostic_capture.py`
-A model-agnostic activation capture tool that hooks into transformer modules and saves their outputs.
-
-**Key Features:**
-- Automatically categorizes modules into attention, MLP, and other types
-- Interactive module selection by pattern
-- Supports both PyTorch hooks and PyVene integration
-- Saves data in organized JSON structure for easy retrieval
-
-**Usage:**
-```bash
-# Basic usage
-python agnostic_capture.py --model "Qwen/Qwen2.5-0.5B" --prompt "Once upon a time"
-
-# Capture attention weights for bertviz
-python agnostic_capture.py --model "Qwen/Qwen2.5-0.5B" --prompt "Once upon a time" --output my_activations.json
-
-# Auto-select patterns (attention:0, mlp:0 selects first pattern from each)
-python agnostic_capture.py --auto-select "attn:0;mlp:0;other:" --model "Qwen/Qwen2.5-0.5B"
-```
-
-**Interactive Selection:**
-When run without `--auto-select`, the script will:
-1. Show available module patterns grouped by type
-2. Allow you to select patterns by index, name, or suffix
-3. Selected patterns apply to ALL layers that contain them
-
-### `bertviz_head_model_view.py`
-Creates interactive HTML visualizations of attention patterns using the bertviz library.
-
-**Features:**
-- Generates head view (attention patterns per head)
-- Generates model view (attention patterns across layers)
-- Automatically extracts attention weights from captured data
-- Saves HTML files that can be opened in any browser
-
-**Usage:**
-```bash
-python bertviz_head_model_view.py
-```
-
-**Output:**
-- `bertviz/attention_head_view_{model_name}.html` - Head-level attention patterns
-- `bertviz/attention_model_view_{model_name}.html` - Model-level attention patterns
-
-## Data Structure
-
-The captured data is organized in the following JSON structure:
-
-```json
-{
-  "model": "model_name",
-  "prompt": "input_text",
-  "input_ids": [[token_ids]],
-  "selected_patterns": {
-    "attention": ["pattern1", "pattern2"],
-    "mlp": ["pattern1"],
-    "other": []
-  },
-  "selected_modules": {
-    "attention": ["model.layers.0.self_attn", "model.layers.1.self_attn", ...],
-    "mlp": ["model.layers.0.mlp", "model.layers.1.mlp", ...],
-    "other": []
-  },
-  "captured": {
-    "attention_outputs": {
-      "model.layers.0.self_attn": {
-        "output": [
-          [[...]], // Attention output (processed values)
-          [[...]]  // Attention weights (used by bertviz)
-        ]
-      }
-    },
-    "mlp_outputs": { ... },
-    "other_outputs": { ... }
-  }
-}
-```
-
-## Workflow
-
-1. **Capture Activations:**
-   ```bash
-   python agnostic_capture.py --model "Qwen/Qwen2.5-0.5B" --prompt "Your text here"
-   ```
-   - Select attention patterns (e.g., `model.{layer}.self_attn`)
-   - This creates `agnostic_activations.json`
-
-2. **Generate Visualizations:**
-   ```bash
-   python bertviz_head_model_view.py
-   ```
-   - Reads from `agnostic_activations.json`
-   - Creates HTML visualization files in `bertviz/` directory
-
-3. **View Results:**
-   - Open the generated HTML files in your browser
-   - Explore attention patterns across heads and layers
-
-## Requirements
+Launch the application:
 
 ```bash
-pip install torch transformers bertviz
+python app.py
 ```
 
-Optional:
+Open your browser and navigate to `http://127.0.0.1:8050/`.
+
+## Usage Guide
+
+1.  **Select a Model**: Choose from the predefined list or enter a HuggingFace model ID. The system will auto-detect the architecture.
+2.  **Enter a Prompt**: Type a sentence to analyze.
+3.  **Configure Generation**: Adjust "Number of New Tokens" and "Number of Generation Choices" (Beam Width).
+4.  **Run Analysis**: Click "Analyze" to run the forward pass.
+5.  **Explore the Pipeline**: Click on the pipeline stages (Tokenization, Attention, etc.) to expand detailed views.
+6.  **Run Experiments**:
+    *   Use the **Investigation Panel** at the bottom to switch between Ablation and Attribution tabs.
+    *   In **Ablation**, select layers and heads to disable, then click "Run Ablation Experiment".
+    *   In **Attribution**, select a target token and method to visualize feature importance.
+
+## Project Structure
+
+*   `app.py`: Main application entry point and layout orchestration.
+*   `components/`: Modular UI components.
+    *   `pipeline.py`: The core 5-stage visualization.
+    *   `investigation_panel.py`: Ablation and attribution interfaces.
+    *   `ablation_panel.py`: Specific logic for head ablation UI.
+    *   `tokenization_panel.py`: Token visualization.
+*   `utils/`: Backend logic and helper functions.
+    *   `model_patterns.py`: Activation capture and hooking logic.
+    *   `model_config.py`: Model family definitions and auto-detection.
+    *   `head_detection.py`: Attention head categorization logic.
+    *   `beam_search.py`: Beam search implementation.
+*   `tests/`: Comprehensive test suite ensuring stability.
+*   `conductor/`: Detailed project documentation and product guidelines.
+
+## Documentation
+
+For more detailed information on the project's background and technical details, check the `conductor/` directory:
+*   [Product Definition](conductor/product.md)
+*   [Tech Stack](conductor/tech-stack.md)
+*   [Workflow](conductor/workflow.md)
+
+## Contributing
+
+Contributions are welcome! Please ensure that any new features include appropriate tests in the `tests/` directory. Run the test suite before submitting:
+
 ```bash
-pip install pyvene  # For enhanced hooking capabilities
+pytest tests/
 ```
-
-## Important Notes
-
-### For Attention Visualization:
-- **Must capture `self_attn` modules** (not `self_attn.o_proj`) for bertviz to work
-- Attention modules return tuples: `(output, attention_weights)`
-- bertviz uses the attention weights (element 1) for visualization
-
-### Module Selection:
-- Patterns use `{layer}` placeholder (e.g., `model.{layer}.self_attn`)
-- Selected patterns apply to ALL layers automatically
-- Use indices, exact names, or unique suffixes for selection
-
-### File Outputs:
-- `agnostic_activations.json` - Captured activation data
-- `bertviz/attention_head_view_{model}.html` - Per-head attention visualization
-- `bertviz/attention_model_view_{model}.html` - Cross-layer attention visualization
-
-## Troubleshooting
-
-**"Attention tensor does not have correct dimensions"**
-- Ensure you captured `self_attn` modules, not output projections
-- Check that attention weights have shape `(batch, heads, seq_len, seq_len)`
-
-**"Module not found"**
-- Verify module patterns match your model architecture
-- Use the interactive selection to see available patterns
-
-**"No data captured"**
-- Check hook registration succeeded
-- Ensure selected modules exist in the model
-- Verify the model actually runs forward pass
-
-## Example Session
-
-```bash
-# 1. Capture attention data
-python agnostic_capture.py --model "Qwen/Qwen2.5-0.5B" --prompt "The cat sat on the mat"
-# Select attention patterns: 0 (for model.{layer}.self_attn)
-# Select MLP patterns: (press enter to skip)
-# Select other patterns: (press enter to skip)
-
-# 2. Generate visualizations
-python bertviz_head_model_view.py
-
-# 3. Open bertviz/attention_head_view_Qwen_Qwen2.5-0.5B.html in browser
-```
-
-This will show you how the model attends to different tokens when processing "The cat sat on the mat".

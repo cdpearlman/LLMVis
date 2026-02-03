@@ -22,17 +22,6 @@ def create_ablation_panel():
             ], style={'color': '#6c757d', 'fontSize': '14px', 'marginBottom': '16px'})
         ]),
         
-        # BertViz Model View Visualization
-        html.Div([
-            html.H6("Attention Visualization (BertViz Model View)", style={'color': '#495057', 'marginBottom': '8px'}),
-            html.P("Use this view to identify interesting heads to ablate.", style={'color': '#6c757d', 'fontSize': '12px'}),
-            dcc.Loading(
-                id="loading-ablation-viz",
-                type="default",
-                children=html.Div(id='ablation-model-view-container', style={'height': '500px', 'width': '100%', 'overflow': 'auto', 'border': '1px solid #e2e8f0', 'borderRadius': '8px'})
-            )
-        ], style={'marginBottom': '20px'}),
-        
         # Head Selector Interface
         html.Div([
             html.Label("Add Head to Ablation List:", className="input-label", style={'marginBottom': '8px', 'display': 'block'}),
@@ -170,21 +159,10 @@ def create_selected_heads_display(selected_heads):
 
 
 def create_ablation_results_display(original_token, ablated_token, original_prob, ablated_prob,
-                                    selected_heads, selected_beam=None):
+                                    selected_heads, selected_beam=None, ablated_beam=None):
     """
-    Create the ablation results display.
-    
-    Args:
-        original_token: Original predicted token
-        ablated_token: Predicted token after ablation
-        original_prob: Original prediction probability
-        ablated_prob: Ablated prediction probability
-        selected_heads: List of {layer: N, head: M} dicts
-        selected_beam: Optional data for original beam comparison
+    Create the ablation results display focusing on full generation comparison.
     """
-    output_changed = original_token != ablated_token
-    prob_delta = ablated_prob - original_prob
-    
     # Format selected heads for display
     all_heads_formatted = [f"L{item['layer']}-H{item['head']}" for item in selected_heads if isinstance(item, dict)]
 
@@ -200,87 +178,76 @@ def create_ablation_results_display(original_token, ablated_token, original_prob
         ], style={'marginBottom': '16px'})
     ]))
     
-    # Before/After comparison
-    results.append(html.Div([
-        # Original
-        html.Div([
-            html.Div("Original", style={'fontSize': '12px', 'color': '#6c757d', 'marginBottom': '6px'}),
-            html.Div(original_token, style={
-                'padding': '10px 16px',
-                'backgroundColor': '#e8f5e9',
-                'border': '2px solid #4caf50',
-                'borderRadius': '6px',
-                'fontFamily': 'monospace',
-                'fontWeight': '600',
-                'textAlign': 'center'
-            }),
-            html.Div(f"{original_prob:.1%}", style={
-                'fontSize': '12px',
-                'color': '#6c757d',
-                'marginTop': '4px',
-                'textAlign': 'center'
-            })
-        ], style={'flex': '1'}),
+    # Generation Comparison (Main Display)
+    if selected_beam and selected_beam.get('text') and ablated_beam and ablated_beam.get('text'):
+        gen_changed = selected_beam['text'] != ablated_beam['text']
         
-        # Arrow
-        html.Div([
-            html.I(className='fas fa-arrow-right', style={
-                'fontSize': '24px',
-                'color': '#dc3545' if output_changed else '#6c757d'
-            })
-        ], style={'display': 'flex', 'alignItems': 'center', 'padding': '0 20px'}),
-        
-        # Ablated
-        html.Div([
-            html.Div("After Ablation", style={'fontSize': '12px', 'color': '#6c757d', 'marginBottom': '6px'}),
-            html.Div(ablated_token, style={
-                'padding': '10px 16px',
-                'backgroundColor': '#ffebee' if output_changed else '#e8f5e9',
-                'border': f'2px solid {"#dc3545" if output_changed else "#4caf50"}',
-                'borderRadius': '6px',
-                'fontFamily': 'monospace',
-                'fontWeight': '600',
-                'textAlign': 'center'
-            }),
-            html.Div(f"{ablated_prob:.1%} ({prob_delta:+.1%})", style={
-                'fontSize': '12px',
-                'color': '#dc3545' if prob_delta < 0 else '#4caf50' if prob_delta > 0 else '#6c757d',
-                'marginTop': '4px',
-                'textAlign': 'center'
-            })
-        ], style={'flex': '1'})
-        
-    ], style={
-        'display': 'flex',
-        'alignItems': 'stretch',
-        'padding': '16px',
-        'backgroundColor': 'white',
-        'borderRadius': '8px',
-        'border': '1px solid #e2e8f0'
-    }))
-    
-    # Interpretation
-    results.append(html.Div([
-        html.I(className='fas fa-lightbulb', style={'color': '#ffc107', 'marginRight': '8px'}),
-        html.Span(
-            "The prediction changed! These heads are important for this input."
-            if output_changed else
-            "The prediction stayed the same. These heads may not be critical for this specific input.",
-            style={'color': '#6c757d', 'fontSize': '13px'}
-        )
-    ], style={'marginTop': '16px', 'padding': '12px', 'backgroundColor': '#fff8e1', 'borderRadius': '6px'}))
-    
-    # Selected beam comparison context
-    if selected_beam and selected_beam.get('text'):
         results.append(html.Div([
-            html.Hr(style={'margin': '15px 0', 'borderColor': '#dee2e6'}),
+            html.H6("Full Generation Comparison", style={'color': '#495057', 'marginBottom': '15px'}),
+            
+            # Comparison Grid
             html.Div([
-                html.I(className='fas fa-info-circle', style={'color': '#6c757d', 'marginRight': '8px'}),
-                html.Span("Original generation for reference: ", style={'fontWeight': '500', 'color': '#495057'}),
-                html.Span(selected_beam['text'], style={'fontFamily': 'monospace', 'backgroundColor': '#f8f9fa', 
-                                                       'padding': '4px 8px', 'borderRadius': '4px'})
-            ], style={'fontSize': '13px'})
+                # Original Generation
+                html.Div([
+                    html.Div("Original Generation", style={'fontSize': '12px', 'fontWeight': 'bold', 'color': '#28a745', 'marginBottom': '8px'}),
+                    html.Div(selected_beam['text'], style={
+                        'fontFamily': 'monospace',
+                        'fontSize': '13px',
+                        'padding': '12px',
+                        'backgroundColor': '#f8f9fa',
+                        'border': '1px solid #dee2e6', 
+                        'borderRadius': '6px',
+                        'whiteSpace': 'pre-wrap',
+                        'height': '100%'
+                    })
+                ], style={'flex': '1', 'marginRight': '10px'}),
+                
+                # Ablated Generation
+                html.Div([
+                    html.Div("Ablated Generation", style={'fontSize': '12px', 'fontWeight': 'bold', 'color': '#dc3545', 'marginBottom': '8px'}),
+                    html.Div(ablated_beam['text'], style={
+                        'fontFamily': 'monospace',
+                        'fontSize': '13px',
+                        'padding': '12px',
+                        'backgroundColor': '#fff5f5' if gen_changed else '#f8f9fa',
+                        'border': '1px solid #dee2e6',
+                        'borderRadius': '6px',
+                        'whiteSpace': 'pre-wrap',
+                        'height': '100%'
+                    })
+                ], style={'flex': '1', 'marginLeft': '10px'})
+            ], style={'display': 'flex', 'alignItems': 'stretch'}),
+            
+            # Generation Change Indicator
+            html.Div([
+                html.I(className=f"fas {'fa-exclamation-circle' if gen_changed else 'fa-check-circle'}", 
+                       style={'color': '#dc3545' if gen_changed else '#28a745', 'marginRight': '8px'}),
+                html.Span(
+                    "The generated sequence changed significantly after ablation."
+                    if gen_changed else
+                    "The generated sequence remained identical.",
+                    style={'fontWeight': '500', 'color': '#495057'}
+                )
+            ], style={'marginTop': '15px', 'fontSize': '13px'}),
+
+            # Probability info as secondary context
+            html.Div([
+                html.Hr(style={'margin': '15px 0', 'borderTop': '1px dotted #dee2e6'}),
+                html.Span("Immediate next-token probability: ", style={'color': '#6c757d', 'fontSize': '12px'}),
+                html.Span(f"{original_prob:.1%} → {ablated_prob:.1%} ", 
+                         style={'fontSize': '12px', 'fontWeight': 'bold', 'color': '#495057'}),
+                html.Span(f"({ablated_prob - original_prob:+.1%})", 
+                         style={'fontSize': '12px', 'color': '#dc3545' if ablated_prob < original_prob else '#28a745'})
+            ], style={'marginTop': '10px'})
+            
         ]))
+    else:
+        # Fallback if beam data is missing
+        results.append(html.Div([
+            html.I(className='fas fa-info-circle', style={'color': '#6c757d', 'marginRight': '8px'}),
+            html.Span("Run a full analysis first to select a generation for comparison.", 
+                     style={'color': '#6c757d', 'fontSize': '14px'})
+        ], style={'padding': '20px', 'backgroundColor': '#f8f9fa', 'borderRadius': '8px', 'border': '1px solid #dee2e6'}))
         
     return html.Div(results, style={
         'padding': '20px',

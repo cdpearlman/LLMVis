@@ -792,6 +792,21 @@ def create_output_content(top_tokens=None, predicted_token=None, predicted_prob=
             ], style={'backgroundColor': 'white', 'borderRadius': '8px', 'border': '1px solid #e2e8f0'})
         )
     
+    # Disclaimer about token selection drivers
+    content_items.append(
+        html.Div([
+            html.I(className='fas fa-info-circle', style={'color': '#6c757d', 'marginRight': '8px'}),
+            html.Span([
+                html.Strong("Note on Token Selection: "),
+                "While the probabilities above show the model's raw preference for the immediate next token, the final choice ",
+                "can be influenced by other factors. Techniques like ", html.Strong("Beam Search"), 
+                " look ahead at multiple possible sequences to find the best overall result, rather than just the single most likely token at each step. ",
+                "Additionally, architectures like ", html.Strong("Mixture of Experts (MoE)"),
+                " might route processing through different specialized internal networks which can impact the final output distribution."
+            ], style={'color': '#6c757d', 'fontSize': '13px'})
+        ], style={'marginTop': '16px', 'padding': '12px', 'backgroundColor': '#f8f9fa', 'borderRadius': '6px', 'border': '1px solid #dee2e6'})
+    )
+    
     return html.Div(content_items)
 
 

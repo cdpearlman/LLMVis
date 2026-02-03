@@ -20,6 +20,7 @@ alwaysApply: true
 - Plan first:
   - Update `todo.md` with the smallest next actions tied to `plans.md`.
   - Keep tasks atomic and check them off as you go.
+  - Use the `conductor` folder to learn about the project. Maintain this folder after every change to the code in order to keep running memory (only make changes if necessary).
 
 - Keep edits minimal:
   - Prefer small, surgical changes over refactors.
