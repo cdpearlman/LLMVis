@@ -4,8 +4,7 @@ Tests for Gemini API connection.
 Verifies that the API key is configured correctly and can connect
 to the Gemini API without consuming generation tokens.
 
-Note: These tests avoid importing utils.gemini_client where possible
-to prevent slow tensorflow/jax imports from the google-generativeai package.
+Uses the new google-genai SDK.
 """
 
 import os
@@ -33,13 +32,13 @@ class TestGeminiConnection:
         Test API connectivity by listing available models.
         This verifies the API key is valid without consuming generation tokens.
         """
-        import google.generativeai as genai
+        from google import genai
         
         api_key = os.environ.get("GEMINI_API_KEY")
-        genai.configure(api_key=api_key)
+        client = genai.Client(api_key=api_key)
         
         # List models - this is a read-only API call that validates the key
-        models = list(genai.list_models())
+        models = list(client.models.list())
         
         assert len(models) > 0, "No models returned - API key may be invalid"
         
@@ -51,17 +50,35 @@ class TestGeminiConnection:
     @pytest.mark.timeout(30)
     def test_flash_model_available(self):
         """Verify a Gemini Flash model (used by default) is available."""
-        import google.generativeai as genai
+        from google import genai
         
         api_key = os.environ.get("GEMINI_API_KEY")
-        genai.configure(api_key=api_key)
+        client = genai.Client(api_key=api_key)
         
-        models = list(genai.list_models())
+        models = list(client.models.list())
         model_names = [m.name for m in models]
         
         # Check for flash model variants (our default is gemini-2.0-flash)
         has_flash_model = any("flash" in name.lower() for name in model_names)
         assert has_flash_model, (
             f"No Gemini Flash models available. "
+            f"Available models: {model_names[:10]}..."
+        )
+
+    @pytest.mark.timeout(30)
+    def test_embedding_model_available(self):
+        """Verify the embedding model is available."""
+        from google import genai
+        
+        api_key = os.environ.get("GEMINI_API_KEY")
+        client = genai.Client(api_key=api_key)
+        
+        models = list(client.models.list())
+        model_names = [m.name for m in models]
+        
+        # Check for embedding model (gemini-embedding-001)
+        has_embedding_model = any("embedding" in name.lower() for name in model_names)
+        assert has_embedding_model, (
+            f"No embedding models available. "
             f"Available models: {model_names[:10]}..."
         )

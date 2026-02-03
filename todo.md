@@ -150,3 +150,16 @@
 - [x] Create `tests/test_gemini_connection.py` to verify API key connectivity
 - [x] Tests verify: API key is set, can list models, flash model available
 - Note: On Hugging Face Spaces, set `GEMINI_API_KEY` in Repository Secrets
+
+## Completed: Migrate to New Google GenAI SDK
+
+- [x] Update `requirements.txt`: `google-generativeai` → `google-genai>=1.0.0`
+- [x] Rewrite `utils/gemini_client.py` using new centralized Client architecture
+  - New import: `from google import genai` and `from google.genai import types`
+  - Client-based API: `client = genai.Client(api_key=...)`
+  - Chat via: `client.chats.create(model=..., config=..., history=...)`
+  - Embeddings via: `client.models.embed_content(model=..., contents=..., config=...)`
+- [x] Update embedding model: `models/text-embedding-004` → `gemini-embedding-001`
+- [x] Update `tests/test_gemini_connection.py` to use new SDK
+- [x] All 4 connection tests pass
+- [x] Verified: embeddings work (3072 dimensions), chat generation works

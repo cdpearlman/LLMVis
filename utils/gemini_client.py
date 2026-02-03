@@ -3,16 +3,19 @@ Gemini API Client
 
 Wrapper for Google Gemini API providing text generation and embedding capabilities
 for the AI chatbot feature.
+
+Uses the new google-genai SDK (migrated from deprecated google-generativeai).
 """
 
 import os
 from typing import List, Dict, Optional
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 
 
 # Default model configuration
 DEFAULT_GENERATION_MODEL = "gemini-2.0-flash"
-DEFAULT_EMBEDDING_MODEL = "models/text-embedding-004"
+DEFAULT_EMBEDDING_MODEL = "gemini-embedding-001"
 
 # System prompt for the chatbot
 SYSTEM_PROMPT = """You are a helpful AI assistant integrated into a Transformer Explanation Dashboard. 
@@ -45,23 +48,19 @@ class GeminiClient:
         """
         self.api_key = api_key or os.environ.get("GEMINI_API_KEY")
         self._initialized = False
-        self._generation_model = None
-        self._embedding_model = None
+        self._client = None
         
         if self.api_key:
             self._initialize()
     
     def _initialize(self):
-        """Initialize the Gemini API with the API key."""
+        """Initialize the Gemini API client."""
         if not self.api_key:
             return
         
         try:
-            genai.configure(api_key=self.api_key)
-            self._generation_model = genai.GenerativeModel(
-                model_name=DEFAULT_GENERATION_MODEL,
-                system_instruction=SYSTEM_PROMPT
-            )
+            # Create the centralized client object (new SDK architecture)
+            self._client = genai.Client(api_key=self.api_key)
             self._initialized = True
         except Exception as e:
             print(f"Error initializing Gemini client: {e}")
@@ -98,26 +97,32 @@ class GeminiClient:
             # Build the full prompt with context
             full_message = self._build_prompt(user_message, rag_context, dashboard_context)
             
-            # Convert chat history to Gemini format
+            # Convert chat history to new SDK format
             history = []
             if chat_history:
                 for msg in chat_history[-10:]:  # Keep last 10 messages for context
                     role = "user" if msg.get("role") == "user" else "model"
                     history.append({
                         "role": role,
-                        "parts": [msg.get("content", "")]
+                        "parts": [{"text": msg.get("content", "")}]
                     })
             
-            # Create chat session and send message
-            chat = self._generation_model.start_chat(history=history)
-            response = chat.send_message(full_message)
+            # Create chat session with system instruction and send message
+            chat = self._client.chats.create(
+                model=DEFAULT_GENERATION_MODEL,
+                config=types.GenerateContentConfig(
+                    system_instruction=SYSTEM_PROMPT,
+                ),
+                history=history
+            )
+            response = chat.send_message(message=full_message)
             
             return response.text
             
         except Exception as e:
             error_msg = str(e)
             if "quota" in error_msg.lower() or "rate" in error_msg.lower():
-                return "The AI service is currently rate limited. Please try again in a moment."
+                return f"The AI service is currently rate limited. Please try again in a moment. {error_msg}"
             elif "invalid" in error_msg.lower() and "key" in error_msg.lower():
                 return "Invalid API key. Please check your GEMINI_API_KEY configuration."
             else:
@@ -187,12 +192,15 @@ class GeminiClient:
             return None
         
         try:
-            result = genai.embed_content(
+            result = self._client.models.embed_content(
                 model=DEFAULT_EMBEDDING_MODEL,
-                content=text,
-                task_type="retrieval_document"
+                contents=text,
+                config=types.EmbedContentConfig(
+                    task_type="RETRIEVAL_DOCUMENT"
+                )
             )
-            return result['embedding']
+            # New SDK returns embeddings as a list, get the first one
+            return result.embeddings[0].values
         except Exception as e:
             print(f"Embedding error: {e}")
             return None
@@ -211,12 +219,15 @@ class GeminiClient:
             return None
         
         try:
-            result = genai.embed_content(
+            result = self._client.models.embed_content(
                 model=DEFAULT_EMBEDDING_MODEL,
-                content=query,
-                task_type="retrieval_query"
+                contents=query,
+                config=types.EmbedContentConfig(
+                    task_type="RETRIEVAL_QUERY"
+                )
             )
-            return result['embedding']
+            # New SDK returns embeddings as a list, get the first one
+            return result.embeddings[0].values
         except Exception as e:
             print(f"Query embedding error: {e}")
             return None
