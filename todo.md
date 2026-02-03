@@ -142,3 +142,11 @@
 - [x] Add `google-generativeai` to `requirements.txt`
 - [x] Test end-to-end: toggle, message send, context awareness
 - [x] Verify all 81 tests pass
+
+## Completed: Hugging Face Deployment Prep
+
+- [x] Create `.gitignore` to exclude `.env`, `__pycache__/`, etc.
+- [x] Add `load_dotenv()` to `app.py` for local development
+- [x] Create `tests/test_gemini_connection.py` to verify API key connectivity
+- [x] Tests verify: API key is set, can list models, flash model available
+- Note: On Hugging Face Spaces, set `GEMINI_API_KEY` in Repository Secrets

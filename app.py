@@ -5,6 +5,9 @@ A dashboard focused on explaining how transformer models process input and arriv
 Uses a linear pipeline visualization with expandable stages.
 """
 
+from dotenv import load_dotenv
+load_dotenv()  # Load environment variables from .env file
+
 import dash
 from dash import html, dcc, Input, Output, State, callback, no_update, ALL, MATCH
 import json
