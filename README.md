@@ -1,105 +1,73 @@
 # Transformer Explanation Dashboard
 
-A comprehensive, interactive tool for capturing, visualizing, and experimenting with Transformer-based Large Language Models (LLMs). This project demystifies the inner workings of models by transforming abstract architectural concepts into tangible, observable phenomena.
+A Dash-based interactive application for visualizing and analyzing the internal mechanics of Transformer-based Large Language Models (LLMs). This tool enables users to inspect the generation pipeline step-by-step and perform real-time experiments like ablation and attribution.
 
-## Vision
+## Architecture
 
-To foster a deep, intuitive understanding of how powerful models process information by combining interactive visualizations with hands-on experimentation capabilities.
+The project is structured around a central Dash application with modular components and utility libraries:
 
-## Key Features
+### Core Components
+*   `app.py`: The main application entry point that orchestrates the layout and callbacks.
+*   `components/`: Modular UI elements.
+    *   `pipeline.py`: Implements the 5-stage visualization pipeline (Tokenization, Embedding, Attention, MLP, Output).
+    *   `investigation_panel.py`: Handles the experimental interfaces (Ablation and Attribution).
+    *   `ablation_panel.py`: Logic for the head ablation interface.
+    *   `tokenization_panel.py`: Visualization for token processing.
+    *   `sidebar.py` & `model_selector.py`: Configuration and navigation controls.
 
-### 🔍 Interactive Pipeline Visualization
-Follow the data flow step-by-step through the model's architecture:
-1.  **Tokenization**: See how text is split and assigned IDs.
-2.  **Embedding**: Visualize the look-up of semantic vectors.
-3.  **Attention**: Explore head-level attention patterns using **BertViz**.
-4.  **MLP (Feed-Forward)**: Understand where factual knowledge is stored.
-5.  **Output Selection**: View probability distributions and top predictions.
+### Utilities (`utils/`)
+*   `model_patterns.py`: Core logic for hooking into PyTorch models to capture activations.
+*   `model_config.py`: Registry for automatic detection of model families (LLaMA, GPT-2, OPT, etc.).
+*   `head_detection.py`: Analysis logic for categorizing attention heads.
+*   `beam_search.py`: Implementation of beam search for sequence generation analysis.
+*   `token_attribution.py`: Integrated Gradients implementation for feature importance.
 
-### 🧪 Experiments & Investigation
-Go beyond static observation with interactive experiments:
-*   **Ablation Studies**: Selectively disable specific attention heads across different layers to observe their impact on generation and probability.
-*   **Token Attribution**: Use **Integrated Gradients** to see which input tokens contributed most to a specific prediction.
-*   **Beam Search Analysis**: Visualize how multiple generation choices are explored.
-
-### 🤖 Broad Model Support
-The dashboard features **Automatic Model Family Detection**, supporting a wide range of architectures without manual configuration:
-*   **LLaMA-like**: LLaMA 2/3, Mistral, Mixtral, Qwen2/2.5
-*   **GPT-2**: GPT-2 (Small/Medium/Large/XL)
-*   **OPT**: Facebook OPT models
-*   **GPT-NeoX**: Pythia, GPT-NeoX
-*   **BLOOM**: BigScience BLOOM
-*   **Falcon**: TII Falcon
-*   **MPT**: MosaicML MPT
-
-## Getting Started
+## Installation
 
 ### Prerequisites
-*   Python 3.11+ recommended
+*   Python 3.11+
 *   PyTorch
 
-### Installation
+### Steps
 
 1.  Clone the repository:
     ```bash
-    git clone https://github.com/yourusername/transformer-dashboard.git
-    cd transformer-dashboard
+    git clone <repository_url>
+    cd <repository_directory>
     ```
 
-2.  Install dependencies:
+2.  Install the required dependencies:
     ```bash
     pip install -r requirements.txt
     ```
 
-### Running the Dashboard
+## Usage
 
-Launch the application:
+1.  **Launch the Dashboard**:
+    ```bash
+    python app.py
+    ```
 
-```bash
-python app.py
-```
+2.  **Access the Interface**:
+    Open a web browser and navigate to `http://127.0.0.1:8050/`.
 
-Open your browser and navigate to `http://127.0.0.1:8050/`.
+3.  **Workflow**:
+    *   **Model Selection**: Choose a model from the dropdown or enter a HuggingFace model ID. The system automatically detects the architecture.
+    *   **Analysis**: Enter a prompt and click "Analyze" to visualize the forward pass.
+    *   **Pipeline Exploration**: Interact with the 5 pipeline stages to view detailed activation data.
+    *   **Experiments**: Use the Investigation Panel at the bottom to run Ablation (disable heads) or Attribution (analyze token importance) experiments.
 
-## Usage Guide
+## Testing
 
-1.  **Select a Model**: Choose from the predefined list or enter a HuggingFace model ID. The system will auto-detect the architecture.
-2.  **Enter a Prompt**: Type a sentence to analyze.
-3.  **Configure Generation**: Adjust "Number of New Tokens" and "Number of Generation Choices" (Beam Width).
-4.  **Run Analysis**: Click "Analyze" to run the forward pass.
-5.  **Explore the Pipeline**: Click on the pipeline stages (Tokenization, Attention, etc.) to expand detailed views.
-6.  **Run Experiments**:
-    *   Use the **Investigation Panel** at the bottom to switch between Ablation and Attribution tabs.
-    *   In **Ablation**, select layers and heads to disable, then click "Run Ablation Experiment".
-    *   In **Attribution**, select a target token and method to visualize feature importance.
-
-## Project Structure
-
-*   `app.py`: Main application entry point and layout orchestration.
-*   `components/`: Modular UI components.
-    *   `pipeline.py`: The core 5-stage visualization.
-    *   `investigation_panel.py`: Ablation and attribution interfaces.
-    *   `ablation_panel.py`: Specific logic for head ablation UI.
-    *   `tokenization_panel.py`: Token visualization.
-*   `utils/`: Backend logic and helper functions.
-    *   `model_patterns.py`: Activation capture and hooking logic.
-    *   `model_config.py`: Model family definitions and auto-detection.
-    *   `head_detection.py`: Attention head categorization logic.
-    *   `beam_search.py`: Beam search implementation.
-*   `tests/`: Comprehensive test suite ensuring stability.
-*   `conductor/`: Detailed project documentation and product guidelines.
-
-## Documentation
-
-For more detailed information on the project's background and technical details, check the `conductor/` directory:
-*   [Product Definition](conductor/product.md)
-*   [Tech Stack](conductor/tech-stack.md)
-*   [Workflow](conductor/workflow.md)
-
-## Contributing
-
-Contributions are welcome! Please ensure that any new features include appropriate tests in the `tests/` directory. Run the test suite before submitting:
+The project includes a comprehensive test suite located in the `tests/` directory. To run the tests:
 
 ```bash
 pytest tests/
 ```
+
+## Documentation
+
+Additional project documentation is available in the `conductor/` directory:
+*   [Product Definition](conductor/product.md)
+*   [Tech Stack](conductor/tech-stack.md)
+*   [Workflow](conductor/workflow.md)
