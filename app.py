@@ -10,11 +10,7 @@ from dash import html, dcc, Input, Output, State, callback, no_update, ALL, MATC
 import json
 import torch
 from utils import (load_model_and_get_patterns, execute_forward_pass, extract_layer_data,
-                   categorize_single_layer_heads, perform_beam_search,
-                   execute_forward_pass_with_head_ablation,
-                   execute_forward_pass_with_multi_layer_head_ablation,
-                   evaluate_sequence_ablation, score_sequence,
-                   get_head_category_counts, generate_bertviz_model_view_html)
+                   perform_beam_search, execute_forward_pass_with_multi_layer_head_ablation)
 from utils.head_detection import categorize_all_heads
 from utils.model_config import get_auto_selections
 from utils.token_attribution import compute_integrated_gradients, compute_simple_gradient_attribution
@@ -526,11 +522,6 @@ def update_pipeline_content(activation_data, model_name):
                 top_tokens = global_top5
         else:
             top_tokens = []
-        
-        # Get attention info from first layer
-        top_attended = None
-        if layer_data:
-            top_attended = layer_data[0].get('top_attended_tokens', [])
         
         # Generate BertViz HTML
         from utils import generate_bertviz_html

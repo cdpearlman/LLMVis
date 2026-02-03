@@ -113,6 +113,24 @@
 - [x] Add 5 tests for multi-layer ablation in test_model_patterns.py
 - [x] Verify all 78 tests pass
 
+## Completed: Codebase Cleanup
+
+- [x] Delete unused file: `components/tokenization_panel.py` (302 lines, 6 functions)
+- [x] Remove 6 unused imports from `app.py`
+- [x] Remove deprecated `_get_top_attended_tokens()` function from model_patterns.py
+- [x] Remove `top_attended_tokens` field from extract_layer_data() return values
+- [x] Remove unused `create_stage_summary()` function from pipeline.py
+- [x] Remove 7 unused utility functions from utils/:
+  - `get_check_token_probabilities`
+  - `execute_forward_pass_with_layer_ablation`
+  - `generate_category_bertviz_html`
+  - `generate_head_view_with_categories`
+  - `compute_sequence_trajectory`
+  - `compute_layer_wise_summaries`
+  - `compute_position_layer_matrix`
+- [x] Update `utils/__init__.py` exports
+- [x] Update README.md to remove reference to deleted file
+
 ## Completed: AI Chatbot Integration
 
 - [x] Create `rag_docs/` folder with placeholder README for RAG documents

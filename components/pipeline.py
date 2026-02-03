@@ -809,26 +809,3 @@ def create_output_content(top_tokens=None, predicted_token=None, predicted_prob=
     
     return html.Div(content_items)
 
-
-def create_stage_summary(stage_id, activation_data=None, model_config=None):
-    """
-    Generate summary text for a stage (shown when collapsed).
-    
-    Args:
-        stage_id: Stage identifier ('tokenization', 'embedding', etc.)
-        activation_data: Optional activation data from forward pass
-        model_config: Optional model configuration
-    """
-    if not activation_data:
-        return "Awaiting input..."
-    
-    summaries = {
-        'tokenization': lambda: f"{len(activation_data.get('input_ids', [[]])[0])} tokens",
-        'embedding': lambda: f"{model_config.hidden_size if model_config else 768}-dim vectors" if model_config else "Vectors ready",
-        'attention': lambda: f"{model_config.num_attention_heads if model_config else 12} heads" if model_config else "Context gathered",
-        'mlp': lambda: f"{model_config.num_hidden_layers if model_config else 12} layers" if model_config else "Transformations applied",
-        'output': lambda: f"→ {activation_data.get('actual_output', {}).get('token', '?')}" if activation_data.get('actual_output') else "Output computed"
-    }
-    
-    return summaries.get(stage_id, lambda: "")()
-

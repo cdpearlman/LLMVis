@@ -12,7 +12,6 @@ The project is structured around a central Dash application with modular compone
     *   `pipeline.py`: Implements the 5-stage visualization pipeline (Tokenization, Embedding, Attention, MLP, Output).
     *   `investigation_panel.py`: Handles the experimental interfaces (Ablation and Attribution).
     *   `ablation_panel.py`: Logic for the head ablation interface.
-    *   `tokenization_panel.py`: Visualization for token processing.
     *   `sidebar.py` & `model_selector.py`: Configuration and navigation controls.
 
 ### Utilities (`utils/`)
@@ -57,13 +56,20 @@ The project is structured around a central Dash application with modular compone
     *   **Pipeline Exploration**: Interact with the 5 pipeline stages to view detailed activation data.
     *   **Experiments**: Use the Investigation Panel at the bottom to run Ablation (disable heads) or Attribution (analyze token importance) experiments.
 
-## Testing
+## Project Structure
 
-The project includes a comprehensive test suite located in the `tests/` directory. To run the tests:
-
-```bash
-pytest tests/
-```
+*   `app.py`: Main application entry point and layout orchestration.
+*   `components/`: Modular UI components.
+    *   `pipeline.py`: The core 5-stage visualization.
+    *   `investigation_panel.py`: Ablation and attribution interfaces.
+    *   `ablation_panel.py`: Specific logic for head ablation UI.
+*   `utils/`: Backend logic and helper functions.
+    *   `model_patterns.py`: Activation capture and hooking logic.
+    *   `model_config.py`: Model family definitions and auto-detection.
+    *   `head_detection.py`: Attention head categorization logic.
+    *   `beam_search.py`: Beam search implementation.
+*   `tests/`: Comprehensive test suite ensuring stability.
+*   `conductor/`: Detailed project documentation and product guidelines.
 
 ## Documentation
 
