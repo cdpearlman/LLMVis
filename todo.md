@@ -112,3 +112,15 @@
 - [x] Replace per-layer ablation loop in app.py with single call to new function
 - [x] Add 5 tests for multi-layer ablation in test_model_patterns.py
 - [x] Verify all 78 tests pass
+
+## Completed: AI Chatbot Integration
+
+- [x] Create `rag_docs/` folder with placeholder README for RAG documents
+- [x] Create `utils/gemini_client.py` with Gemini API wrapper (generate + embed)
+- [x] Create `utils/rag_utils.py` with document loading, chunking, and retrieval
+- [x] Create `components/chatbot.py` with UI components (icon, window, messages)
+- [x] Add chatbot CSS to `assets/style.css` (floating button, chat window, message bubbles)
+- [x] Modify `app.py` to add chat layout and callbacks
+- [x] Add `google-generativeai` to `requirements.txt`
+- [x] Test end-to-end: toggle, message send, context awareness
+- [x] Verify all 81 tests pass
