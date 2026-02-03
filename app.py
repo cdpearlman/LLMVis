@@ -1004,7 +1004,7 @@ def clear_chat_history(n_clicks):
 def send_chat_message(send_clicks, user_input, chat_history, 
                       model_name, prompt, activation_data, ablated_heads):
     """Handle sending a chat message and getting AI response."""
-    from utils.gemini_client import generate_response
+    from utils.openrouter_client import generate_response
     from utils.rag_utils import build_rag_context
     
     if not user_input or not user_input.strip():

@@ -1,21 +1,29 @@
 """
-Gemini API Client
+OpenRouter API Client
 
-Wrapper for Google Gemini API providing text generation and embedding capabilities
+Wrapper for OpenRouter API providing text generation and embedding capabilities
 for the AI chatbot feature.
 
-Uses the new google-genai SDK (migrated from deprecated google-generativeai).
+Uses the OpenAI-compatible API via requests.
 """
 
 import os
+import requests
 from typing import List, Dict, Optional
-from google import genai
-from google.genai import types
 
 
-# Default model configuration
-DEFAULT_GENERATION_MODEL = "gemini-2.0-flash"
-DEFAULT_EMBEDDING_MODEL = "gemini-embedding-001"
+# =============================================================================
+# GLOBAL MODEL CONFIGURATION
+# =============================================================================
+# Change these to switch models across the entire application
+
+DEFAULT_CHAT_MODEL = "google/gemini-2.0-flash-001"
+DEFAULT_EMBEDDING_MODEL = "openai/text-embedding-3-small"
+
+# =============================================================================
+
+# OpenRouter API endpoint
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
 # System prompt for the chatbot
 SYSTEM_PROMPT = """You are a helpful AI assistant integrated into a Transformer Explanation Dashboard. 
@@ -36,39 +44,38 @@ When answering:
 Dashboard context will be provided in the user's messages when available."""
 
 
-class GeminiClient:
-    """Client for interacting with Google Gemini API."""
+class OpenRouterClient:
+    """Client for interacting with OpenRouter API."""
     
     def __init__(self, api_key: Optional[str] = None):
         """
-        Initialize the Gemini client.
+        Initialize the OpenRouter client.
         
         Args:
-            api_key: Gemini API key. If not provided, reads from GEMINI_API_KEY env var.
+            api_key: OpenRouter API key. If not provided, reads from OPENROUTER_API_KEY env var.
         """
-        self.api_key = api_key or os.environ.get("GEMINI_API_KEY")
+        self.api_key = api_key or os.environ.get("OPENROUTER_API_KEY")
         self._initialized = False
-        self._client = None
         
         if self.api_key:
             self._initialize()
     
     def _initialize(self):
-        """Initialize the Gemini API client."""
+        """Initialize the OpenRouter API client."""
         if not self.api_key:
             return
         
-        try:
-            # Create the centralized client object (new SDK architecture)
-            self._client = genai.Client(api_key=self.api_key)
-            self._initialized = True
-        except Exception as e:
-            print(f"Error initializing Gemini client: {e}")
-            self._initialized = False
+        self._headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://transformer-dashboard.local",  # Optional: for rankings
+            "X-Title": "Transformer Explanation Dashboard"  # Optional: for rankings
+        }
+        self._initialized = True
     
     @property
     def is_available(self) -> bool:
-        """Check if the Gemini API is available and configured."""
+        """Check if the OpenRouter API is available and configured."""
         return self._initialized and self.api_key is not None
     
     def generate_response(
@@ -79,7 +86,7 @@ class GeminiClient:
         dashboard_context: Optional[Dict] = None
     ) -> str:
         """
-        Generate a response using Gemini.
+        Generate a response using OpenRouter.
         
         Args:
             user_message: The user's message
@@ -91,43 +98,61 @@ class GeminiClient:
             Generated response text
         """
         if not self.is_available:
-            return "Sorry, the AI assistant is not available. Please check that the GEMINI_API_KEY environment variable is set."
+            return "Sorry, the AI assistant is not available. Please check that the OPENROUTER_API_KEY environment variable is set."
         
         try:
             # Build the full prompt with context
             full_message = self._build_prompt(user_message, rag_context, dashboard_context)
             
-            # Convert chat history to new SDK format
-            history = []
+            # Build messages array with system prompt and history
+            messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+            
+            # Add chat history
             if chat_history:
                 for msg in chat_history[-10:]:  # Keep last 10 messages for context
-                    role = "user" if msg.get("role") == "user" else "model"
-                    history.append({
+                    role = "user" if msg.get("role") == "user" else "assistant"
+                    messages.append({
                         "role": role,
-                        "parts": [{"text": msg.get("content", "")}]
+                        "content": msg.get("content", "")
                     })
             
-            # Create chat session with system instruction and send message
-            chat = self._client.chats.create(
-                model=DEFAULT_GENERATION_MODEL,
-                config=types.GenerateContentConfig(
-                    system_instruction=SYSTEM_PROMPT,
-                ),
-                history=history
+            # Add the current user message
+            messages.append({"role": "user", "content": full_message})
+            
+            # Make API request
+            response = requests.post(
+                f"{OPENROUTER_BASE_URL}/chat/completions",
+                headers=self._headers,
+                json={
+                    "model": DEFAULT_CHAT_MODEL,
+                    "messages": messages
+                },
+                timeout=60
             )
-            response = chat.send_message(message=full_message)
+            response.raise_for_status()
             
-            return response.text
+            data = response.json()
+            return data["choices"][0]["message"]["content"]
             
-        except Exception as e:
+        except requests.exceptions.HTTPError as e:
             error_msg = str(e)
-            if "quota" in error_msg.lower() or "rate" in error_msg.lower():
+            if e.response is not None:
+                try:
+                    error_data = e.response.json()
+                    error_msg = error_data.get("error", {}).get("message", str(e))
+                except:
+                    pass
+            
+            if "rate" in error_msg.lower() or "429" in error_msg:
                 return f"The AI service is currently rate limited. Please try again in a moment. {error_msg}"
-            elif "invalid" in error_msg.lower() and "key" in error_msg.lower():
-                return "Invalid API key. Please check your GEMINI_API_KEY configuration."
+            elif "401" in error_msg or "invalid" in error_msg.lower():
+                return "Invalid API key. Please check your OPENROUTER_API_KEY configuration."
             else:
-                print(f"Gemini API error: {e}")
+                print(f"OpenRouter API error: {e}")
                 return f"Sorry, I encountered an error: {error_msg}"
+        except Exception as e:
+            print(f"OpenRouter API error: {e}")
+            return f"Sorry, I encountered an error: {str(e)}"
     
     def _build_prompt(
         self,
@@ -180,7 +205,7 @@ class GeminiClient:
     
     def get_embedding(self, text: str) -> Optional[List[float]]:
         """
-        Get embedding vector for text using Gemini Embedding API.
+        Get embedding vector for text using OpenRouter Embedding API.
         
         Args:
             text: Text to embed
@@ -192,22 +217,29 @@ class GeminiClient:
             return None
         
         try:
-            result = self._client.models.embed_content(
-                model=DEFAULT_EMBEDDING_MODEL,
-                contents=text,
-                config=types.EmbedContentConfig(
-                    task_type="RETRIEVAL_DOCUMENT"
-                )
+            response = requests.post(
+                f"{OPENROUTER_BASE_URL}/embeddings",
+                headers=self._headers,
+                json={
+                    "model": DEFAULT_EMBEDDING_MODEL,
+                    "input": text
+                },
+                timeout=30
             )
-            # New SDK returns embeddings as a list, get the first one
-            return result.embeddings[0].values
+            response.raise_for_status()
+            
+            data = response.json()
+            return data["data"][0]["embedding"]
         except Exception as e:
             print(f"Embedding error: {e}")
             return None
     
     def get_query_embedding(self, query: str) -> Optional[List[float]]:
         """
-        Get embedding vector for a query (uses different task type for better retrieval).
+        Get embedding vector for a query.
+        
+        Note: OpenRouter doesn't have separate task types for embeddings,
+        so this calls the same endpoint as get_embedding.
         
         Args:
             query: Query text to embed
@@ -215,33 +247,18 @@ class GeminiClient:
         Returns:
             Embedding vector as list of floats, or None if failed
         """
-        if not self.is_available:
-            return None
-        
-        try:
-            result = self._client.models.embed_content(
-                model=DEFAULT_EMBEDDING_MODEL,
-                contents=query,
-                config=types.EmbedContentConfig(
-                    task_type="RETRIEVAL_QUERY"
-                )
-            )
-            # New SDK returns embeddings as a list, get the first one
-            return result.embeddings[0].values
-        except Exception as e:
-            print(f"Query embedding error: {e}")
-            return None
+        return self.get_embedding(query)
 
 
 # Singleton instance
-_client_instance: Optional[GeminiClient] = None
+_client_instance: Optional[OpenRouterClient] = None
 
 
-def get_gemini_client() -> GeminiClient:
-    """Get or create the singleton Gemini client instance."""
+def get_openrouter_client() -> OpenRouterClient:
+    """Get or create the singleton OpenRouter client instance."""
     global _client_instance
     if _client_instance is None:
-        _client_instance = GeminiClient()
+        _client_instance = OpenRouterClient()
     return _client_instance
 
 
@@ -263,17 +280,22 @@ def generate_response(
     Returns:
         Generated response text
     """
-    client = get_gemini_client()
+    client = get_openrouter_client()
     return client.generate_response(user_message, chat_history, rag_context, dashboard_context)
 
 
 def get_embedding(text: str) -> Optional[List[float]]:
     """Convenience function to get document embedding."""
-    client = get_gemini_client()
+    client = get_openrouter_client()
     return client.get_embedding(text)
 
 
 def get_query_embedding(query: str) -> Optional[List[float]]:
     """Convenience function to get query embedding."""
-    client = get_gemini_client()
+    client = get_openrouter_client()
     return client.get_query_embedding(query)
+
+
+# Backward compatibility aliases (for gradual migration)
+GeminiClient = OpenRouterClient
+get_gemini_client = get_openrouter_client

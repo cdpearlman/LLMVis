@@ -151,15 +151,22 @@
 - [x] Tests verify: API key is set, can list models, flash model available
 - Note: On Hugging Face Spaces, set `GEMINI_API_KEY` in Repository Secrets
 
-## Completed: Migrate to New Google GenAI SDK
+## Completed: Migrate to New Google GenAI SDK (Superseded)
 
 - [x] Update `requirements.txt`: `google-generativeai` → `google-genai>=1.0.0`
 - [x] Rewrite `utils/gemini_client.py` using new centralized Client architecture
-  - New import: `from google import genai` and `from google.genai import types`
-  - Client-based API: `client = genai.Client(api_key=...)`
-  - Chat via: `client.chats.create(model=..., config=..., history=...)`
-  - Embeddings via: `client.models.embed_content(model=..., contents=..., config=...)`
-- [x] Update embedding model: `models/text-embedding-004` → `gemini-embedding-001`
-- [x] Update `tests/test_gemini_connection.py` to use new SDK
 - [x] All 4 connection tests pass
 - [x] Verified: embeddings work (3072 dimensions), chat generation works
+
+## Completed: Migrate from Gemini to OpenRouter
+
+- [x] Create `utils/openrouter_client.py` with OpenAI-compatible API
+  - Global model config: `DEFAULT_CHAT_MODEL` and `DEFAULT_EMBEDDING_MODEL`
+  - Chat via: `POST /api/v1/chat/completions`
+  - Embeddings via: `POST /api/v1/embeddings`
+- [x] Update `utils/rag_utils.py` imports to use openrouter_client
+- [x] Update `app.py` imports to use openrouter_client
+- [x] Create `tests/test_openrouter_connection.py` for API connectivity tests
+- [x] Delete old `utils/gemini_client.py` and `tests/test_gemini_connection.py`
+- [x] Update `requirements.txt`: remove `google-genai`, add `requests>=2.28.0`
+- [x] Environment variable: `GEMINI_API_KEY` → `OPENROUTER_API_KEY`

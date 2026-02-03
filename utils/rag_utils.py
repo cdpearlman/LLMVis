@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import List, Dict, Optional, Tuple
 import numpy as np
 
-from utils.gemini_client import get_embedding, get_query_embedding, get_gemini_client
+from utils.openrouter_client import get_embedding, get_query_embedding, get_openrouter_client
 
 
 # Configuration
@@ -189,9 +189,9 @@ class RAGService:
         if not self._loaded:
             self.load_documents()
         
-        client = get_gemini_client()
+        client = get_openrouter_client()
         if not client.is_available:
-            print("Gemini client not available, skipping embedding generation")
+            print("OpenRouter client not available, skipping embedding generation")
             return 0
         
         embedded_count = 0
