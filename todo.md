@@ -170,3 +170,14 @@
 - [x] Delete old `utils/gemini_client.py` and `tests/test_gemini_connection.py`
 - [x] Update `requirements.txt`: remove `google-genai`, add `requests>=2.28.0`
 - [x] Environment variable: `GEMINI_API_KEY` → `OPENROUTER_API_KEY`
+
+## Completed: Switch to Free Models
+
+- [x] Evaluate OpenRouter free models for chatbot use case
+- [x] Switch chat model: `google/gemini-2.0-flash-001` → `qwen/qwen3-next-80b-a3b-instruct:free`
+- [x] Implement local embeddings using `sentence-transformers` (all-MiniLM-L6-v2)
+  - 384-dimensional embeddings, runs locally (free)
+  - Lazy-loaded to avoid slow startup
+- [x] Remove OpenRouter embedding dependency (no free embedding models available)
+- [x] Add `sentence-transformers>=2.2.0` to requirements.txt
+- [x] Clear old embeddings cache (different dimensions: 1536 → 384)

@@ -1,8 +1,8 @@
 """
 OpenRouter API Client
 
-Wrapper for OpenRouter API providing text generation and embedding capabilities
-for the AI chatbot feature.
+Wrapper for OpenRouter API providing text generation capabilities
+for the AI chatbot feature. Embeddings use local sentence-transformers (free).
 
 Uses the OpenAI-compatible API via requests.
 """
@@ -17,8 +17,83 @@ from typing import List, Dict, Optional
 # =============================================================================
 # Change these to switch models across the entire application
 
-DEFAULT_CHAT_MODEL = "google/gemini-2.0-flash-001"
-DEFAULT_EMBEDDING_MODEL = "openai/text-embedding-3-small"
+DEFAULT_CHAT_MODEL = "qwen/qwen3-next-80b-a3b-instruct:free"
+
+# Local embedding model (runs locally, completely free)
+# all-MiniLM-L6-v2: 384 dimensions, fast, good quality for semantic search
+LOCAL_EMBEDDING_MODEL = "all-MiniLM-L6-v2"
+
+# =============================================================================
+
+
+# =============================================================================
+# LOCAL EMBEDDING SERVICE
+# =============================================================================
+
+class LocalEmbeddingService:
+    """Local embedding service using sentence-transformers (free, no API required)."""
+    
+    _instance = None
+    _model = None
+    
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+    
+    def _load_model(self):
+        """Lazy load the embedding model."""
+        if self._model is None:
+            try:
+                from sentence_transformers import SentenceTransformer
+                print(f"Loading local embedding model: {LOCAL_EMBEDDING_MODEL}...")
+                self._model = SentenceTransformer(LOCAL_EMBEDDING_MODEL)
+                print("Local embedding model loaded successfully.")
+            except ImportError:
+                print("sentence-transformers not installed. Run: pip install sentence-transformers")
+                return None
+            except Exception as e:
+                print(f"Error loading embedding model: {e}")
+                return None
+        return self._model
+    
+    def get_embedding(self, text: str) -> Optional[List[float]]:
+        """
+        Get embedding vector for text using local model.
+        
+        Args:
+            text: Text to embed
+            
+        Returns:
+            Embedding vector as list of floats, or None if failed
+        """
+        model = self._load_model()
+        if model is None:
+            return None
+        
+        try:
+            embedding = model.encode(text, convert_to_numpy=True)
+            return embedding.tolist()
+        except Exception as e:
+            print(f"Local embedding error: {e}")
+            return None
+    
+    def get_query_embedding(self, query: str) -> Optional[List[float]]:
+        """Get embedding for a query (same as document embedding for this model)."""
+        return self.get_embedding(query)
+
+
+# Singleton instance for local embeddings
+_local_embedding_service: Optional[LocalEmbeddingService] = None
+
+
+def _get_local_embedding_service() -> LocalEmbeddingService:
+    """Get or create the local embedding service."""
+    global _local_embedding_service
+    if _local_embedding_service is None:
+        _local_embedding_service = LocalEmbeddingService()
+    return _local_embedding_service
+
 
 # =============================================================================
 
@@ -205,7 +280,9 @@ class OpenRouterClient:
     
     def get_embedding(self, text: str) -> Optional[List[float]]:
         """
-        Get embedding vector for text using OpenRouter Embedding API.
+        Get embedding vector for text using local sentence-transformers model.
+        
+        Note: This uses a local model (free) instead of OpenRouter API.
         
         Args:
             text: Text to embed
@@ -213,33 +290,12 @@ class OpenRouterClient:
         Returns:
             Embedding vector as list of floats, or None if failed
         """
-        if not self.is_available:
-            return None
-        
-        try:
-            response = requests.post(
-                f"{OPENROUTER_BASE_URL}/embeddings",
-                headers=self._headers,
-                json={
-                    "model": DEFAULT_EMBEDDING_MODEL,
-                    "input": text
-                },
-                timeout=30
-            )
-            response.raise_for_status()
-            
-            data = response.json()
-            return data["data"][0]["embedding"]
-        except Exception as e:
-            print(f"Embedding error: {e}")
-            return None
+        service = _get_local_embedding_service()
+        return service.get_embedding(text)
     
     def get_query_embedding(self, query: str) -> Optional[List[float]]:
         """
-        Get embedding vector for a query.
-        
-        Note: OpenRouter doesn't have separate task types for embeddings,
-        so this calls the same endpoint as get_embedding.
+        Get embedding vector for a query using local model.
         
         Args:
             query: Query text to embed
@@ -247,7 +303,8 @@ class OpenRouterClient:
         Returns:
             Embedding vector as list of floats, or None if failed
         """
-        return self.get_embedding(query)
+        service = _get_local_embedding_service()
+        return service.get_query_embedding(query)
 
 
 # Singleton instance
