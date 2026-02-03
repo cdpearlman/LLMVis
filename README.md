@@ -77,10 +77,9 @@ Open your browser and navigate to `http://127.0.0.1:8050/`.
 
 *   `app.py`: Main application entry point and layout orchestration.
 *   `components/`: Modular UI components.
-    *   `pipeline.py`: The core 5-stage visualization.
+    *   `pipeline.py`: The core 5-stage visualization with tokenization display.
     *   `investigation_panel.py`: Ablation and attribution interfaces.
     *   `ablation_panel.py`: Specific logic for head ablation UI.
-    *   `tokenization_panel.py`: Token visualization.
 *   `utils/`: Backend logic and helper functions.
     *   `model_patterns.py`: Activation capture and hooking logic.
     *   `model_config.py`: Model family definitions and auto-detection.

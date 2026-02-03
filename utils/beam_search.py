@@ -4,9 +4,7 @@ Beam search utility for text generation and sequence analysis.
 
 import torch
 import torch.nn.functional as F
-from typing import List, Tuple, Dict, Any, Optional
-import numpy as np
-from utils.model_patterns import get_norm_layer_from_parameter
+from typing import List, Dict, Any, Optional
 import re
 
 def _make_head_ablation_hook(head_indices: List[int], num_heads: int):
@@ -179,90 +177,3 @@ def perform_beam_search(model, tokenizer, prompt: str, beam_width: int = 3, max_
         # Ensure hooks are removed even if error occurs
         for hook in hooks:
             hook.remove()
-
-def compute_sequence_trajectory(activation_data: Dict[str, Any], model, tokenizer) -> Dict[int, List[float]]:
-    """
-    Compute the trajectory of the sequence score across layers.
-    
-    For each layer, calculates the probability assigned to the *actual* next token 
-    at each step of the sequence.
-    
-    Args:
-        activation_data: Data from execute_forward_pass (must contain block_outputs for all layers)
-        model: HuggingFace model
-        tokenizer: HuggingFace tokenizer
-        
-    Returns:
-        Dict mapping layer_num -> list of scores (one per step in the generated sequence)
-    """
-    if not activation_data or 'block_outputs' not in activation_data:
-        return {}
-        
-    # Extract layer outputs
-    block_outputs = activation_data['block_outputs']
-    input_ids = activation_data['input_ids']
-    
-    if isinstance(input_ids, list):
-        input_ids = torch.tensor(input_ids)
-    
-    # Identify tokens: input_ids shape is [1, seq_len]
-    # The "generated" part starts after the prompt, but here we likely have the full sequence.
-    # We want to evaluate P(token_t | tokens_<t) for the whole sequence or just the new part?
-    # Usually, we visualize the whole sequence.
-    
-    # We need the logits from each layer
-    # block_outputs keys are like "model.layers.0", "model.layers.1", etc.
-    
-    # Sort layers
-    import re
-    layer_info = sorted(
-        [(int(re.findall(r'\d+', name)[0]), name) 
-         for name in block_outputs.keys() if re.findall(r'\d+', name)]
-    )
-    
-    # Get norm parameter for logit lens
-    norm_params = activation_data.get('norm_parameters', [])
-    norm_parameter = norm_params[0] if norm_params else None
-    final_norm = get_norm_layer_from_parameter(model, norm_parameter)
-    lm_head = model.get_output_embeddings()
-    
-    trajectories = {}
-    
-    # We only care about predictions for positions 0 to N-1 (predicting 1 to N)
-    target_ids = input_ids[0, 1:] 
-    
-    with torch.no_grad():
-        for layer_num, module_name in layer_info:
-            output_data = block_outputs[module_name]['output']
-            
-            # Convert to tensor [batch, seq_len, hidden_dim]
-            hidden = torch.tensor(output_data) if not isinstance(output_data, torch.Tensor) else output_data
-            if hidden.dim() == 4: # PyVene sometimes returns [1, 1, seq_len, dim] ? No usually [1, seq, dim]
-                # If shape is weird, adjust
-                pass
-            
-            # Ensure batch dim
-            if hidden.dim() == 2:
-                hidden = hidden.unsqueeze(0)
-                
-            # Apply final norm
-            if final_norm is not None:
-                hidden = final_norm(hidden)
-            
-            # Project to logits
-            logits = lm_head(hidden) # [batch, seq_len, vocab_size]
-            
-            # We want log probs of the *next* token
-            # Logits at pos t predict token at t+1
-            # So we take logits at [0, :-1, :] and gather targets [0, 1:]
-            
-            shift_logits = logits[0, :-1, :]
-            log_probs = F.log_softmax(shift_logits, dim=-1)
-            
-            # Gather log probs of the actual target tokens
-            # target_ids shape [seq_len-1]
-            target_log_probs = log_probs.gather(1, target_ids.unsqueeze(1)).squeeze(1)
-            
-            trajectories[layer_num] = target_log_probs.tolist()
-            
-    return trajectories
