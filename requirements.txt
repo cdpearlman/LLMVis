@@ -16,3 +16,6 @@ numpy>=1.24.0
 
 # Testing dependencies
 pytest>=7.0.0
+
+# AI Chatbot dependencies
+google-generativeai>=0.8.0

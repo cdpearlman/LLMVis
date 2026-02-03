@@ -28,6 +28,7 @@ from components.pipeline import (create_pipeline_container, create_tokenization_
                                   create_mlp_content, create_output_content)
 from components.investigation_panel import create_investigation_panel, create_attribution_results_display
 from components.ablation_panel import create_selected_heads_display, create_ablation_results_display
+from components.chatbot import create_chatbot_container, render_messages
 
 # Initialize Dash app
 app = dash.Dash(
@@ -142,7 +143,10 @@ app.layout = html.Div([
                 
             ], className="main-panel")
         ], className="content-container")
-    ], className="app-container")
+    ], className="app-container"),
+    
+    # AI Chatbot
+    create_chatbot_container()
 ], className="app-wrapper")
 
 
@@ -936,6 +940,199 @@ def reset_ablation(n_clicks, original_data):
     ], className="status-success")
     
     return original_data, {}, success_message
+
+
+# ============================================================================
+# CALLBACKS: AI Chatbot
+# ============================================================================
+
+@app.callback(
+    [Output('chat-window', 'style'),
+     Output('chat-open-store', 'data'),
+     Output('chat-toggle-btn', 'style')],
+    [Input('chat-toggle-btn', 'n_clicks'),
+     Input('chat-close-btn', 'n_clicks')],
+    [State('chat-open-store', 'data')],
+    prevent_initial_call=True
+)
+def toggle_chat_window(toggle_clicks, close_clicks, is_open):
+    """Toggle the chat window open/closed."""
+    ctx = dash.callback_context
+    if not ctx.triggered:
+        return no_update, no_update, no_update
+    
+    trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
+    
+    # Default toggle button style (visible)
+    toggle_visible = {}
+    # Hidden toggle button style
+    toggle_hidden = {'display': 'none'}
+    
+    if trigger_id == 'chat-close-btn':
+        return {'display': 'none'}, False, toggle_visible
+    
+    # Toggle button clicked
+    new_state = not is_open
+    if new_state:
+        # Open chat, hide toggle button
+        return {'display': 'flex'}, True, toggle_hidden
+    else:
+        # Close chat, show toggle button
+        return {'display': 'none'}, False, toggle_visible
+
+
+@app.callback(
+    Output('chat-history-store', 'data', allow_duplicate=True),
+    Input('chat-clear-btn', 'n_clicks'),
+    prevent_initial_call=True
+)
+def clear_chat_history(n_clicks):
+    """Clear all chat history."""
+    if not n_clicks:
+        return no_update
+    return []
+
+
+@app.callback(
+    [Output('chat-messages-list', 'children'),
+     Output('chat-history-store', 'data', allow_duplicate=True),
+     Output('chat-input', 'value'),
+     Output('chat-typing-indicator', 'style')],
+    [Input('chat-send-btn', 'n_clicks')],
+    [State('chat-input', 'value'),
+     State('chat-history-store', 'data'),
+     State('model-dropdown', 'value'),
+     State('prompt-input', 'value'),
+     State('session-activation-store', 'data'),
+     State('ablation-selected-heads', 'data')],
+    prevent_initial_call=True
+)
+def send_chat_message(send_clicks, user_input, chat_history, 
+                      model_name, prompt, activation_data, ablated_heads):
+    """Handle sending a chat message and getting AI response."""
+    from utils.gemini_client import generate_response
+    from utils.rag_utils import build_rag_context
+    
+    if not user_input or not user_input.strip():
+        return no_update, no_update, no_update, no_update
+    
+    user_input = user_input.strip()
+    
+    # Initialize chat history if None
+    if chat_history is None:
+        chat_history = []
+    
+    # Add user message to history
+    chat_history = chat_history + [{'role': 'user', 'content': user_input}]
+    
+    # Build dashboard context
+    dashboard_context = {}
+    if model_name:
+        dashboard_context['model'] = model_name
+    if prompt:
+        dashboard_context['prompt'] = prompt
+    if activation_data:
+        actual_output = activation_data.get('actual_output', {})
+        if actual_output:
+            dashboard_context['predicted_token'] = actual_output.get('token', '')
+            dashboard_context['predicted_probability'] = actual_output.get('probability', 0)
+        top5 = activation_data.get('global_top5_tokens', [])
+        if top5:
+            dashboard_context['top_predictions'] = top5
+    if ablated_heads:
+        dashboard_context['ablated_heads'] = ablated_heads
+    
+    # Get RAG context
+    rag_context = build_rag_context(user_input, top_k=3)
+    
+    # Generate response
+    response = generate_response(
+        user_message=user_input,
+        chat_history=chat_history[:-1],  # Exclude the message we just added
+        rag_context=rag_context,
+        dashboard_context=dashboard_context
+    )
+    
+    # Add assistant response to history
+    chat_history = chat_history + [{'role': 'assistant', 'content': response}]
+    
+    # Render updated messages
+    messages_ui = render_messages(chat_history)
+    
+    return messages_ui, chat_history, '', {'display': 'none'}
+
+
+@app.callback(
+    Output('chat-messages-list', 'children', allow_duplicate=True),
+    Input('chat-history-store', 'data'),
+    prevent_initial_call=True
+)
+def update_messages_from_store(chat_history):
+    """Update message display when history changes (e.g., on page load from localStorage)."""
+    if not chat_history:
+        return []
+    return render_messages(chat_history)
+
+
+# Client-side callback for copy functionality
+app.clientside_callback(
+    """
+    function(n_clicks) {
+        if (!n_clicks) return window.dash_clientside.no_update;
+        
+        // Find the clicked button and get its data-content attribute
+        const triggered = window.dash_clientside.callback_context.triggered;
+        if (!triggered || triggered.length === 0) return window.dash_clientside.no_update;
+        
+        const propId = triggered[0].prop_id;
+        const match = propId.match(/{"index":(\d+),"type":"copy-message-btn"}/);
+        if (!match) return window.dash_clientside.no_update;
+        
+        const btn = document.querySelector(`[id='{"index":${match[1]},"type":"copy-message-btn"}']`);
+        if (!btn) return window.dash_clientside.no_update;
+        
+        const content = btn.getAttribute('data-content');
+        if (content) {
+            navigator.clipboard.writeText(content).then(() => {
+                btn.classList.add('copied');
+                setTimeout(() => btn.classList.remove('copied'), 2000);
+            });
+        }
+        
+        return window.dash_clientside.no_update;
+    }
+    """,
+    Output('chat-messages-list', 'className'),
+    Input({'type': 'copy-message-btn', 'index': ALL}, 'n_clicks'),
+    prevent_initial_call=True
+)
+
+
+# Client-side callback for Enter key to send message
+app.clientside_callback(
+    """
+    function(id) {
+        // Set up the event listener only once
+        const textarea = document.getElementById('chat-input');
+        const sendBtn = document.getElementById('chat-send-btn');
+        
+        if (textarea && sendBtn && !textarea._enterListenerAdded) {
+            textarea.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    sendBtn.click();
+                }
+            });
+            textarea._enterListenerAdded = true;
+        }
+        
+        return window.dash_clientside.no_update;
+    }
+    """,
+    Output('chat-input', 'className'),
+    Input('chat-open-store', 'data'),
+    prevent_initial_call=True
+)
 
 
 if __name__ == '__main__':
