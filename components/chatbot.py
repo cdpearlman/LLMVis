@@ -9,6 +9,18 @@ from dash import html, dcc
 from typing import List, Dict, Optional
 
 
+# Greeting message shown to new users when chat opens
+GREETING_MESSAGE = """Hi there! I'm your AI assistant for exploring transformer models.
+
+I can help you understand:
+- How attention heads and layers process your input
+- What various experiments can reveal about model behavior
+- General transformer and ML concepts
+
+Try asking: "What does attention head 0 in layer 1 do?" or "Why did ablating this head change the output?"
+"""
+
+
 def create_chat_icon():
     """
     Create the floating robot icon button.
@@ -188,7 +200,9 @@ def create_chatbot_container():
     """
     return html.Div([
         # Stores for chat state
-        dcc.Store(id='chat-history-store', storage_type='local', data=[]),
+        dcc.Store(id='chat-history-store', storage_type='local', data=[
+            {'role': 'assistant', 'content': GREETING_MESSAGE}
+        ]),
         dcc.Store(id='chat-open-store', storage_type='memory', data=False),
         dcc.Store(id='chat-pending-message', storage_type='memory', data=None),
         
