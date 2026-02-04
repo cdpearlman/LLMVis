@@ -1061,15 +1061,21 @@ def send_chat_message(send_clicks, user_input, chat_history,
 
 
 @app.callback(
-    Output('chat-messages-list', 'children', allow_duplicate=True),
+    [Output('chat-messages-list', 'children', allow_duplicate=True),
+     Output('chat-history-store', 'data', allow_duplicate=True)],
     Input('chat-history-store', 'data'),
-    prevent_initial_call=True
+    prevent_initial_call='initial_duplicate'  # Allows initial call with allow_duplicate
 )
 def update_messages_from_store(chat_history):
     """Update message display when history changes (e.g., on page load from localStorage)."""
+    from components.chatbot import GREETING_MESSAGE
+    
+    # If history is empty (localStorage empty/cleared), inject the greeting
     if not chat_history:
-        return []
-    return render_messages(chat_history)
+        greeting_history = [{'role': 'assistant', 'content': GREETING_MESSAGE}]
+        return render_messages(greeting_history), greeting_history
+    
+    return render_messages(chat_history), no_update
 
 
 # Client-side callback for copy functionality

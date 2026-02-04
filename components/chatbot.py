@@ -200,7 +200,7 @@ def create_chatbot_container():
     """
     return html.Div([
         # Stores for chat state
-        dcc.Store(id='chat-history-store', storage_type='memory', data=[
+        dcc.Store(id='chat-history-store', storage_type='local', data=[
             {'role': 'assistant', 'content': GREETING_MESSAGE}
         ]),
         dcc.Store(id='chat-open-store', storage_type='memory', data=False),
