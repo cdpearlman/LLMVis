@@ -25,7 +25,8 @@ To demystify the inner workings of Transformer-based Large Language Models (LLMs
 - **Integrated Education:**
     - Contextual tooltips for immediate clarity.
     - Dedicated "Glossary" panel for in-depth definitions.
-    - Foundation for AI-guided tutorials.
+    - AI chatbot with RAG-powered knowledge base (30 documents covering transformer concepts, dashboard usage, guided experiments, result interpretation, troubleshooting, and mechanistic interpretability research).
+    - Step-by-step guided experiments that walk beginners through the dashboard's features.
 
 ## User Experience
 The interface centers on exploration and clarity. Users start by selecting a model and inputting text. The dashboard then unfolds the model's processing pipeline, allowing users to "zoom in" on specific components. Experimentation modes are clearly distinguished, enabling users to hypothesize ("What if I turn off this head?") and test. Educational resources are omnipresent but non-intrusive, available on-demand to explain the *what* and *why* of what is being visualized.

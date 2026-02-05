@@ -182,3 +182,14 @@
   - 1536 dimensions, high quality
 - [x] Remove local `sentence-transformers` dependency (simpler, no TF conflicts)
 - [x] Estimated cost: ~$1.50/month for moderate usage
+
+## Completed: Enhance RAG Documents for Chatbot
+
+- [x] Category 1: 8 general LLM/Transformer knowledge files (what_is_an_llm.md through key_terminology.md)
+- [x] Category 2: 7 dashboard component documentation files (dashboard_overview.md through model_selector_guide.md)
+- [x] Category 3: 3 model-specific documentation files (gpt2_overview.md, llama_overview.md, opt_overview.md)
+- [x] Category 4: 6 step-by-step guided experiment files (experiment_first_analysis.md through experiment_beam_search.md)
+- [x] Category 5: 6 interpretation/troubleshooting/research files (interpreting_*.md, troubleshooting_and_faq.md, recommended_starting_points.md, mechanistic_interpretability_intro.md)
+- [x] Delete embeddings_cache.json, update rag_docs/README.md with full inventory
+- [x] Update todo.md and conductor docs
+- Total: 30 RAG documents covering transformer concepts, dashboard usage, guided experiments, interpretation, troubleshooting, and research context
