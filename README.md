@@ -1,3 +1,14 @@
+---
+title: Transformer Explanation Dashboard
+emoji: 🧠
+colorFrom: blue
+colorTo: purple
+sdk: docker
+python_version: "3.10"
+app_file: app.py
+pinned: false
+---
+
 # Transformer Explanation Dashboard
 
 A Dash-based interactive application for visualizing and analyzing the internal mechanics of Transformer-based Large Language Models (LLMs). This tool enables users to inspect the generation pipeline step-by-step and perform real-time experiments like ablation and attribution.
