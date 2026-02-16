@@ -370,10 +370,14 @@ def run_generation(n_clicks, model_name, prompt, max_new_tokens, beam_width, pat
             return (html.Div("Please select modules in the sidebar.", style={'color': 'red'}), 
                     results, {'display': 'none'}, {'display': 'none'}, {}, {}, original_prompt_data, {})
 
-        # AGENT F KEY CHANGE: Run analysis on ORIGINAL PROMPT only, not generated text
-        # This ensures pipeline stages show how the model processes the user's input,
-        # regardless of what tokens are generated.
-        activation_data = execute_forward_pass(model, tokenizer, prompt, config)
+        # For single-token generation, analyze the full output (prompt + generated token)
+        # so attention covers the entire sequence. For multi-token, start with prompt only;
+        # the full-sequence analysis runs when the user selects a beam.
+        if max_new_tokens == 1:
+            full_text = results[0]['text']
+        else:
+            full_text = prompt
+        activation_data = execute_forward_pass(model, tokenizer, full_text, config)
         
         results_ui = []
         if max_new_tokens > 1:
@@ -410,25 +414,27 @@ def run_generation(n_clicks, model_name, prompt, max_new_tokens, beam_width, pat
 
 @app.callback(
     [Output('session-selected-beam-store', 'data', allow_duplicate=True),
-     Output('generation-results-container', 'children', allow_duplicate=True)],
+     Output('generation-results-container', 'children', allow_duplicate=True),
+     Output('session-activation-store', 'data', allow_duplicate=True)],
     Input({'type': 'result-item', 'index': ALL}, 'n_clicks'),
-    [State('generation-results-store', 'data')],
+    [State('generation-results-store', 'data'),
+     State('session-activation-store', 'data')],
     prevent_initial_call=True
 )
-def store_selected_beam(n_clicks_list, results_data):
+def store_selected_beam(n_clicks_list, results_data, existing_activation_data):
     """
-    Agent F: Store selected beam for post-experiment comparison.
+    Store selected beam and re-run forward pass on the full sequence.
     
-    The pipeline analysis already runs on the original prompt. This callback
-    stores the selected beam text and updates the UI to show only the selected
-    sequence, clearing all other options.
+    When a beam is selected, this re-runs execute_forward_pass on the complete
+    generated text (prompt + output) so the attention visualization covers
+    the entire chosen output, not just the input.
     """
     if not any(n_clicks_list) or not results_data:
-        return no_update, no_update
+        return no_update, no_update, no_update
     
     ctx = dash.callback_context
     if not ctx.triggered:
-        return no_update, no_update
+        return no_update, no_update, no_update
         
     triggered_id = json.loads(ctx.triggered[0]['prop_id'].split('.')[0])
     index = triggered_id['index']
@@ -470,8 +476,29 @@ def store_selected_beam(n_clicks_list, results_data):
         })
     ])
     
+    # Re-run forward pass on the full beam text so attention covers entire output
+    new_activation_data = no_update
+    if existing_activation_data:
+        try:
+            from transformers import AutoModelForCausalLM, AutoTokenizer
+            model_name = existing_activation_data['model']
+            config = {
+                'attention_modules': existing_activation_data['attention_modules'],
+                'block_modules': existing_activation_data['block_modules'],
+                'norm_parameters': existing_activation_data.get('norm_parameters', [])
+            }
+            model = AutoModelForCausalLM.from_pretrained(model_name, attn_implementation='eager')
+            tokenizer = AutoTokenizer.from_pretrained(model_name)
+            model.eval()
+            new_activation_data = execute_forward_pass(model, tokenizer, result['text'], config)
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            print(f"Warning: Could not re-run forward pass for full sequence: {e}")
+    
     # Store the selected beam for comparison after experiments
-    return {'text': result['text'], 'score': result.get('score', 0), 'index': index}, selected_ui
+    return ({'text': result['text'], 'score': result.get('score', 0), 'index': index}, 
+            selected_ui, new_activation_data)
 
 
 # ============================================================================

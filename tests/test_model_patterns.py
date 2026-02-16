@@ -261,3 +261,90 @@ class TestMultiLayerHeadAblation:
         
         assert 'error' in result
         assert '99' in result['error']  # Should mention the invalid layer
+
+
+class TestFullSequenceAttentionData:
+    """
+    Tests verifying that activation data for full sequences (prompt + generated output)
+    has correctly-sized attention matrices matching the full token count.
+    """
+
+    def _make_activation_data(self, num_tokens, num_layers=2, num_heads=1):
+        """Helper to build mock activation data for a given sequence length."""
+        input_ids = list(range(1, num_tokens + 1))
+        # Build uniform attention weights: [batch=1, heads, seq, seq]
+        uniform_val = 1.0 / num_tokens
+        attn_row = [uniform_val] * num_tokens
+        head_matrix = [attn_row] * num_tokens
+        head_block = [head_matrix] * num_heads
+        attn_weights = [head_block]  # batch dim
+
+        attention_outputs = {}
+        for layer in range(num_layers):
+            module_name = f'model.layers.{layer}.self_attn'
+            attention_outputs[module_name] = {
+                'output': [
+                    [[0.1] * num_tokens],  # hidden states placeholder
+                    attn_weights
+                ]
+            }
+
+        return {
+            'model': 'mock-model',
+            'prompt': 'x ' * num_tokens,
+            'input_ids': [input_ids],
+            'attention_modules': list(attention_outputs.keys()),
+            'attention_outputs': attention_outputs,
+            'block_modules': [f'model.layers.{i}' for i in range(num_layers)],
+            'block_outputs': {f'model.layers.{i}': {'output': [[[0.1] * num_tokens]]} for i in range(num_layers)},
+            'norm_parameters': [],
+            'norm_data': [],
+            'actual_output': {'token': 'tok', 'probability': 0.5},
+            'global_top5_tokens': []
+        }
+
+    def test_short_prompt_attention_dimensions(self):
+        """Attention matrix for a 4-token prompt should be 4x4."""
+        data = self._make_activation_data(num_tokens=4)
+        attn = data['attention_outputs']['model.layers.0.self_attn']['output'][1]
+        seq_len = len(attn[0][0])  # batch -> head -> rows
+        assert seq_len == 4
+        assert len(attn[0][0][0]) == 4  # columns
+
+    def test_full_sequence_attention_dimensions(self):
+        """Attention matrix for a 10-token full sequence (prompt+output) should be 10x10."""
+        data = self._make_activation_data(num_tokens=10)
+        attn = data['attention_outputs']['model.layers.0.self_attn']['output'][1]
+        seq_len = len(attn[0][0])
+        assert seq_len == 10
+        assert len(attn[0][0][0]) == 10
+
+    def test_full_sequence_has_more_tokens_than_prompt(self):
+        """Full-sequence activation data should have larger dimensions than prompt-only."""
+        prompt_data = self._make_activation_data(num_tokens=4)
+        full_data = self._make_activation_data(num_tokens=10)
+
+        prompt_ids = prompt_data['input_ids'][0]
+        full_ids = full_data['input_ids'][0]
+        assert len(full_ids) > len(prompt_ids)
+
+        prompt_attn = prompt_data['attention_outputs']['model.layers.0.self_attn']['output'][1]
+        full_attn = full_data['attention_outputs']['model.layers.0.self_attn']['output'][1]
+        assert len(full_attn[0][0]) > len(prompt_attn[0][0])
+
+    def test_input_ids_match_attention_seq_len(self):
+        """input_ids length should match attention matrix dimensions."""
+        for n in [3, 7, 15]:
+            data = self._make_activation_data(num_tokens=n)
+            num_ids = len(data['input_ids'][0])
+            attn = data['attention_outputs']['model.layers.0.self_attn']['output'][1]
+            assert num_ids == len(attn[0][0]) == n
+
+    def test_all_layers_have_same_dimensions(self):
+        """All layers should have the same attention matrix size for a given sequence."""
+        data = self._make_activation_data(num_tokens=8, num_layers=3)
+        for layer in range(3):
+            module = f'model.layers.{layer}.self_attn'
+            attn = data['attention_outputs'][module]['output'][1]
+            assert len(attn[0][0]) == 8
+            assert len(attn[0][0][0]) == 8

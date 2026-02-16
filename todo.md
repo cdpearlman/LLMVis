@@ -200,3 +200,11 @@
 - [x] Add CSS for `.chat-resize-handle` (cursor, hover highlight) in style.css
 - [x] Add `assets/chat_resize.js` for mousedown/mousemove/mouseup drag logic
 - Default size unchanged (25vw, 320px–450px); drag overrides max-width up to 80vw
+
+## Completed: Full-Sequence Attention Visualization
+
+- [x] Modified `run_generation()` in app.py: for single-token generation, run forward pass on full beam text (prompt + generated token) instead of prompt only
+- [x] Enhanced `store_selected_beam()` in app.py: added `session-activation-store` output and `session-activation-store` State; re-runs `execute_forward_pass()` on selected beam's full text when user picks a beam
+- [x] Added 5 tests in `test_model_patterns.py` (`TestFullSequenceAttentionData`) verifying attention matrix dimensions match full sequence length
+- Attention visualization now covers the entire chosen output (input + generated tokens), not just the input prompt
+- No changes needed in `model_patterns.py`, `beam_search.py`, `pipeline.py`, or `head_detection.py`
