@@ -1,11 +1,12 @@
 - specs on what each attention head does
-- change attention to entire generated sequence
-- output slider to look at each token
-    - put in a more obvious place?
 - experiment results side by side comparison
 - output streaming for chatbot
-- change width of chatbot window
 - shorter, concise responses in system prompt
 - add video links to glossary
     - three blue one brown
+
+Done:
+- change attention to entire generated sequence
+- change width of chatbot window
 - add output token generation to attention, tokenization, etc
+- output slider to look at each token (scrubber with top-5 at each position)

@@ -208,3 +208,20 @@
 - [x] Added 5 tests in `test_model_patterns.py` (`TestFullSequenceAttentionData`) verifying attention matrix dimensions match full sequence length
 - Attention visualization now covers the entire chosen output (input + generated tokens), not just the input prompt
 - No changes needed in `model_patterns.py`, `beam_search.py`, `pipeline.py`, or `head_detection.py`
+
+## Completed: Output Token Scrubber
+
+- [x] Add `compute_per_position_top5()` to `utils/model_patterns.py` — extracts top-5 next-token probabilities at each generated-token position from a single forward pass
+- [x] Add `original_prompt` parameter to `execute_forward_pass()` — when provided, computes per-position top-5 data and stores in activation_data
+- [x] Export `compute_per_position_top5` in `utils/__init__.py`
+- [x] Update `run_generation()` in app.py — passes `original_prompt=prompt` for single-token generation
+- [x] Update `store_selected_beam()` in app.py — reads original prompt from session store and passes to forward pass
+- [x] Rewrite `create_output_content()` in `components/pipeline.py` — scrubber mode with `dcc.Slider`, token display, and top-5 chart; falls back to static mode when no per-position data
+- [x] Add `_build_token_display()` and `_build_top5_chart()` helpers in pipeline.py
+- [x] Add `update_output_scrubber()` callback in app.py — responds to slider changes, updates token highlight and chart
+- [x] Update `update_pipeline_content()` in app.py — extracts per-position data and passes to output content
+- [x] Add 10 tests for `compute_per_position_top5` in `test_model_patterns.py`
+- [x] Fix `conftest.py` to set `USE_TF=0` for test import compatibility
+- [x] All 100 tests pass
+- Scrubber shows prompt context (gray) + highlighted token (cyan) + top-5 bar chart at each slider position
+- Pre-beam-selection falls back to static output display; scrubber activates after beam selection or single-token generation

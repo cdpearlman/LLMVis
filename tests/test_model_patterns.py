@@ -263,6 +263,136 @@ class TestMultiLayerHeadAblation:
         assert '99' in result['error']  # Should mention the invalid layer
 
 
+class TestComputePerPositionTop5:
+    """Tests for compute_per_position_top5 function."""
+
+    def _make_mock_output(self, seq_len, vocab_size=10):
+        """Create a mock model output with predictable logits.
+        
+        At each position i, logit[i] = 10.0 (highest), so the top-1 token
+        is always token index == position index. Other logits are 1.0.
+        """
+        logits = torch.ones(1, seq_len, vocab_size)
+        for i in range(seq_len):
+            # Make token (i % vocab_size) the top prediction at position i
+            logits[0, i, i % vocab_size] = 10.0
+        
+        class MockOutput:
+            pass
+        out = MockOutput()
+        out.logits = logits
+        return out
+
+    def _make_mock_tokenizer(self, vocab_size=10):
+        """Create a mock tokenizer that decodes token IDs to 'tok_N'."""
+        from unittest.mock import MagicMock
+        tok = MagicMock()
+        def decode_fn(ids, skip_special_tokens=False):
+            if isinstance(ids, list) and len(ids) == 1:
+                return f"tok_{ids[0]}"
+            return "".join(f"tok_{i}" for i in ids)
+        tok.decode = decode_fn
+        return tok
+
+    def test_returns_correct_number_of_positions(self):
+        """With prompt_token_count=3 and seq_len=7, should return 4 positions (7-3)."""
+        from utils.model_patterns import compute_per_position_top5
+        model_output = self._make_mock_output(seq_len=7, vocab_size=10)
+        tokenizer = self._make_mock_tokenizer(vocab_size=10)
+        # Full sequence has 7 tokens, prompt has 3, so 4 generated tokens
+        result = compute_per_position_top5(model_output, tokenizer, prompt_token_count=3, top_k=5)
+        assert len(result) == 4  # positions 0, 1, 2, 3
+
+    def test_single_generated_token(self):
+        """With 1 generated token, should return exactly 1 position."""
+        from utils.model_patterns import compute_per_position_top5
+        model_output = self._make_mock_output(seq_len=4, vocab_size=10)
+        tokenizer = self._make_mock_tokenizer(vocab_size=10)
+        result = compute_per_position_top5(model_output, tokenizer, prompt_token_count=3, top_k=5)
+        assert len(result) == 1
+        assert result[0]['position'] == 0
+
+    def test_each_position_has_top_k_entries(self):
+        """Each position should have exactly top_k entries in top5 list."""
+        from utils.model_patterns import compute_per_position_top5
+        model_output = self._make_mock_output(seq_len=8, vocab_size=10)
+        tokenizer = self._make_mock_tokenizer(vocab_size=10)
+        result = compute_per_position_top5(model_output, tokenizer, prompt_token_count=3, top_k=5)
+        for pos_data in result:
+            assert len(pos_data['top5']) == 5
+
+    def test_top_k_3(self):
+        """Should respect custom top_k parameter."""
+        from utils.model_patterns import compute_per_position_top5
+        model_output = self._make_mock_output(seq_len=6, vocab_size=10)
+        tokenizer = self._make_mock_tokenizer(vocab_size=10)
+        result = compute_per_position_top5(model_output, tokenizer, prompt_token_count=3, top_k=3)
+        for pos_data in result:
+            assert len(pos_data['top5']) == 3
+
+    def test_probabilities_sorted_descending(self):
+        """Top-5 probabilities should be in descending order."""
+        from utils.model_patterns import compute_per_position_top5
+        model_output = self._make_mock_output(seq_len=6, vocab_size=10)
+        tokenizer = self._make_mock_tokenizer(vocab_size=10)
+        result = compute_per_position_top5(model_output, tokenizer, prompt_token_count=3, top_k=5)
+        for pos_data in result:
+            probs = [entry['probability'] for entry in pos_data['top5']]
+            assert probs == sorted(probs, reverse=True)
+
+    def test_probabilities_are_valid(self):
+        """All probabilities should be between 0 and 1."""
+        from utils.model_patterns import compute_per_position_top5
+        model_output = self._make_mock_output(seq_len=6, vocab_size=10)
+        tokenizer = self._make_mock_tokenizer(vocab_size=10)
+        result = compute_per_position_top5(model_output, tokenizer, prompt_token_count=3, top_k=5)
+        for pos_data in result:
+            for entry in pos_data['top5']:
+                assert 0.0 <= entry['probability'] <= 1.0
+            assert 0.0 <= pos_data['actual_prob'] <= 1.0
+
+    def test_actual_token_field_present(self):
+        """Each position should have actual_token and actual_prob fields."""
+        from utils.model_patterns import compute_per_position_top5
+        model_output = self._make_mock_output(seq_len=6, vocab_size=10)
+        tokenizer = self._make_mock_tokenizer(vocab_size=10)
+        result = compute_per_position_top5(model_output, tokenizer, prompt_token_count=3, top_k=5)
+        for pos_data in result:
+            assert 'actual_token' in pos_data
+            assert 'actual_prob' in pos_data
+            assert isinstance(pos_data['actual_token'], str)
+            assert isinstance(pos_data['actual_prob'], float)
+
+    def test_position_indices_sequential(self):
+        """Position indices should be 0, 1, 2, ... N-1."""
+        from utils.model_patterns import compute_per_position_top5
+        model_output = self._make_mock_output(seq_len=8, vocab_size=10)
+        tokenizer = self._make_mock_tokenizer(vocab_size=10)
+        result = compute_per_position_top5(model_output, tokenizer, prompt_token_count=3, top_k=5)
+        positions = [r['position'] for r in result]
+        assert positions == list(range(5))  # 8 - 3 = 5 positions
+
+    def test_does_not_include_position_beyond_sequence(self):
+        """Should NOT produce a position that predicts beyond the last token."""
+        from utils.model_patterns import compute_per_position_top5
+        model_output = self._make_mock_output(seq_len=5, vocab_size=10)
+        tokenizer = self._make_mock_tokenizer(vocab_size=10)
+        # prompt=3, seq=5, so 2 generated tokens -> positions 0 and 1
+        result = compute_per_position_top5(model_output, tokenizer, prompt_token_count=3, top_k=5)
+        assert len(result) == 2
+        # Position 0: logits at index 2 (prompt_len-1), predicts token at index 3
+        # Position 1: logits at index 3, predicts token at index 4
+        # NO position for logits at index 4 (would predict beyond sequence)
+
+    def test_prompt_equals_sequence_returns_empty(self):
+        """When prompt_token_count == seq_len (no generated tokens), return empty."""
+        from utils.model_patterns import compute_per_position_top5
+        model_output = self._make_mock_output(seq_len=3, vocab_size=10)
+        tokenizer = self._make_mock_tokenizer(vocab_size=10)
+        result = compute_per_position_top5(model_output, tokenizer, prompt_token_count=3, top_k=5)
+        assert result == []
+
+
 class TestFullSequenceAttentionData:
     """
     Tests verifying that activation data for full sequences (prompt + generated output)

@@ -4,7 +4,8 @@ from .model_patterns import (load_model_and_get_patterns, execute_forward_pass,
                              execute_forward_pass_with_head_ablation,
                              execute_forward_pass_with_multi_layer_head_ablation,
                              merge_token_probabilities, 
-                             compute_global_top5_tokens, detect_significant_probability_increases, 
+                             compute_global_top5_tokens, compute_per_position_top5,
+                             detect_significant_probability_increases, 
                              evaluate_sequence_ablation, generate_bertviz_model_view_html)
 from .model_config import get_model_family, get_family_config, get_auto_selections, MODEL_TO_FAMILY, MODEL_FAMILIES
 from .head_detection import categorize_all_heads, categorize_single_layer_heads, format_categorization_summary, HeadCategorizationConfig
@@ -25,6 +26,7 @@ __all__ = [
     'generate_bertviz_html',
     'merge_token_probabilities',
     'compute_global_top5_tokens',
+    'compute_per_position_top5',
     'detect_significant_probability_increases',
     'generate_bertviz_model_view_html',
     

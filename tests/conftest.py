@@ -5,6 +5,10 @@ Provides reusable mock data structures and synthetic tensors
 to test utility functions without loading actual ML models.
 """
 
+# Disable TensorFlow before any other imports (mirrors app.py)
+import os
+os.environ["USE_TF"] = "0"
+
 import pytest
 import torch
 import numpy as np

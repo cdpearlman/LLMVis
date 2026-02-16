@@ -689,18 +689,218 @@ def create_mlp_content(layer_count=None, hidden_dim=None, intermediate_dim=None)
     ])
 
 
-def create_output_content(top_tokens=None, predicted_token=None, predicted_prob=None, 
-                          top5_chart=None, original_prompt=None):
-    """
-    Create content for the output selection stage.
+def _build_token_display(prompt_text, generated_tokens, position, actual_prob):
+    """Build the token display for a given scrubber position.
     
     Args:
-        top_tokens: List of (token, probability) tuples for top predictions
-        predicted_token: The final predicted token
-        predicted_prob: Probability of the predicted token
-        top5_chart: Optional Plotly figure for top-5 visualization
-        original_prompt: Original input prompt to show context with prediction
+        prompt_text: Original prompt string.
+        generated_tokens: List of generated token strings.
+        position: Current slider position (0-indexed into generated_tokens).
+        actual_prob: Probability of the highlighted token at this position.
     """
+    # Context = prompt + all generated tokens before the current position
+    context_parts = [
+        html.Span(prompt_text, style={
+            'color': '#6c757d',
+            'fontFamily': 'monospace',
+            'fontSize': '15px'
+        })
+    ]
+    for j in range(position):
+        context_parts.append(
+            html.Span(generated_tokens[j], style={
+                'color': '#6c757d',
+                'fontFamily': 'monospace',
+                'fontSize': '15px'
+            })
+        )
+
+    # Highlighted token at the current position
+    highlighted = html.Span(generated_tokens[position], style={
+        'padding': '4px 8px',
+        'backgroundColor': '#00f2fe',
+        'color': '#1a1a2e',
+        'borderRadius': '4px',
+        'fontFamily': 'monospace',
+        'fontWeight': '600',
+        'fontSize': '15px',
+        'marginLeft': '2px'
+    })
+
+    confidence = html.Div([
+        html.Span(
+            f"{actual_prob:.1%} confidence" if actual_prob else "",
+            style={'color': '#6c757d', 'fontSize': '13px', 'marginTop': '8px', 'display': 'block'}
+        )
+    ])
+
+    return html.Div([
+        html.Div([
+            html.Span(
+                f"Token {position + 1} of {len(generated_tokens)}:",
+                style={'color': '#495057', 'marginBottom': '12px', 'display': 'block', 'fontWeight': '500'}
+            ),
+            html.Div(context_parts + [highlighted], style={'display': 'inline'}),
+            confidence
+        ], style={'textAlign': 'center'})
+    ], style={
+        'padding': '20px', 'backgroundColor': 'white', 'borderRadius': '8px',
+        'border': '2px solid #00f2fe', 'marginBottom': '16px'
+    })
+
+
+def _build_top5_chart(top5_data, actual_token=None):
+    """Build the top-5 bar chart for a single scrubber position.
+    
+    Args:
+        top5_data: List of {'token': str, 'probability': float}.
+        actual_token: The token that was actually generated (highlighted if present).
+    """
+    tokens = [entry['token'] for entry in top5_data]
+    probs = [entry['probability'] for entry in top5_data]
+
+    # Highlight the actual chosen token if it appears in the top 5
+    colors = []
+    actual_in_top5 = False
+    for t in tokens:
+        if actual_token and t.strip() == actual_token.strip():
+            colors.append('#00f2fe')
+            actual_in_top5 = True
+        else:
+            colors.append('#4facfe')
+
+    fig = go.Figure(go.Bar(
+        x=probs,
+        y=tokens,
+        orientation='h',
+        marker_color=colors,
+        text=[f"{p:.1%}" for p in probs],
+        textposition='outside',
+        hovertemplate='%{y} (%{x:.1%})<extra></extra>'
+    ))
+
+    fig.update_layout(
+        title="Top 5 Next-Token Predictions",
+        xaxis_title="Probability",
+        yaxis_title="Token",
+        height=250,
+        margin=dict(l=20, r=60, t=40, b=20),
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)',
+        yaxis=dict(autorange='reversed')
+    )
+
+    children = [dcc.Graph(figure=fig, config={'displayModeBar': False})]
+
+    # If the actual token is not in the top 5, add a note below
+    if actual_token and not actual_in_top5:
+        children.append(html.Div([
+            html.I(className='fas fa-info-circle', style={'color': '#6c757d', 'marginRight': '6px'}),
+            html.Span([
+                "The actual token \"", html.Strong(actual_token.strip()),
+                "\" was not in the top 5 predictions at this position."
+            ], style={'color': '#6c757d', 'fontSize': '13px'})
+        ], style={'padding': '8px 12px'}))
+
+    return html.Div(children, style={
+        'backgroundColor': 'white', 'borderRadius': '8px', 'border': '1px solid #e2e8f0'
+    })
+
+
+def create_output_content(top_tokens=None, predicted_token=None, predicted_prob=None,
+                          top5_chart=None, original_prompt=None,
+                          per_position_data=None, generated_tokens=None,
+                          prompt_text=None):
+    """
+    Create content for the output selection stage.
+
+    When per_position_data is available the output is an interactive scrubber
+    that lets the user step through each generated-token position.  Otherwise
+    falls back to the previous static display.
+    
+    Args:
+        top_tokens: List of (token, probability) tuples for top predictions (static mode).
+        predicted_token: The final predicted token (static mode).
+        predicted_prob: Probability of the predicted token (static mode).
+        top5_chart: Optional Plotly figure for top-5 visualization (static mode).
+        original_prompt: Original input prompt to show context with prediction (static mode).
+        per_position_data: List of per-position dicts from compute_per_position_top5 (scrubber mode).
+        generated_tokens: List of generated token strings (scrubber mode).
+        prompt_text: Original prompt text for context display (scrubber mode).
+    """
+    # --- Scrubber mode ---
+    if per_position_data and generated_tokens:
+        num_positions = len(per_position_data)
+        prompt_display = prompt_text or original_prompt or ""
+
+        content_items = [
+            html.Div([
+                html.H5("What happens here:", style={'color': '#495057', 'marginBottom': '8px'}),
+                html.P([
+                    "The model converts the final hidden state into a ",
+                    html.Strong("probability distribution"),
+                    " over all possible next tokens. Use the slider below to step through "
+                    "each generated token and see the model's top predictions at that point."
+                ], style={'color': '#6c757d', 'fontSize': '14px', 'marginBottom': '16px'})
+            ])
+        ]
+
+        # Slider / scrubber
+        slider_marks = {i: {'label': generated_tokens[i].strip() or repr(generated_tokens[i])}
+                        for i in range(num_positions)}
+        content_items.append(
+            html.Div([
+                html.Span("Step through generated tokens:",
+                           style={'color': '#495057', 'fontWeight': '500', 'display': 'block',
+                                  'marginBottom': '8px'}),
+                dcc.Slider(
+                    id='output-scrubber-slider',
+                    min=0,
+                    max=max(num_positions - 1, 0),
+                    step=1,
+                    value=0,
+                    marks=slider_marks,
+                    included=False,
+                )
+            ], style={'marginBottom': '20px', 'padding': '12px 16px',
+                      'backgroundColor': '#f8f9fa', 'borderRadius': '8px',
+                      'border': '1px solid #dee2e6'})
+        )
+
+        # Initial render at position 0
+        pos0 = per_position_data[0]
+        content_items.append(
+            html.Div(
+                _build_token_display(prompt_display, generated_tokens, 0, pos0['actual_prob']),
+                id='output-token-display'
+            )
+        )
+        content_items.append(
+            html.Div(
+                _build_top5_chart(pos0['top5'], pos0.get('actual_token')),
+                id='output-top5-chart'
+            )
+        )
+
+        # Disclaimer
+        content_items.append(
+            html.Div([
+                html.I(className='fas fa-info-circle', style={'color': '#6c757d', 'marginRight': '8px'}),
+                html.Span([
+                    html.Strong("Note on Token Selection: "),
+                    "While the probabilities above show the model's raw preference for the immediate next token, the final choice ",
+                    "can be influenced by other factors. Techniques like ", html.Strong("Beam Search"),
+                    " look ahead at multiple possible sequences to find the best overall result, rather than just the single most likely token at each step. ",
+                    "Additionally, architectures like ", html.Strong("Mixture of Experts (MoE)"),
+                    " might route processing through different specialized internal networks which can impact the final output distribution."
+                ], style={'color': '#6c757d', 'fontSize': '13px'})
+            ], style={'marginTop': '16px', 'padding': '12px', 'backgroundColor': '#f8f9fa',
+                      'borderRadius': '6px', 'border': '1px solid #dee2e6'})
+        )
+
+        return html.Div(content_items)
+
+    # --- Static fallback (prompt-only analysis, no generated tokens yet) ---
     content_items = [
         html.Div([
             html.H5("What happens here:", style={'color': '#495057', 'marginBottom': '8px'}),
@@ -711,75 +911,49 @@ def create_output_content(top_tokens=None, predicted_token=None, predicted_prob=
         ])
     ]
     
-    # Predicted token display with full prompt context
     if predicted_token:
-        # Build the full prompt + predicted token display
         prompt_display = original_prompt if original_prompt else ""
-        
         content_items.append(
             html.Div([
                 html.Div([
                     html.Span("Model prediction:", style={'color': '#495057', 'marginBottom': '12px', 'display': 'block', 'fontWeight': '500'}),
                     html.Div([
-                        # Original prompt (dimmed)
                         html.Span(prompt_display, style={
-                            'color': '#6c757d',
-                            'fontFamily': 'monospace',
-                            'fontSize': '15px'
+                            'color': '#6c757d', 'fontFamily': 'monospace', 'fontSize': '15px'
                         }),
-                        # Predicted token (highlighted)
                         html.Span(predicted_token, style={
-                            'padding': '4px 8px',
-                            'backgroundColor': '#00f2fe',
-                            'color': '#1a1a2e',
-                            'borderRadius': '4px',
-                            'fontFamily': 'monospace',
-                            'fontWeight': '600',
-                            'fontSize': '15px',
-                            'marginLeft': '2px'
+                            'padding': '4px 8px', 'backgroundColor': '#00f2fe',
+                            'color': '#1a1a2e', 'borderRadius': '4px',
+                            'fontFamily': 'monospace', 'fontWeight': '600',
+                            'fontSize': '15px', 'marginLeft': '2px'
                         })
                     ], style={'display': 'inline'}),
-                    # Confidence indicator
                     html.Div([
                         html.Span(f"{predicted_prob:.1%} confidence" if predicted_prob else "", style={
-                            'color': '#6c757d',
-                            'fontSize': '13px',
-                            'marginTop': '8px',
-                            'display': 'block'
+                            'color': '#6c757d', 'fontSize': '13px', 'marginTop': '8px', 'display': 'block'
                         })
                     ])
                 ], style={'textAlign': 'center'})
-            ], style={'padding': '20px', 'backgroundColor': 'white', 'borderRadius': '8px', 
+            ], style={'padding': '20px', 'backgroundColor': 'white', 'borderRadius': '8px',
                       'border': '2px solid #00f2fe', 'marginBottom': '16px'})
         )
     
-    # Top-5 bar chart with improved hover formatting
     if top_tokens:
         tokens = [t[0] for t in top_tokens[:5]]
         probs = [t[1] for t in top_tokens[:5]]
         
         fig = go.Figure(go.Bar(
-            x=probs,
-            y=tokens,
-            orientation='h',
+            x=probs, y=tokens, orientation='h',
             marker_color=['#00f2fe' if i == 0 else '#4facfe' for i in range(len(tokens))],
-            text=[f"{p:.1%}" for p in probs],
-            textposition='outside',
-            # Format hover to show "Token (X%)" instead of long decimals
+            text=[f"{p:.1%}" for p in probs], textposition='outside',
             hovertemplate='%{y} (%{x:.1%})<extra></extra>'
         ))
-        
         fig.update_layout(
-            title="Top 5 Predictions",
-            xaxis_title="Probability",
-            yaxis_title="Token",
-            height=250,
-            margin=dict(l=20, r=60, t=40, b=20),
-            paper_bgcolor='rgba(0,0,0,0)',
-            plot_bgcolor='rgba(0,0,0,0)',
+            title="Top 5 Predictions", xaxis_title="Probability", yaxis_title="Token",
+            height=250, margin=dict(l=20, r=60, t=40, b=20),
+            paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
             yaxis=dict(autorange='reversed')
         )
-        
         content_items.append(
             html.Div([
                 dcc.Graph(figure=fig, config={'displayModeBar': False})
@@ -792,7 +966,6 @@ def create_output_content(top_tokens=None, predicted_token=None, predicted_prob=
             ], style={'backgroundColor': 'white', 'borderRadius': '8px', 'border': '1px solid #e2e8f0'})
         )
     
-    # Disclaimer about token selection drivers
     content_items.append(
         html.Div([
             html.I(className='fas fa-info-circle', style={'color': '#6c757d', 'marginRight': '8px'}),

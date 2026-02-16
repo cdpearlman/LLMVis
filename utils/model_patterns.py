@@ -125,6 +125,98 @@ def compute_global_top5_tokens(model_output, tokenizer, top_k: int = 5) -> List[
         return [{'token': t, 'probability': p} for t, p in merged[:top_k]]
 
 
+def compute_per_position_top5(model_output, tokenizer, prompt_token_count: int, top_k: int = 5) -> List[Dict[str, Any]]:
+    """
+    Compute top-K next-token probabilities at each generated-token position.
+
+    Uses logits already produced by the forward pass on the full sequence
+    (prompt + generated tokens).  Position i in the returned list corresponds
+    to the prediction of generated token g_i given the prefix up to g_{i-1}.
+
+    Args:
+        model_output: Output from model(**inputs) containing logits [1, seq_len, vocab].
+        tokenizer: Tokenizer for decoding token IDs.
+        prompt_token_count: Number of tokens in the original prompt (P).
+        top_k: Number of top tokens per position (default 5).
+
+    Returns:
+        List of dicts, one per generated token position::
+
+            [
+              {
+                "position": 0,
+                "top5": [{"token": str, "probability": float}, ...],
+                "actual_token": str,   # token actually generated at this position
+                "actual_prob": float   # its probability at this position
+              },
+              ...
+            ]
+    """
+    seq_len = model_output.logits.shape[1]
+    num_generated = seq_len - prompt_token_count
+    if num_generated <= 0:
+        return []
+
+    results = []
+    with torch.no_grad():
+        # Precompute input_ids from the logits tensor shape for actual-token lookup.
+        # The actual token at generated position i lives at input index prompt_token_count + i.
+        # We recover it from argmax only when we don't have the real ids; however
+        # the caller should pass the full-sequence ids.  Here we derive the actual
+        # token from the logits tensor's *next* position in the sequence.
+        all_logits = model_output.logits[0]  # [seq_len, vocab]
+
+        for i in range(num_generated):
+            logit_idx = prompt_token_count - 1 + i  # index into logits
+            next_token_idx = prompt_token_count + i  # index of the actual next token
+
+            probs = F.softmax(all_logits[logit_idx], dim=-1)
+
+            # --- top-K with merge ---
+            top_probs, top_indices = torch.topk(probs, k=min(top_k * 2, len(probs)))
+            candidates = [
+                (tokenizer.decode([idx.item()], skip_special_tokens=False), prob.item())
+                for idx, prob in zip(top_indices, top_probs)
+            ]
+            merged = merge_token_probabilities(candidates)
+            top5 = [{'token': t, 'probability': p} for t, p in merged[:top_k]]
+
+            # --- actual token at this position ---
+            # The actual next token is whichever token the model *was given* at
+            # next_token_idx.  We can infer it from the argmax of the embedding
+            # lookup, but the simplest reliable way is to use the input_ids that
+            # produced these logits.  Since we don't have direct access to
+            # input_ids here, we look at the logits at the *next* position:
+            # the token fed at position next_token_idx determined that position's
+            # context.  We recover it by checking which token index has the
+            # highest *un-softmaxed* logit at position (logit_idx - 1) ... but
+            # that is circular.  Instead, the caller stores the actual token ids
+            # alongside model_output.  We fall back to a secondary attribute.
+            actual_token_id = None
+            if hasattr(model_output, 'input_ids') and model_output.input_ids is not None:
+                actual_token_id = model_output.input_ids[0, next_token_idx].item()
+            elif hasattr(model_output, '_input_ids'):
+                actual_token_id = model_output._input_ids[0, next_token_idx].item()
+
+            if actual_token_id is not None:
+                actual_token = tokenizer.decode([actual_token_id], skip_special_tokens=False)
+                actual_prob = probs[actual_token_id].item()
+            else:
+                # Fallback: use the argmax as "actual" (only correct for greedy)
+                top_prob, top_idx = probs.max(dim=-1)
+                actual_token = tokenizer.decode([top_idx.item()], skip_special_tokens=False)
+                actual_prob = top_prob.item()
+
+            results.append({
+                'position': i,
+                'top5': top5,
+                'actual_token': actual_token,
+                'actual_prob': float(actual_prob),
+            })
+
+    return results
+
+
 def get_actual_model_output(model_output, tokenizer) -> Tuple[str, float]:
     """
     Extract the predicted token from model's output.
@@ -148,16 +240,21 @@ def get_actual_model_output(model_output, tokenizer) -> Tuple[str, float]:
         return token_str, top_prob.item()
 
 
-def execute_forward_pass(model, tokenizer, prompt: str, config: Dict[str, Any], ablation_config: Optional[Dict[int, List[int]]] = None) -> Dict[str, Any]:
+def execute_forward_pass(model, tokenizer, prompt: str, config: Dict[str, Any],
+                         ablation_config: Optional[Dict[int, List[int]]] = None,
+                         original_prompt: Optional[str] = None) -> Dict[str, Any]:
     """
     Execute forward pass with PyVene IntervenableModel to capture activations from specified modules.
     
     Args:
         model: Loaded transformer model
         tokenizer: Loaded tokenizer
-        prompt: Input text prompt
+        prompt: Input text prompt (may be full sequence: original prompt + generated tokens)
         config: Dict with module lists like {"attention_modules": [...], "block_modules": [...], ...}
         ablation_config: Optional dict mapping layer numbers to list of head indices to ablate.
+        original_prompt: When provided, enables per-position top-5 computation for
+            the output scrubber.  If prompt contains generated tokens beyond
+            original_prompt, each generated-token position gets its own top-5 data.
     
     Returns:
         JSON-serializable dict with captured activations and metadata
@@ -255,6 +352,30 @@ def execute_forward_pass(model, tokenizer, prompt: str, config: Dict[str, Any], 
     except Exception as e:
         print(f"Warning: Could not extract model output: {e}")
     
+    # --- Per-position top-5 for the output scrubber ---
+    per_position_top5 = []
+    prompt_token_count = None
+    generated_tokens = []
+    if original_prompt is not None:
+        prompt_ids = tokenizer(original_prompt, return_tensors="pt")["input_ids"]
+        prompt_token_count = prompt_ids.shape[1]
+        seq_len = inputs["input_ids"].shape[1]
+        num_generated = seq_len - prompt_token_count
+
+        if num_generated > 0:
+            # Attach input_ids to model_output so compute_per_position_top5
+            # can look up the actual token at each position.
+            model_output.input_ids = inputs["input_ids"]
+            per_position_top5 = compute_per_position_top5(
+                model_output, tokenizer, prompt_token_count, top_k=5
+            )
+            # Decode each generated token individually for slider marks
+            full_ids = inputs["input_ids"][0].tolist()
+            generated_tokens = [
+                tokenizer.decode([full_ids[prompt_token_count + i]], skip_special_tokens=False)
+                for i in range(num_generated)
+            ]
+
     # Build output dictionary
     result = {
         "model": getattr(model.config, "name_or_path", "unknown"),
@@ -267,7 +388,11 @@ def execute_forward_pass(model, tokenizer, prompt: str, config: Dict[str, Any], 
         "norm_parameters": norm_parameters,
         "norm_data": norm_data,
         "actual_output": actual_output,
-        "global_top5_tokens": global_top5_tokens  # New: global top 5 from final output
+        "global_top5_tokens": global_top5_tokens,
+        "per_position_top5": per_position_top5,
+        "prompt_token_count": prompt_token_count,
+        "generated_tokens": generated_tokens,
+        "original_prompt": original_prompt,
     }
     
     print(f"Captured {len(captured)} module outputs using PyVene")

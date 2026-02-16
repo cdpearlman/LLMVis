@@ -28,7 +28,8 @@ from components.model_selector import create_model_selector
 from components.glossary import create_glossary_modal
 from components.pipeline import (create_pipeline_container, create_tokenization_content,
                                   create_embedding_content, create_attention_content,
-                                  create_mlp_content, create_output_content)
+                                  create_mlp_content, create_output_content,
+                                  _build_token_display, _build_top5_chart)
 from components.investigation_panel import create_investigation_panel, create_attribution_results_display
 from components.ablation_panel import create_selected_heads_display, create_ablation_results_display
 from components.chatbot import create_chatbot_container, render_messages
@@ -375,9 +376,12 @@ def run_generation(n_clicks, model_name, prompt, max_new_tokens, beam_width, pat
         # the full-sequence analysis runs when the user selects a beam.
         if max_new_tokens == 1:
             full_text = results[0]['text']
+            # Pass original_prompt so per-position top-5 is computed for the scrubber
+            activation_data = execute_forward_pass(model, tokenizer, full_text, config,
+                                                   original_prompt=prompt)
         else:
             full_text = prompt
-        activation_data = execute_forward_pass(model, tokenizer, full_text, config)
+            activation_data = execute_forward_pass(model, tokenizer, full_text, config)
         
         results_ui = []
         if max_new_tokens > 1:
@@ -418,10 +422,11 @@ def run_generation(n_clicks, model_name, prompt, max_new_tokens, beam_width, pat
      Output('session-activation-store', 'data', allow_duplicate=True)],
     Input({'type': 'result-item', 'index': ALL}, 'n_clicks'),
     [State('generation-results-store', 'data'),
-     State('session-activation-store', 'data')],
+     State('session-activation-store', 'data'),
+     State('session-original-prompt-store', 'data')],
     prevent_initial_call=True
 )
-def store_selected_beam(n_clicks_list, results_data, existing_activation_data):
+def store_selected_beam(n_clicks_list, results_data, existing_activation_data, original_prompt_data):
     """
     Store selected beam and re-run forward pass on the full sequence.
     
@@ -490,7 +495,12 @@ def store_selected_beam(n_clicks_list, results_data, existing_activation_data):
             model = AutoModelForCausalLM.from_pretrained(model_name, attn_implementation='eager')
             tokenizer = AutoTokenizer.from_pretrained(model_name)
             model.eval()
-            new_activation_data = execute_forward_pass(model, tokenizer, result['text'], config)
+            # Pass original_prompt so per-position top-5 data is computed for scrubber
+            orig_prompt = original_prompt_data.get('prompt', '') if original_prompt_data else ''
+            new_activation_data = execute_forward_pass(
+                model, tokenizer, result['text'], config,
+                original_prompt=orig_prompt
+            )
         except Exception as e:
             import traceback
             traceback.print_exc()
@@ -594,9 +604,19 @@ def update_pipeline_content(activation_data, model_name):
         # Stage 5: Output
         # Get original prompt for context display
         original_prompt = activation_data.get('prompt', '')
+        # Per-position data for the scrubber (populated when original_prompt was given)
+        per_position_data = activation_data.get('per_position_top5', [])
+        generated_tokens = activation_data.get('generated_tokens', [])
+        scrubber_prompt = activation_data.get('original_prompt', original_prompt)
+
         outputs.append(f"→ {predicted_token}")
-        outputs.append(create_output_content(top_tokens, predicted_token, predicted_prob, 
-                                             original_prompt=original_prompt))
+        outputs.append(create_output_content(
+            top_tokens, predicted_token, predicted_prob,
+            original_prompt=original_prompt,
+            per_position_data=per_position_data,
+            generated_tokens=generated_tokens,
+            prompt_text=scrubber_prompt
+        ))
         
         return tuple(outputs)
         
@@ -604,6 +624,41 @@ def update_pipeline_content(activation_data, model_name):
         import traceback
         traceback.print_exc()
         return tuple(empty_outputs)
+
+
+# ============================================================================
+# CALLBACKS: Output Scrubber
+# ============================================================================
+
+@app.callback(
+    [Output('output-token-display', 'children'),
+     Output('output-top5-chart', 'children')],
+    [Input('output-scrubber-slider', 'value')],
+    [State('session-activation-store', 'data')],
+    prevent_initial_call=True
+)
+def update_output_scrubber(position, activation_data):
+    """Update the token display and top-5 chart when the scrubber slider moves."""
+    if activation_data is None or position is None:
+        return no_update, no_update
+
+    per_position_data = activation_data.get('per_position_top5', [])
+    generated_tokens = activation_data.get('generated_tokens', [])
+    prompt_text = activation_data.get('original_prompt', activation_data.get('prompt', ''))
+
+    if not per_position_data or not generated_tokens:
+        return no_update, no_update
+
+    # Clamp position to valid range
+    position = max(0, min(position, len(per_position_data) - 1))
+    pos_data = per_position_data[position]
+
+    token_display = _build_token_display(
+        prompt_text, generated_tokens, position, pos_data['actual_prob']
+    )
+    top5_chart = _build_top5_chart(pos_data['top5'], pos_data.get('actual_token'))
+
+    return token_display, top5_chart
 
 
 # ============================================================================
