@@ -1,5 +1,11 @@
-Worktree Ideas:
-- host on a website
-- add AI bot to help
-    - AI bot worked examples ("Ask me how to ...")
-- animated "learning mode"?
+- specs on what each attention head does
+- change attention to entire generated sequence
+- output slider to look at each token
+    - put in a more obvious place?
+- experiment results side by side comparison
+- output streaming for chatbot
+- change width of chatbot window
+- shorter, concise responses in system prompt
+- add video links to glossary
+    - three blue one brown
+- add output token generation to attention, tokenization, etc

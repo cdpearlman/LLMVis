@@ -183,6 +183,7 @@ def create_chat_window():
         Dash HTML component for the chat window
     """
     return html.Div([
+        html.Div(className="chat-resize-handle", id="chat-resize-handle"),
         create_chat_header(),
         create_messages_container(),
         create_input_area()

@@ -1126,6 +1126,21 @@ details[open].transformer-layers-container .transformer-layers-summary::before {
     animation: slideInRight 0.3s ease-out;
 }
 
+/* Drag handle on left edge of chat window for resizing */
+.chat-resize-handle {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 5px;
+    height: 100%;
+    cursor: ew-resize;
+    z-index: 10;
+}
+.chat-resize-handle:hover,
+.chat-resize-handle.active {
+    background-color: rgba(59, 130, 246, 0.5);
+}
+
 @keyframes slideInRight {
     from {
         transform: translateX(100%);

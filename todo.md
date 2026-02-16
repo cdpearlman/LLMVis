@@ -193,3 +193,10 @@
 - [x] Delete embeddings_cache.json, update rag_docs/README.md with full inventory
 - [x] Update todo.md and conductor docs
 - Total: 30 RAG documents covering transformer concepts, dashboard usage, guided experiments, interpretation, troubleshooting, and research context
+
+## Completed: Resizable Chat Window
+
+- [x] Add drag handle div to left edge of chat window in chatbot.py
+- [x] Add CSS for `.chat-resize-handle` (cursor, hover highlight) in style.css
+- [x] Add `assets/chat_resize.js` for mousedown/mousemove/mouseup drag logic
+- Default size unchanged (25vw, 320px–450px); drag overrides max-width up to 80vw
