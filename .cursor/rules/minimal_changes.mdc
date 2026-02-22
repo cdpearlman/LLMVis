@@ -51,3 +51,6 @@ alwaysApply: true
 - Avoid adding new dependencies unless strictly needed.
 - Avoid creating new modules/components unless existing ones cannot be cleanly extended.
 - Ensure Dash callbacks remain responsive; avoid heavy sync work in callbacks without feedback indicators.
+
+# Debugging
+- Sometimes a zombie process can cause errors. Check for zombie processes and kill them if necessary.

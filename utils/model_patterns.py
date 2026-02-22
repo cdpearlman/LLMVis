@@ -576,7 +576,7 @@ def execute_forward_pass_with_head_ablation(model, tokenizer, prompt: str, confi
 
 
 def execute_forward_pass_with_multi_layer_head_ablation(model, tokenizer, prompt: str, config: Dict[str, Any],
-                                                        heads_by_layer: Dict[int, List[int]]) -> Dict[str, Any]:
+                                                        heads_by_layer: Dict[int, List[int]], original_prompt: Optional[str] = None) -> Dict[str, Any]:
     """
     Execute forward pass with specific attention heads zeroed out across multiple layers simultaneously.
     
@@ -763,6 +763,27 @@ def execute_forward_pass_with_multi_layer_head_ablation(model, tokenizer, prompt
     except Exception as e:
         print(f"Warning: Could not extract model output: {e}")
     
+    # Compute per-position top 5 if an original_prompt is provided
+    per_position_top5 = []
+    generated_tokens = []
+    prompt_token_count = 0
+    if original_prompt:
+        prompt_ids = tokenizer(original_prompt, return_tensors="pt")["input_ids"]
+        prompt_token_count = prompt_ids.shape[1]
+        seq_len = inputs["input_ids"].shape[1]
+        num_generated = seq_len - prompt_token_count
+
+        if num_generated > 0:
+            model_output.input_ids = inputs["input_ids"]
+            per_position_top5 = compute_per_position_top5(
+                model_output, tokenizer, prompt_token_count, top_k=5
+            )
+            full_ids = inputs["input_ids"][0].tolist()
+            generated_tokens = [
+                tokenizer.decode([full_ids[prompt_token_count + i]], skip_special_tokens=False)
+                for i in range(num_generated)
+            ]
+            
     # Build output dictionary
     result = {
         "model": getattr(model.config, "name_or_path", "unknown"),
@@ -776,7 +797,11 @@ def execute_forward_pass_with_multi_layer_head_ablation(model, tokenizer, prompt
         "norm_data": norm_data,
         "actual_output": actual_output,
         "global_top5_tokens": global_top5_tokens,
-        "ablated_heads_by_layer": heads_by_layer  # Include ablation info in result
+        "ablated_heads_by_layer": heads_by_layer,  # Include ablation info in result
+        "per_position_top5": per_position_top5,
+        "prompt_token_count": prompt_token_count,
+        "generated_tokens": generated_tokens,
+        "original_prompt": original_prompt,
     }
     
     return result

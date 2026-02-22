@@ -419,7 +419,8 @@ def run_generation(n_clicks, model_name, prompt, max_new_tokens, beam_width, pat
 @app.callback(
     [Output('session-selected-beam-store', 'data', allow_duplicate=True),
      Output('generation-results-container', 'children', allow_duplicate=True),
-     Output('session-activation-store', 'data', allow_duplicate=True)],
+     Output('session-activation-store', 'data', allow_duplicate=True),
+     Output('session-activation-store-original', 'data', allow_duplicate=True)],
     Input({'type': 'result-item', 'index': ALL}, 'n_clicks'),
     [State('generation-results-store', 'data'),
      State('session-activation-store', 'data'),
@@ -508,7 +509,7 @@ def store_selected_beam(n_clicks_list, results_data, existing_activation_data, o
     
     # Store the selected beam for comparison after experiments
     return ({'text': result['text'], 'score': result.get('score', 0), 'index': index}, 
-            selected_ui, new_activation_data)
+            selected_ui, new_activation_data, new_activation_data)
 
 
 # ============================================================================
@@ -826,7 +827,8 @@ def manage_ablation_heads(add_clicks, clear_clicks, remove_clicks,
 
 @app.callback(
     [Output('ablation-results-container', 'children'),
-     Output('session-activation-store', 'data', allow_duplicate=True)],
+     Output('session-activation-store', 'data', allow_duplicate=True),
+     Output('session-activation-store-original', 'data', allow_duplicate=True)],
     [Input('run-ablation-btn', 'n_clicks')],
     [State('ablation-selected-heads', 'data'),
      State('session-activation-store', 'data'),
@@ -840,7 +842,7 @@ def manage_ablation_heads(add_clicks, clear_clicks, remove_clicks,
 def run_ablation_experiment(n_clicks, selected_heads, activation_data, model_name, prompt, selected_beam, max_new_tokens, beam_width):
     """Run ablation on ORIGINAL PROMPT and compare results, including beam generation."""
     if not n_clicks or not selected_heads or not activation_data:
-        return no_update, no_update
+        return no_update, no_update, no_update
     
     try:
         from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -848,7 +850,7 @@ def run_ablation_experiment(n_clicks, selected_heads, activation_data, model_nam
         tokenizer = AutoTokenizer.from_pretrained(model_name)
         model.eval()
         
-        sequence_text = activation_data.get('prompt', prompt)
+        sequence_text = prompt
         
         config = {
             'attention_modules': activation_data.get('attention_modules', []),
@@ -873,22 +875,11 @@ def run_ablation_experiment(n_clicks, selected_heads, activation_data, model_nam
                     heads_by_layer[layer].append(head)
         
         if not heads_by_layer:
-            return html.Div("No valid heads selected.", style={'color': '#dc3545'}), no_update
-        
-        # Run ablation for analysis (single pass)
-        ablated_data = execute_forward_pass_with_multi_layer_head_ablation(
-            model, tokenizer, sequence_text, config, heads_by_layer
-        )
-        
-        # Mark as ablated so UI knows
-        ablated_data['ablated'] = True
-        
-        ablated_output = ablated_data.get('actual_output', {})
-        ablated_token = ablated_output.get('token', '')
-        ablated_prob = ablated_output.get('probability', 0)
+            return html.Div("No valid heads selected.", style={'color': '#dc3545'}), no_update, no_update
         
         # Run ablation for generation
         ablated_beam = None
+        analysis_text = sequence_text
         try:
             # Always perform beam search during ablation to show comparison
             beam_results = perform_beam_search(
@@ -900,20 +891,164 @@ def run_ablation_experiment(n_clicks, selected_heads, activation_data, model_nam
             if beam_results:
                 # Select the top beam
                 ablated_beam = {'text': beam_results[0]['text'], 'score': beam_results[0].get('score', 0)}
+                analysis_text = ablated_beam['text']
         except Exception as e:
             print(f"Error during ablated generation: {e}")
+            
+        # Run ablation for analysis (single pass) on the final generated text
+        ablated_data = execute_forward_pass_with_multi_layer_head_ablation(
+            model, tokenizer, analysis_text, config, heads_by_layer, original_prompt=prompt
+        )
+        
+        # Mark as ablated so UI knows
+        ablated_data['ablated'] = True
+        
+        ablated_output = ablated_data.get('actual_output', {})
+        ablated_token = ablated_output.get('token', '')
+        ablated_prob = ablated_output.get('probability', 0)
         
         results_display = create_ablation_results_display(
-            original_token, ablated_token, original_prob, ablated_prob,
+            activation_data, ablated_data,
             selected_heads, selected_beam, ablated_beam
         )
         
-        return results_display, ablated_data
+        return results_display, ablated_data, activation_data
         
     except Exception as e:
         import traceback
         traceback.print_exc()
-        return html.Div(f"Ablation error: {str(e)}", style={'color': '#dc3545'}), no_update
+        return html.Div(f"Ablation error: {str(e)}", style={'color': '#dc3545'}), no_update, no_update
+
+
+@app.callback(
+    [Output('ablation-original-token-map', 'children'),
+     Output('ablation-original-text-box', 'children'),
+     Output('ablation-original-top5-chart', 'figure'),
+     Output('ablation-ablated-token-map', 'children'),
+     Output('ablation-ablated-text-box', 'children'),
+     Output('ablation-ablated-top5-chart', 'figure'),
+     Output('ablation-divergence-indicator', 'children')],
+    [Input('ablation-scrubber-slider', 'value')],
+    [State('session-activation-store-original', 'data'),
+     State('session-activation-store', 'data')],
+    prevent_initial_call=True
+)
+def update_ablation_scrubber(position, original_data, ablated_data):
+    if position is None or not original_data or not ablated_data:
+        import dash
+        return dash.no_update
+        
+    orig_pos_data = original_data.get('per_position_top5', [])
+    abl_pos_data = ablated_data.get('per_position_top5', [])
+    
+    orig_tokens = original_data.get('generated_tokens', [])
+    abl_tokens = ablated_data.get('generated_tokens', [])
+    
+    # Helper to build token map
+    def build_token_map(tokens, current_pos, changed_indices):
+        from dash import html
+        elements = []
+        for i, token in enumerate(tokens):
+            if i > 0: elements.append(html.Span(" → ", style={'color': '#ced4da', 'margin': '0 4px'}))
+            
+            is_current = i == current_pos
+            is_changed = i in changed_indices
+            
+            style = {'fontWeight': 'bold' if is_current else 'normal'}
+            if is_current:
+                style['color'] = '#ffffff'
+                style['backgroundColor'] = '#dc3545' if is_changed else '#28a745'
+                style['padding'] = '2px 6px'
+                style['borderRadius'] = '4px'
+            elif is_changed:
+                style['color'] = '#dc3545'
+                
+            elements.append(html.Span(f"T{i} ({token.strip()})", style=style))
+        return elements
+
+    # Helper to build text box
+    def build_text_box(prompt_text, tokens, current_pos, changed_indices):
+        from dash import html
+        elements = [html.Span(prompt_text, style={'color': '#6c757d'})]
+        for i, token in enumerate(tokens):
+            is_current = i == current_pos
+            is_changed = i in changed_indices
+            
+            style = {}
+            if is_current:
+                style['backgroundColor'] = '#ffc107' if is_changed else '#0dcaf0'
+                style['color'] = '#000'
+                style['borderRadius'] = '3px'
+                style['padding'] = '0 2px'
+                style['fontWeight'] = 'bold'
+                
+            elements.append(html.Span(token, style=style))
+        return elements
+        
+    def build_chart(pos_data, actual_token, main_color):
+        import plotly.graph_objs as go
+        if not pos_data: return go.Figure().update_layout(margin=dict(l=0, r=0, t=0, b=0), height=200)
+        
+        top5 = pos_data.get('top5', [])
+        tokens = [t['token'] for t in reversed(top5)]
+        probs = [t['probability'] for t in reversed(top5)]
+        
+        colors = []
+        for t in tokens:
+            if t == actual_token:
+                colors.append(main_color)
+            else:
+                colors.append('#e2e8f0' if main_color == '#4c51bf' else '#f8d7da')
+                
+        fig = go.Figure(go.Bar(
+            x=probs, y=tokens, orientation='h', marker_color=colors,
+            text=[f"{p:.1%}" for p in probs], textposition='auto'
+        ))
+        fig.update_layout(
+            margin=dict(l=0, r=0, t=0, b=0), height=200,
+            xaxis=dict(visible=False, range=[0, 1]),
+            yaxis=dict(tickfont=dict(size=12)),
+            paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+            showlegend=False
+        )
+        return fig
+
+    # Find changed indices
+    changed_indices = set()
+    for i in range(max(len(orig_tokens), len(abl_tokens))):
+        if i >= len(orig_tokens) or i >= len(abl_tokens) or orig_tokens[i] != abl_tokens[i]:
+            changed_indices.add(i)
+            
+    prompt_text = original_data.get('original_prompt', original_data.get('prompt', ''))
+    
+    orig_map = build_token_map(orig_tokens, position, set()) # original doesn't show red 'changed' state
+    abl_map = build_token_map(abl_tokens, position, changed_indices)
+    
+    orig_text_box = build_text_box(prompt_text, orig_tokens, position, set())
+    abl_text_box = build_text_box(prompt_text, abl_tokens, position, changed_indices)
+    
+    orig_chart = []
+    abl_chart = []
+    
+    from dash import html
+    divergence_indicator = html.Div()
+    
+    if position < len(orig_pos_data):
+        orig_chart = build_chart(orig_pos_data[position], orig_pos_data[position].get('actual_token'), '#4c51bf')
+    if position < len(abl_pos_data):
+        abl_chart = build_chart(abl_pos_data[position], abl_pos_data[position].get('actual_token'), '#e53e3e')
+        
+    is_diverged = position in changed_indices
+    if is_diverged:
+        divergence_indicator = html.Div([
+            html.I(className="fas fa-exclamation-circle", style={'color': '#dc3545', 'fontSize': '32px', 'backgroundColor': '#fff5f5', 'borderRadius': '50%', 'padding': '10px', 'boxShadow': '0 0 15px rgba(220,53,69,0.4)'})
+        ])
+    else:
+        divergence_indicator = html.Div([
+            html.I(className="fas fa-check-circle", style={'color': '#28a745', 'fontSize': '32px', 'backgroundColor': '#f0fdf4', 'borderRadius': '50%', 'padding': '10px'})
+        ])
+        
+    return orig_map, orig_text_box, orig_chart, abl_map, abl_text_box, abl_chart, divergence_indicator
 
 
 # ============================================================================
