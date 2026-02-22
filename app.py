@@ -1160,6 +1160,24 @@ def reset_ablation(n_clicks, original_data):
 # ============================================================================
 # CALLBACKS: AI Chatbot
 # ============================================================================
+import threading
+import queue
+
+_chat_stream_queue = queue.Queue()
+_chat_stream_active = False
+_chat_stream_content = ""
+
+def _background_generate(user_input, chat_history, rag_context, dashboard_context):
+    global _chat_stream_active
+    try:
+        from utils.openrouter_client import generate_stream
+        for chunk in generate_stream(user_input, chat_history, rag_context, dashboard_context):
+            _chat_stream_queue.put(chunk)
+    except Exception as e:
+        _chat_stream_queue.put(f"\n[Error: {str(e)}]")
+    finally:
+        _chat_stream_active = False
+
 
 @app.callback(
     [Output('chat-window', 'style'),
@@ -1212,7 +1230,8 @@ def clear_chat_history(n_clicks):
     [Output('chat-messages-list', 'children'),
      Output('chat-history-store', 'data', allow_duplicate=True),
      Output('chat-input', 'value'),
-     Output('chat-typing-indicator', 'style')],
+     Output('chat-typing-indicator', 'style'),
+     Output('chat-response-interval', 'disabled')],
     [Input('chat-send-btn', 'n_clicks')],
     [State('chat-input', 'value'),
      State('chat-history-store', 'data'),
@@ -1224,57 +1243,86 @@ def clear_chat_history(n_clicks):
 )
 def send_chat_message(send_clicks, user_input, chat_history, 
                       model_name, prompt, activation_data, ablated_heads):
-    """Handle sending a chat message and getting AI response."""
-    from utils.openrouter_client import generate_response
+    """Handle sending a chat message and start stream."""
+    global _chat_stream_active, _chat_stream_content
     from utils.rag_utils import build_rag_context
     
     if not user_input or not user_input.strip():
-        return no_update, no_update, no_update, no_update
+        return no_update, no_update, no_update, no_update, no_update
     
     user_input = user_input.strip()
     
-    # Initialize chat history if None
     if chat_history is None:
         chat_history = []
     
-    # Add user message to history
-    chat_history = chat_history + [{'role': 'user', 'content': user_input}]
+    chat_history.append({'role': 'user', 'content': user_input})
+    chat_history.append({'role': 'assistant', 'content': ''})
     
-    # Build dashboard context
     dashboard_context = {}
-    if model_name:
-        dashboard_context['model'] = model_name
-    if prompt:
-        dashboard_context['prompt'] = prompt
+    if model_name: dashboard_context['model'] = model_name
+    if prompt: dashboard_context['prompt'] = prompt
     if activation_data:
         actual_output = activation_data.get('actual_output', {})
         if actual_output:
             dashboard_context['predicted_token'] = actual_output.get('token', '')
             dashboard_context['predicted_probability'] = actual_output.get('probability', 0)
         top5 = activation_data.get('global_top5_tokens', [])
-        if top5:
-            dashboard_context['top_predictions'] = top5
-    if ablated_heads:
-        dashboard_context['ablated_heads'] = ablated_heads
+        if top5: dashboard_context['top_predictions'] = top5
+    if ablated_heads: dashboard_context['ablated_heads'] = ablated_heads
     
-    # Get RAG context
     rag_context = build_rag_context(user_input, top_k=3)
     
-    # Generate response
-    response = generate_response(
-        user_message=user_input,
-        chat_history=chat_history[:-1],  # Exclude the message we just added
-        rag_context=rag_context,
-        dashboard_context=dashboard_context
-    )
+    _chat_stream_content = ""
+    while not _chat_stream_queue.empty():
+        try: _chat_stream_queue.get_nowait()
+        except: pass
     
-    # Add assistant response to history
-    chat_history = chat_history + [{'role': 'assistant', 'content': response}]
+    _chat_stream_active = True
+    threading.Thread(
+        target=_background_generate, 
+        args=(user_input, chat_history[:-2], rag_context, dashboard_context), 
+        daemon=True
+    ).start()
     
-    # Render updated messages
     messages_ui = render_messages(chat_history)
     
-    return messages_ui, chat_history, '', {'display': 'none'}
+    return messages_ui, chat_history, '', {'display': 'flex'}, False
+
+
+@app.callback(
+    [Output('chat-messages-list', 'children', allow_duplicate=True),
+     Output('chat-history-store', 'data', allow_duplicate=True),
+     Output('chat-response-interval', 'disabled', allow_duplicate=True),
+     Output('chat-typing-indicator', 'style', allow_duplicate=True)],
+    [Input('chat-response-interval', 'n_intervals')],
+    [State('chat-history-store', 'data')],
+    prevent_initial_call=True
+)
+def update_stream(n_intervals, chat_history):
+    global _chat_stream_active, _chat_stream_content
+    
+    if not chat_history:
+        return no_update, no_update, True, no_update
+        
+    chunks = []
+    while not _chat_stream_queue.empty():
+        try:
+            chunks.append(_chat_stream_queue.get_nowait())
+        except queue.Empty:
+            break
+            
+    if chunks:
+        _chat_stream_content += "".join(chunks)
+        if chat_history[-1]['role'] == 'assistant':
+            chat_history[-1]['content'] = _chat_stream_content
+            
+        messages_ui = render_messages(chat_history)
+        return messages_ui, chat_history, False, {'display': 'none'}
+        
+    elif not _chat_stream_active:
+        return no_update, no_update, True, {'display': 'none'}
+        
+    return no_update, no_update, False, {'display': 'flex'}
 
 
 @app.callback(
@@ -1294,6 +1342,24 @@ def update_messages_from_store(chat_history):
     
     return render_messages(chat_history), no_update
 
+
+# Client-side callback for scroll down
+app.clientside_callback(
+    """
+    function(children) {
+        setTimeout(() => {
+            const container = document.getElementById('chat-messages-container');
+            if (container) {
+                container.scrollTop = container.scrollHeight;
+            }
+        }, 50);
+        return window.dash_clientside.no_update;
+    }
+    """,
+    Output('chat-messages-container', 'className'),
+    Input('chat-messages-list', 'children'),
+    prevent_initial_call=True
+)
 
 # Client-side callback for copy functionality
 app.clientside_callback(

@@ -38,6 +38,9 @@ You have access to:
 2. The current state of the dashboard (selected model, prompt, analysis results)
 
 When answering:
+- Be extremely concise. Directly answer the user's question.
+- Do not provide exhaustive explanations unless explicitly asked.
+- At the end of your concise answer, offer to go into more detail (e.g., "Let me know if you'd like me to explain [TOPIC] in more detail.")
 - Be clear and educational
 - Use examples when helpful
 - Reference specific dashboard features when relevant
@@ -156,6 +159,76 @@ class OpenRouterClient:
         except Exception as e:
             print(f"OpenRouter API error: {e}")
             return f"Sorry, I encountered an error: {str(e)}"
+            
+    def generate_stream(
+        self,
+        user_message: str,
+        chat_history: Optional[List[Dict[str, str]]] = None,
+        rag_context: Optional[str] = None,
+        dashboard_context: Optional[Dict] = None
+    ):
+        """
+        Generate a streaming response using OpenRouter.
+        Yields text chunks as they arrive.
+        """
+        if not self.is_available:
+            yield "Sorry, the AI assistant is not available. Please check that the OPENROUTER_API_KEY environment variable is set."
+            return
+            
+        try:
+            full_message = self._build_prompt(user_message, rag_context, dashboard_context)
+            messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+            if chat_history:
+                for msg in chat_history[-10:]:
+                    role = "user" if msg.get("role") == "user" else "assistant"
+                    messages.append({"role": role, "content": msg.get("content", "")})
+            messages.append({"role": "user", "content": full_message})
+            
+            response = requests.post(
+                f"{OPENROUTER_BASE_URL}/chat/completions",
+                headers=self._headers,
+                json={
+                    "model": DEFAULT_CHAT_MODEL,
+                    "messages": messages,
+                    "stream": True
+                },
+                timeout=60,
+                stream=True
+            )
+            response.raise_for_status()
+            
+            import json
+            for line in response.iter_lines():
+                if line:
+                    line = line.decode('utf-8')
+                    if line.startswith('data: ') and line != 'data: [DONE]':
+                        try:
+                            data = json.loads(line[6:])
+                            if "choices" in data and len(data["choices"]) > 0:
+                                delta = data["choices"][0].get("delta", {})
+                                if "content" in delta:
+                                    yield delta["content"]
+                        except json.JSONDecodeError:
+                            continue
+                            
+        except requests.exceptions.HTTPError as e:
+            error_msg = str(e)
+            if e.response is not None:
+                try:
+                    error_data = e.response.json()
+                    error_msg = error_data.get("error", {}).get("message", str(e))
+                except:
+                    pass
+            if "rate" in error_msg.lower() or "429" in error_msg:
+                yield f"The AI service is currently rate limited. Please try again in a moment. {error_msg}"
+            elif "401" in error_msg or "invalid" in error_msg.lower():
+                yield "Invalid API key. Please check your OPENROUTER_API_KEY configuration."
+            else:
+                print(f"OpenRouter API stream error: {e}")
+                yield f"Sorry, I encountered an error: {error_msg}"
+        except Exception as e:
+            print(f"OpenRouter API stream error: {e}")
+            yield f"Sorry, I encountered an error: {str(e)}"
     
     def _build_prompt(
         self,
@@ -285,6 +358,28 @@ def generate_response(
     """
     client = get_openrouter_client()
     return client.generate_response(user_message, chat_history, rag_context, dashboard_context)
+
+
+def generate_stream(
+    user_message: str,
+    chat_history: Optional[List[Dict[str, str]]] = None,
+    rag_context: Optional[str] = None,
+    dashboard_context: Optional[Dict] = None
+):
+    """
+    Convenience function to generate a streaming response.
+    
+    Args:
+        user_message: The user's message
+        chat_history: Previous chat messages
+        rag_context: Retrieved RAG context
+        dashboard_context: Current dashboard state
+        
+    Returns:
+        Generator yielding text chunks
+    """
+    client = get_openrouter_client()
+    return client.generate_stream(user_message, chat_history, rag_context, dashboard_context)
 
 
 def get_embedding(text: str) -> Optional[List[float]]:
