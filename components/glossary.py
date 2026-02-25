@@ -9,13 +9,14 @@ def create_glossary_modal():
     Create the hidden glossary modal that appears when the Help button is clicked.
     """
     return html.Div([
+        html.Div(id='glossary-overlay-bg', className='glossary-overlay'),
+        
         html.Div([
             html.Div([
-                html.H2("Transformer Concept Glossary", style={'marginTop': '0', 'color': '#2d3748'}),
+                html.H2("Transformer Concept Glossary"),
                 html.Button('×', id='close-glossary-btn', className='close-button', 
-                           style={'position': 'absolute', 'right': '15px', 'top': '15px', 
-                                  'background': 'none', 'border': 'none', 'fontSize': '24px', 'cursor': 'pointer'})
-            ], style={'position': 'relative', 'borderBottom': '1px solid #e2e8f0', 'paddingBottom': '15px', 'marginBottom': '15px'}),
+                           style={'background': 'none', 'border': 'none', 'fontSize': '28px', 'cursor': 'pointer', 'color': '#a0aec0'})
+            ], className='glossary-header'),
             
             html.Div([
                 _create_term_entry(
@@ -64,30 +65,10 @@ def create_glossary_modal():
                     "Digital Brain Surgery",
                     "A technique used to understand which parts of a model are responsible for certain behaviors. By artificially modifying or 'turning off' specific attention heads or activations, we can measure how much the model's output changes, revealing the importance of those components."
                 )
-            ], className="glossary-content", style={'maxHeight': '70vh', 'overflowY': 'auto', 'padding': '0 20px 10px 10px'}),
+            ], className="glossary-content-area"),
             
-        ], id='glossary-modal-content', className="modal-content", style={
-            'backgroundColor': 'white',
-            'padding': '30px',
-            'borderRadius': '8px',
-            'maxWidth': '900px', # Increased to fit videos
-            'width': '95%',
-            'boxShadow': '0 4px 6px rgba(0,0,0,0.1)',
-            'position': 'relative',
-            'display': 'block' 
-        })
-    ], id='glossary-modal-overlay', style={
-        'position': 'fixed',
-        'top': '0',
-        'left': '0',
-        'width': '100%',
-        'height': '100%',
-        'backgroundColor': 'rgba(0,0,0,0.5)',
-        'zIndex': '1000',
-        'display': 'none',
-        'alignItems': 'center',
-        'justifyContent': 'center'
-    })
+        ], id='glossary-drawer-content', className="glossary-drawer")
+    ], id='glossary-container')
 
 def _create_term_entry(term, analogy, definition, video_url=None):
     content = [

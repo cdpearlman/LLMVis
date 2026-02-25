@@ -159,11 +159,11 @@ app.layout = html.Div([
 # ============================================================================
 
 @app.callback(
-    [Output("glossary-modal-overlay", "style"),
-     Output("glossary-modal-content", "style")],
+    [Output("glossary-overlay-bg", "className"),
+     Output("glossary-drawer-content", "className")],
     [Input("open-glossary-btn", "n_clicks"),
      Input("close-glossary-btn", "n_clicks"),
-     Input("glossary-modal-overlay", "n_clicks")],
+     Input("glossary-overlay-bg", "n_clicks")],
     prevent_initial_call=True
 )
 def toggle_glossary(open_clicks, close_clicks, overlay_clicks):
@@ -172,9 +172,9 @@ def toggle_glossary(open_clicks, close_clicks, overlay_clicks):
         return no_update, no_update
     trigger_id = ctx.triggered[0]["prop_id"].split(".")[0]
     if trigger_id == "open-glossary-btn":
-        return {'display': 'flex'}, {'display': 'block'}
+        return "glossary-overlay open", "glossary-drawer open"
     else:
-        return {'display': 'none'}, {'display': 'none'}
+        return "glossary-overlay", "glossary-drawer"
 
 
 # ============================================================================
