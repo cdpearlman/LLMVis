@@ -1,6 +1,4 @@
 - specs on what each attention head does
-- add video links to glossary
-    - three blue one brown
 
 Done:
 - change attention to entire generated sequence
@@ -10,3 +8,5 @@ Done:
 - experiment results side by side comparison
 - output streaming for chatbot
 - shorter, concise responses in system prompt
+- add video links to glossary
+    - three blue one brown
