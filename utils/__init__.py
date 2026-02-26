@@ -8,7 +8,7 @@ from .model_patterns import (load_model_and_get_patterns, execute_forward_pass,
                              detect_significant_probability_increases, 
                              evaluate_sequence_ablation, generate_bertviz_model_view_html)
 from .model_config import get_model_family, get_family_config, get_auto_selections, MODEL_TO_FAMILY, MODEL_FAMILIES
-from .head_detection import categorize_all_heads, categorize_single_layer_heads, format_categorization_summary, HeadCategorizationConfig
+from .head_detection import load_head_categories, verify_head_activation, get_active_head_summary
 from .beam_search import perform_beam_search
 from .ablation_metrics import compute_kl_divergence, score_sequence, get_token_probability_deltas
 from .token_attribution import compute_integrated_gradients, compute_simple_gradient_attribution, create_attribution_visualization_data
@@ -38,10 +38,9 @@ __all__ = [
     'MODEL_FAMILIES',
     
     # Head detection
-    'categorize_all_heads',
-    'categorize_single_layer_heads',
-    'format_categorization_summary',
-    'HeadCategorizationConfig',
+    'load_head_categories',
+    'verify_head_activation',
+    'get_active_head_summary',
     
     # Beam search
     'perform_beam_search',

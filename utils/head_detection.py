@@ -1,313 +1,256 @@
 """
 Attention Head Detection and Categorization
 
-Implements heuristics to categorize attention heads into:
-- Previous-Token Heads: high attention on previous token
-- First/Positional Heads: high attention on first token or positional patterns
-- Bag-of-Words Heads: diffuse attention on content tokens
-- Syntactic Heads: dependency-like patterns
+Loads pre-computed head category data from JSON (produced by scripts/analyze_heads.py)
+and performs lightweight runtime verification of head activation on the current input.
+
+Categories:
+- Previous Token: attends to the immediately preceding token
+- Induction: completes repeated patterns ([A][B]...[A] → [B])
+- Duplicate Token: attends to earlier occurrences of the same token
+- Positional / First-Token: attends to the first token or positional patterns
+- Diffuse / Spread: high-entropy, evenly distributed attention
 - Other: heads that don't fit the above categories
 """
 
+import json
+import os
 import torch
 import numpy as np
 from typing import Dict, List, Tuple, Optional, Any
 import re
+from pathlib import Path
 
 
-class HeadCategorizationConfig:
+# Path to the pre-computed head categories JSON
+_JSON_PATH = Path(__file__).parent / "head_categories.json"
+
+# Cache for loaded JSON data (avoids re-reading per request)
+_category_cache: Dict[str, Any] = {}
+
+
+def load_head_categories(model_name: str) -> Optional[Dict[str, Any]]:
     """
-    Configuration for attention head categorization heuristics.
-    
-    These thresholds are tuned to balance sensitivity (catching relevant patterns)
-    with specificity (avoiding false positives) for educational purposes.
-    """
-    
-    def __init__(self):
-        # Previous-token head thresholds
-        # Heads that primarily attend to the immediately preceding token
-        self.prev_token_threshold = 0.4  # Minimum avg attention to prev token (40%)
-        self.prev_token_diagonal_offset = 1  # Check i → i-1 pattern
-        
-        # First/Positional head thresholds
-        # Heads that attend strongly to first token or show positional patterns
-        self.first_token_threshold = 0.25  # Minimum avg attention to first token (25%)
-        self.positional_pattern_threshold = 0.4  # For detecting positional patterns
-        
-        # Bag-of-words head thresholds
-        # Heads with diffuse attention across many tokens
-        self.bow_entropy_threshold = 0.65  # Minimum entropy (normalized, 0-1 scale)
-        self.bow_max_attention_threshold = 0.35  # Maximum attention to any single token
-        
-        # Syntactic head thresholds
-        # Heads showing structured distance patterns (e.g., subject-verb)
-        self.syntactic_distance_pattern_threshold = 0.3  # For detecting distance patterns
-        
-        # General thresholds
-        self.min_seq_len = 4  # Minimum sequence length for reliable detection
-
-
-def compute_attention_entropy(attention_weights: torch.Tensor) -> float:
-    """
-    Compute normalized entropy of attention distribution.
+    Load pre-computed head category data for a model.
     
     Args:
-        attention_weights: [seq_len] tensor of attention weights for a position
+        model_name: HuggingFace model name (e.g., "gpt2", "EleutherAI/pythia-70m")
     
     Returns:
-        Normalized entropy (0 to 1)
-    """
-    # Avoid log(0) by adding small epsilon
-    epsilon = 1e-10
-    weights = attention_weights + epsilon
-    
-    # Compute entropy: -sum(p * log(p))
-    entropy = -torch.sum(weights * torch.log(weights))
-    
-    # Normalize by max entropy (log(n) where n is sequence length)
-    max_entropy = np.log(len(weights))
-    normalized_entropy = entropy / max_entropy if max_entropy > 0 else 0
-    
-    return normalized_entropy.item()
-
-
-def detect_previous_token_head(attention_matrix: torch.Tensor, config: HeadCategorizationConfig) -> Tuple[bool, float]:
-    """
-    Detect if head shows strong previous-token pattern (i → i-1).
-    
-    Args:
-        attention_matrix: [seq_len, seq_len] attention weights
-        config: Configuration object
-    
-    Returns:
-        (is_prev_token_head, score) where score is avg attention to previous token
-    """
-    seq_len = attention_matrix.shape[0]
-    
-    if seq_len < config.min_seq_len:
-        return False, 0.0
-    
-    # Extract the diagonal offset by 1 (i → i-1 pattern)
-    # For each position i > 0, check attention to position i-1
-    prev_token_attentions = []
-    for i in range(1, seq_len):
-        prev_token_attentions.append(attention_matrix[i, i-1].item())
-    
-    avg_prev_attention = np.mean(prev_token_attentions)
-    is_prev_token_head = avg_prev_attention >= config.prev_token_threshold
-    
-    return is_prev_token_head, avg_prev_attention
-
-
-def detect_first_token_head(attention_matrix: torch.Tensor, config: HeadCategorizationConfig) -> Tuple[bool, float]:
-    """
-    Detect if head shows strong attention to first token(s) or positional patterns.
-    
-    Args:
-        attention_matrix: [seq_len, seq_len] attention weights
-        config: Configuration object
-    
-    Returns:
-        (is_first_token_head, score) where score is avg attention to first token
-    """
-    seq_len = attention_matrix.shape[0]
-    
-    if seq_len < config.min_seq_len:
-        return False, 0.0
-    
-    # Check average attention to first token across all positions
-    first_token_attention = attention_matrix[:, 0].mean().item()
-    is_first_token_head = first_token_attention >= config.first_token_threshold
-    
-    return is_first_token_head, first_token_attention
-
-
-def detect_bow_head(attention_matrix: torch.Tensor, config: HeadCategorizationConfig) -> Tuple[bool, float]:
-    """
-    Detect if head shows bag-of-words pattern (diffuse attention).
-    
-    Args:
-        attention_matrix: [seq_len, seq_len] attention weights
-        config: Configuration object
-    
-    Returns:
-        (is_bow_head, score) where score is average entropy
-    """
-    seq_len = attention_matrix.shape[0]
-    
-    if seq_len < config.min_seq_len:
-        return False, 0.0
-    
-    # Compute entropy for each position's attention distribution
-    entropies = []
-    max_attentions = []
-    
-    for i in range(seq_len):
-        entropy = compute_attention_entropy(attention_matrix[i])
-        max_attention = attention_matrix[i].max().item()
-        
-        entropies.append(entropy)
-        max_attentions.append(max_attention)
-    
-    avg_entropy = np.mean(entropies)
-    avg_max_attention = np.mean(max_attentions)
-    
-    # BoW heads have high entropy and low max attention (diffuse)
-    is_bow_head = (avg_entropy >= config.bow_entropy_threshold and 
-                   avg_max_attention <= config.bow_max_attention_threshold)
-    
-    return is_bow_head, avg_entropy
-
-
-def detect_syntactic_head(attention_matrix: torch.Tensor, config: HeadCategorizationConfig) -> Tuple[bool, float]:
-    """
-    Detect if head shows syntactic/dependency-like patterns.
-    
-    This is a simplified heuristic based on consistent distance patterns.
-    
-    Args:
-        attention_matrix: [seq_len, seq_len] attention weights
-        config: Configuration object
-    
-    Returns:
-        (is_syntactic_head, score) where score is pattern consistency
-    """
-    seq_len = attention_matrix.shape[0]
-    
-    if seq_len < config.min_seq_len:
-        return False, 0.0
-    
-    # Check for consistent distance patterns (e.g., attending to tokens at fixed distances)
-    # This is a simplified approach; more sophisticated syntactic detection would
-    # require parsing or linguistic features
-    
-    distance_scores = []
-    
-    for i in range(seq_len):
-        # For each position, find the most attended position
-        max_idx = torch.argmax(attention_matrix[i]).item()
-        distance = abs(i - max_idx)
-        
-        # Collect distances (excluding self-attention at distance 0)
-        if distance > 0:
-            distance_scores.append(distance)
-    
-    if not distance_scores:
-        return False, 0.0
-    
-    # Check if there's a consistent distance pattern
-    # (simple version: low variance in distances)
-    distance_variance = np.var(distance_scores)
-    distance_mean = np.mean(distance_scores)
-    
-    # Syntactic heads often have moderate, consistent distances
-    # (not too short like prev-token, not too diffuse like BoW)
-    pattern_score = 1.0 / (1.0 + distance_variance) if distance_mean > 1 else 0.0
-    is_syntactic_head = pattern_score >= config.syntactic_distance_pattern_threshold
-    
-    return is_syntactic_head, pattern_score
-
-
-def categorize_attention_head(attention_matrix: torch.Tensor, 
-                               layer_idx: int, 
-                               head_idx: int,
-                               config: Optional[HeadCategorizationConfig] = None) -> Dict[str, Any]:
-    """
-    Categorize a single attention head based on its attention pattern.
-    
-    Args:
-        attention_matrix: [seq_len, seq_len] attention weights for this head
-        layer_idx: Layer index
-        head_idx: Head index within the layer
-        config: Configuration object (uses defaults if None)
-    
-    Returns:
-        Dictionary with categorization results:
-        {
-            'layer': layer_idx,
-            'head': head_idx,
-            'category': str (one of: 'previous_token', 'first_token', 'bow', 'syntactic', 'other'),
-            'scores': dict of scores for each category,
-            'label': formatted label like "L{layer}-H{head}"
+        Dict with model's category data, or None if model not analyzed.
+        Structure: {
+            "model_name": str,
+            "num_layers": int,
+            "num_heads": int,
+            "categories": { category_name: { "top_heads": [...], ... } },
+            ...
         }
     """
-    if config is None:
-        config = HeadCategorizationConfig()
+    global _category_cache
     
-    # Run all detection heuristics
-    is_prev, prev_score = detect_previous_token_head(attention_matrix, config)
-    is_first, first_score = detect_first_token_head(attention_matrix, config)
-    is_bow, bow_score = detect_bow_head(attention_matrix, config)
-    is_syn, syn_score = detect_syntactic_head(attention_matrix, config)
+    # Check cache first
+    if model_name in _category_cache:
+        return _category_cache[model_name]
     
-    # Assign category based on highest-scoring pattern
-    # Priority: previous_token > first_token > bow > syntactic > other
-    scores = {
-        'previous_token': prev_score if is_prev else 0.0,
-        'first_token': first_score if is_first else 0.0,
-        'bow': bow_score if is_bow else 0.0,
-        'syntactic': syn_score if is_syn else 0.0
-    }
+    # Load JSON
+    if not _JSON_PATH.exists():
+        return None
     
-    # Determine primary category
-    if is_prev:
-        category = 'previous_token'
-    elif is_first:
-        category = 'first_token'
-    elif is_bow:
-        category = 'bow'
-    elif is_syn:
-        category = 'syntactic'
-    else:
-        category = 'other'
+    try:
+        with open(_JSON_PATH, 'r') as f:
+            all_data = json.load(f)
+    except (json.JSONDecodeError, IOError):
+        return None
     
-    return {
-        'layer': layer_idx,
-        'head': head_idx,
-        'category': category,
-        'scores': scores,
-        'label': f"L{layer_idx}-H{head_idx}"
-    }
+    # Try exact match first, then common aliases
+    model_data = all_data.get(model_name)
+    if model_data is None:
+        # Try short name (e.g., "gpt2" for "openai-community/gpt2")
+        short_name = model_name.split('/')[-1] if '/' in model_name else model_name
+        model_data = all_data.get(short_name)
+    
+    if model_data is not None:
+        _category_cache[model_name] = model_data
+    
+    return model_data
 
 
-def categorize_all_heads(activation_data: Dict[str, Any], 
-                         config: Optional[HeadCategorizationConfig] = None) -> Dict[str, List[Dict[str, Any]]]:
+def clear_category_cache():
+    """Clear the loaded category cache (useful for testing)."""
+    global _category_cache
+    _category_cache = {}
+
+
+def _compute_attention_entropy(attention_weights: torch.Tensor) -> float:
     """
-    Categorize all attention heads in the model.
+    Compute normalized entropy of an attention distribution.
+    
+    Args:
+        attention_weights: [seq_len] tensor of attention weights for one position
+    
+    Returns:
+        Normalized entropy (0.0 to 1.0). 1.0 = perfectly uniform, 0.0 = fully peaked.
+    """
+    epsilon = 1e-10
+    weights = attention_weights + epsilon
+    entropy = -torch.sum(weights * torch.log(weights))
+    max_entropy = np.log(len(weights))
+    return (entropy / max_entropy).item() if max_entropy > 0 else 0.0
+
+
+def _find_repeated_tokens(token_ids: List[int]) -> Dict[int, List[int]]:
+    """
+    Find tokens that appear more than once and their positions.
+    
+    Args:
+        token_ids: List of token IDs in the sequence
+    
+    Returns:
+        Dict mapping token_id -> list of positions where it appears (only for repeated tokens)
+    """
+    positions: Dict[int, List[int]] = {}
+    for i, tid in enumerate(token_ids):
+        if tid not in positions:
+            positions[tid] = []
+        positions[tid].append(i)
+    
+    # Keep only tokens that appear more than once
+    return {tid: pos_list for tid, pos_list in positions.items() if len(pos_list) > 1}
+
+
+def verify_head_activation(
+    attn_matrix: torch.Tensor,
+    token_ids: List[int],
+    category: str
+) -> float:
+    """
+    Verify whether a head's known role is active on the current input.
+    
+    Args:
+        attn_matrix: [seq_len, seq_len] attention weights for this head
+        token_ids: List of token IDs in the input
+        category: Category name (previous_token, induction, duplicate_token, positional, diffuse)
+    
+    Returns:
+        Activation score (0.0 to 1.0). 0.0 means the role is not triggered on this input.
+    """
+    seq_len = attn_matrix.shape[0]
+    
+    if seq_len < 2:
+        return 0.0
+    
+    if category == "previous_token":
+        # Mean of diagonal-1 values: how much each position attends to the previous position
+        prev_token_attentions = []
+        for i in range(1, seq_len):
+            prev_token_attentions.append(attn_matrix[i, i - 1].item())
+        return float(np.mean(prev_token_attentions)) if prev_token_attentions else 0.0
+    
+    elif category == "induction":
+        # Induction pattern: [A][B]...[A] → attend to [B]
+        # For each repeated token at position i where token[i]==token[j] (j < i),
+        # check if position i attends to position j+1
+        repeated = _find_repeated_tokens(token_ids)
+        if not repeated:
+            return 0.0  # No repetition → gray out
+        
+        induction_scores = []
+        for tid, positions in repeated.items():
+            for k in range(1, len(positions)):
+                current_pos = positions[k]  # Later occurrence
+                for prev_idx in range(k):
+                    prev_pos = positions[prev_idx]  # Earlier occurrence
+                    target_pos = prev_pos + 1  # The token AFTER the earlier occurrence
+                    if target_pos < seq_len and current_pos < seq_len:
+                        induction_scores.append(attn_matrix[current_pos, target_pos].item())
+        
+        return float(np.mean(induction_scores)) if induction_scores else 0.0
+    
+    elif category == "duplicate_token":
+        # Check if later occurrences attend to earlier occurrences of the same token
+        repeated = _find_repeated_tokens(token_ids)
+        if not repeated:
+            return 0.0  # No duplicates → gray out
+        
+        dup_scores = []
+        for tid, positions in repeated.items():
+            for k in range(1, len(positions)):
+                later_pos = positions[k]
+                # Sum attention to all earlier occurrences
+                earlier_attention = sum(
+                    attn_matrix[later_pos, positions[j]].item()
+                    for j in range(k)
+                )
+                dup_scores.append(earlier_attention)
+        
+        return float(np.mean(dup_scores)) if dup_scores else 0.0
+    
+    elif category == "positional":
+        # Mean of column-0 attention (how much each position attends to the first token)
+        first_token_attention = attn_matrix[:, 0].mean().item()
+        return first_token_attention
+    
+    elif category == "diffuse":
+        # Average normalized entropy across all positions
+        entropies = []
+        for i in range(seq_len):
+            entropies.append(_compute_attention_entropy(attn_matrix[i]))
+        return float(np.mean(entropies)) if entropies else 0.0
+    
+    else:
+        return 0.0
+
+
+def get_active_head_summary(
+    activation_data: Dict[str, Any],
+    model_name: str
+) -> Optional[Dict[str, Any]]:
+    """
+    Main entry point: load categories from JSON, verify each head on the current input,
+    and return a UI-ready structure.
     
     Args:
         activation_data: Output from execute_forward_pass with attention data
-        config: Configuration object (uses defaults if None)
+        model_name: HuggingFace model name
     
     Returns:
-        Dictionary mapping category names to lists of head info dicts:
+        Dict with structure:
         {
-            'previous_token': [...],
-            'first_token': [...],
-            'bow': [...],
-            'syntactic': [...],
-            'other': [...]
+            "model_available": True,
+            "categories": {
+                "previous_token": {
+                    "display_name": str,
+                    "description": str,
+                    "educational_text": str,
+                    "icon": str,
+                    "requires_repetition": bool,
+                    "suggested_prompt": str or None,
+                    "is_applicable": bool,  # False if requires_repetition but no repeats
+                    "heads": [
+                        {"layer": int, "head": int, "offline_score": float,
+                         "activation_score": float, "is_active": bool, "label": str}
+                    ]
+                },
+                ...
+            }
         }
+        Returns None if model not in JSON.
     """
-    if config is None:
-        config = HeadCategorizationConfig()
+    model_data = load_head_categories(model_name)
+    if model_data is None:
+        return None
     
-    # Initialize result dict
-    categorized = {
-        'previous_token': [],
-        'first_token': [],
-        'bow': [],
-        'syntactic': [],
-        'other': []
-    }
-    
+    # Extract attention weights and token IDs from activation data
     attention_outputs = activation_data.get('attention_outputs', {})
-    if not attention_outputs:
-        return categorized
+    input_ids = activation_data.get('input_ids', [[]])[0]
     
-    # Process each layer's attention
+    if not attention_outputs or not input_ids:
+        return None
+    
+    # Build a lookup: (layer, head) → attention_matrix [seq_len, seq_len]
+    head_attention_lookup: Dict[Tuple[int, int], torch.Tensor] = {}
+    
     for module_name, output_dict in attention_outputs.items():
-        # Extract layer number from module name
         numbers = re.findall(r'\d+', module_name)
         if not numbers:
             continue
@@ -318,153 +261,82 @@ def categorize_all_heads(activation_data: Dict[str, Any],
         if not isinstance(attention_output, list) or len(attention_output) < 2:
             continue
         
-        # Get attention weights: [batch, heads, seq_len, seq_len]
+        # attention_output[1] is [batch, heads, seq_len, seq_len]
         attention_weights = torch.tensor(attention_output[1])
-        
-        # Process each head
         num_heads = attention_weights.shape[1]
-        seq_len = attention_weights.shape[2]
-        
-        if seq_len < config.min_seq_len:
-            continue
         
         for head_idx in range(num_heads):
-            # Extract attention matrix for this head: [seq_len, seq_len]
-            head_attention = attention_weights[0, head_idx, :, :]
-            
-            # Categorize this head
-            head_info = categorize_attention_head(head_attention, layer_idx, head_idx, config)
-            
-            # Add to appropriate category list
-            category = head_info['category']
-            categorized[category].append(head_info)
+            head_attention_lookup[(layer_idx, head_idx)] = attention_weights[0, head_idx, :, :]
     
-    return categorized
-
-
-def categorize_single_layer_heads(activation_data: Dict[str, Any], 
-                                   layer_num: int,
-                                   config: Optional[HeadCategorizationConfig] = None) -> Dict[str, List[Dict[str, Any]]]:
-    """
-    Categorize attention heads for a single layer.
+    # Check if input has repeated tokens (needed for applicability check)
+    repeated_tokens = _find_repeated_tokens(input_ids)
+    has_repetition = len(repeated_tokens) > 0
     
-    Args:
-        activation_data: Output from execute_forward_pass with attention data
-        layer_num: The specific layer number to categorize
-        config: Configuration object (uses defaults if None)
-    
-    Returns:
-        Dictionary mapping category names to lists of head info dicts for this layer only:
-        {
-            'previous_token': [...],
-            'first_token': [...],
-            'bow': [...],
-            'syntactic': [...],
-            'other': [...]
-        }
-    """
-    if config is None:
-        config = HeadCategorizationConfig()
-    
-    # Initialize result dict
-    categorized = {
-        'previous_token': [],
-        'first_token': [],
-        'bow': [],
-        'syntactic': [],
-        'other': []
+    # Build result
+    result = {
+        "model_available": True,
+        "categories": {}
     }
     
-    attention_outputs = activation_data.get('attention_outputs', {})
-    if not attention_outputs:
-        return categorized
+    categories = model_data.get("categories", {})
     
-    # Find the attention output for the requested layer
-    target_module = None
-    for module_name, output_dict in attention_outputs.items():
-        # Extract layer number from module name
-        numbers = re.findall(r'\d+', module_name)
-        if not numbers:
+    # Define category order for consistent display
+    category_order = ["previous_token", "induction", "duplicate_token", "positional", "diffuse"]
+    
+    for cat_key in category_order:
+        cat_info = categories.get(cat_key)
+        if cat_info is None:
             continue
         
-        if int(numbers[0]) == layer_num:
-            target_module = module_name
-            break
-    
-    if not target_module:
-        return categorized
-    
-    output_dict = attention_outputs[target_module]
-    attention_output = output_dict.get('output')
-    
-    if not isinstance(attention_output, list) or len(attention_output) < 2:
-        return categorized
-    
-    # Get attention weights: [batch, heads, seq_len, seq_len]
-    attention_weights = torch.tensor(attention_output[1])
-    
-    # Process each head
-    num_heads = attention_weights.shape[1]
-    seq_len = attention_weights.shape[2]
-    
-    if seq_len < config.min_seq_len:
-        return categorized
-    
-    for head_idx in range(num_heads):
-        # Extract attention matrix for this head: [seq_len, seq_len]
-        head_attention = attention_weights[0, head_idx, :, :]
+        requires_repetition = cat_info.get("requires_repetition", False)
+        is_applicable = not requires_repetition or has_repetition
         
-        # Categorize this head
-        head_info = categorize_attention_head(head_attention, layer_num, head_idx, config)
+        heads_result = []
+        for head_entry in cat_info.get("top_heads", []):
+            layer = head_entry["layer"]
+            head = head_entry["head"]
+            offline_score = head_entry["score"]
+            
+            # Get activation score on current input
+            attn_matrix = head_attention_lookup.get((layer, head))
+            if attn_matrix is not None and is_applicable:
+                activation_score = verify_head_activation(attn_matrix, input_ids, cat_key)
+            else:
+                activation_score = 0.0
+            
+            # A head is "active" if its activation score exceeds a minimum threshold
+            is_active = activation_score > 0.1 and is_applicable
+            
+            heads_result.append({
+                "layer": layer,
+                "head": head,
+                "offline_score": offline_score,
+                "activation_score": round(activation_score, 3),
+                "is_active": is_active,
+                "label": f"L{layer}-H{head}"
+            })
         
-        # Add to appropriate category list
-        category = head_info['category']
-        categorized[category].append(head_info)
+        result["categories"][cat_key] = {
+            "display_name": cat_info.get("display_name", cat_key),
+            "description": cat_info.get("description", ""),
+            "educational_text": cat_info.get("educational_text", ""),
+            "icon": cat_info.get("icon", "circle"),
+            "requires_repetition": requires_repetition,
+            "suggested_prompt": cat_info.get("suggested_prompt"),
+            "is_applicable": is_applicable,
+            "heads": heads_result
+        }
     
-    return categorized
-
-
-def format_categorization_summary(categorized_heads: Dict[str, List[Dict[str, Any]]]) -> str:
-    """
-    Format categorization results as a human-readable summary.
-    
-    Args:
-        categorized_heads: Output from categorize_all_heads or categorize_single_layer_heads
-    
-    Returns:
-        Formatted string summary
-    """
-    category_names = {
-        'previous_token': 'Previous-Token Heads',
-        'first_token': 'First/Positional-Token Heads',
-        'bow': 'Bag-of-Words Heads',
-        'syntactic': 'Syntactic Heads',
-        'other': 'Other Heads'
+    # Add "Other" category (heads not claimed by any top list)
+    result["categories"]["other"] = {
+        "display_name": "Other / Unclassified",
+        "description": "Heads whose patterns don't fit the simple categories above",
+        "educational_text": "This head's pattern doesn't fit our simple categories — it may be doing something more complex or context-dependent.",
+        "icon": "question-circle",
+        "requires_repetition": False,
+        "suggested_prompt": None,
+        "is_applicable": True,
+        "heads": []  # We don't enumerate all "other" heads to keep the UI clean
     }
     
-    summary = []
-    total_heads = sum(len(heads) for heads in categorized_heads.values())
-    
-    summary.append(f"Total Heads: {total_heads}\n")
-    summary.append("=" * 60)
-    
-    for category, display_name in category_names.items():
-        heads = categorized_heads.get(category, [])
-        summary.append(f"\n{display_name}: {len(heads)} heads")
-        
-        if heads:
-            # Group by layer
-            heads_by_layer = {}
-            for head_info in heads:
-                layer = head_info['layer']
-                if layer not in heads_by_layer:
-                    heads_by_layer[layer] = []
-                heads_by_layer[layer].append(head_info['head'])
-            
-            # Format by layer
-            for layer in sorted(heads_by_layer.keys()):
-                head_indices = sorted(heads_by_layer[layer])
-                summary.append(f"  Layer {layer}: Heads {head_indices}")
-    
-    return "\n".join(summary)
-
+    return result

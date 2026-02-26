@@ -1,313 +1,431 @@
 """
 Tests for utils/head_detection.py
 
-Tests attention head categorization heuristics using synthetic attention matrices.
+Tests the offline JSON + runtime verification head categorization system.
 """
 
 import pytest
 import torch
+import json
 import numpy as np
+from pathlib import Path
+from unittest.mock import patch, mock_open
 from utils.head_detection import (
-    compute_attention_entropy,
-    detect_previous_token_head,
-    detect_first_token_head,
-    detect_bow_head,
-    detect_syntactic_head,
-    categorize_attention_head,
-    categorize_all_heads,
-    format_categorization_summary,
-    HeadCategorizationConfig
+    load_head_categories,
+    verify_head_activation,
+    get_active_head_summary,
+    clear_category_cache,
+    _compute_attention_entropy,
+    _find_repeated_tokens,
 )
 
 
+# =============================================================================
+# Sample JSON data for mocking
+# =============================================================================
+
+SAMPLE_JSON = {
+    "test-model": {
+        "model_name": "test-model",
+        "num_layers": 2,
+        "num_heads": 4,
+        "analysis_date": "2026-02-26",
+        "categories": {
+            "previous_token": {
+                "display_name": "Previous Token",
+                "description": "Attends to the previous token",
+                "educational_text": "Looks at the word before.",
+                "icon": "arrow-left",
+                "requires_repetition": False,
+                "top_heads": [
+                    {"layer": 0, "head": 1, "score": 0.85},
+                    {"layer": 1, "head": 2, "score": 0.72}
+                ]
+            },
+            "induction": {
+                "display_name": "Induction",
+                "description": "Pattern matching",
+                "educational_text": "Finds repeated patterns.",
+                "icon": "repeat",
+                "requires_repetition": True,
+                "suggested_prompt": "Try repeating words.",
+                "top_heads": [
+                    {"layer": 1, "head": 0, "score": 0.90}
+                ]
+            },
+            "duplicate_token": {
+                "display_name": "Duplicate Token",
+                "description": "Finds duplicates",
+                "educational_text": "Spots repeated words.",
+                "icon": "clone",
+                "requires_repetition": True,
+                "suggested_prompt": "Try typing the same word twice.",
+                "top_heads": [
+                    {"layer": 0, "head": 3, "score": 0.78}
+                ]
+            },
+            "positional": {
+                "display_name": "Positional",
+                "description": "First token focus",
+                "educational_text": "Anchors to position 0.",
+                "icon": "map-pin",
+                "requires_repetition": False,
+                "top_heads": [
+                    {"layer": 0, "head": 0, "score": 0.88}
+                ]
+            },
+            "diffuse": {
+                "display_name": "Diffuse",
+                "description": "Spread attention",
+                "educational_text": "Even distribution.",
+                "icon": "expand-arrows-alt",
+                "requires_repetition": False,
+                "top_heads": [
+                    {"layer": 1, "head": 3, "score": 0.80}
+                ]
+            }
+        },
+        "all_scores": {}
+    }
+}
+
+
+@pytest.fixture(autouse=True)
+def clear_cache():
+    """Clear the category cache before each test."""
+    clear_category_cache()
+    yield
+    clear_category_cache()
+
+
+# =============================================================================
+# Tests for _compute_attention_entropy
+# =============================================================================
+
 class TestComputeAttentionEntropy:
-    """Tests for compute_attention_entropy function."""
-    
+    """Tests for _compute_attention_entropy helper."""
+
     def test_uniform_distribution_high_entropy(self):
-        """Uniform attention should have high (near 1.0) normalized entropy."""
-        # 4 positions with equal attention
-        uniform = torch.tensor([0.25, 0.25, 0.25, 0.25])
-        entropy = compute_attention_entropy(uniform)
-        
-        # Normalized entropy should be close to 1.0 for uniform
-        assert 0.95 <= entropy <= 1.0, f"Expected ~1.0, got {entropy}"
-    
+        """Uniform attention should have entropy near 1.0."""
+        weights = torch.ones(8) / 8
+        entropy = _compute_attention_entropy(weights)
+        assert entropy > 0.95
+
     def test_peaked_distribution_low_entropy(self):
-        """Peaked attention should have low normalized entropy."""
-        # One position dominates
-        peaked = torch.tensor([0.97, 0.01, 0.01, 0.01])
-        entropy = compute_attention_entropy(peaked)
-        
-        # Should be low entropy
-        assert entropy < 0.3, f"Expected low entropy, got {entropy}"
-    
-    def test_entropy_bounds(self):
-        """Entropy should always be between 0 and 1 (normalized)."""
-        test_cases = [
-            torch.tensor([1.0, 0.0, 0.0, 0.0]),      # Extreme peaked
-            torch.tensor([0.5, 0.5, 0.0, 0.0]),      # Two positions
-            torch.tensor([0.25, 0.25, 0.25, 0.25]),  # Uniform
-        ]
-        
-        for weights in test_cases:
-            entropy = compute_attention_entropy(weights)
-            assert 0.0 <= entropy <= 1.0, f"Entropy {entropy} out of bounds"
+        """Peaked attention should have low entropy."""
+        weights = torch.zeros(8)
+        weights[0] = 0.98
+        weights[1:] = 0.02 / 7
+        entropy = _compute_attention_entropy(weights)
+        assert entropy < 0.3
+
+    def test_entropy_in_range(self):
+        """Entropy should always be between 0 and 1."""
+        for _ in range(10):
+            weights = torch.softmax(torch.randn(6), dim=0)
+            entropy = _compute_attention_entropy(weights)
+            assert 0.0 <= entropy <= 1.0
 
 
-class TestDetectPreviousTokenHead:
-    """Tests for detect_previous_token_head function."""
-    
-    def test_detects_previous_token_pattern(self, previous_token_attention_matrix, default_head_config):
-        """Should detect matrix with strong previous-token attention."""
-        is_prev, score = detect_previous_token_head(
-            previous_token_attention_matrix, 
-            default_head_config
-        )
+# =============================================================================
+# Tests for _find_repeated_tokens
+# =============================================================================
+
+class TestFindRepeatedTokens:
+    """Tests for _find_repeated_tokens helper."""
+
+    def test_no_repeats(self):
+        """No repetition returns empty dict."""
+        assert _find_repeated_tokens([1, 2, 3, 4]) == {}
+
+    def test_simple_repeat(self):
+        """Repeated token returns positions."""
+        result = _find_repeated_tokens([10, 20, 10, 30])
+        assert 10 in result
+        assert result[10] == [0, 2]
+        assert 20 not in result
+
+    def test_multiple_repeats(self):
+        """Multiple repeated tokens tracked."""
+        result = _find_repeated_tokens([5, 6, 5, 6, 7])
+        assert 5 in result and 6 in result
+        assert 7 not in result
+
+    def test_empty_input(self):
+        assert _find_repeated_tokens([]) == {}
+
+
+# =============================================================================
+# Tests for load_head_categories
+# =============================================================================
+
+class TestLoadHeadCategories:
+    """Tests for load_head_categories function."""
+
+    def test_loads_from_json(self, tmp_path):
+        """Should load model data from JSON file."""
+        json_file = tmp_path / "head_categories.json"
+        json_file.write_text(json.dumps(SAMPLE_JSON))
+
+        with patch('utils.head_detection._JSON_PATH', json_file):
+            result = load_head_categories("test-model")
         
-        assert is_prev == True
-        assert score > 0.5, f"Expected high score, got {score}"
-    
-    def test_rejects_uniform_attention(self, uniform_attention_matrix, default_head_config):
-        """Should reject matrix with uniform attention."""
-        is_prev, score = detect_previous_token_head(
-            uniform_attention_matrix,
-            default_head_config
-        )
+        assert result is not None
+        assert result["model_name"] == "test-model"
+        assert "previous_token" in result["categories"]
+
+    def test_returns_none_for_unknown_model(self, tmp_path):
+        """Should return None when model not in JSON."""
+        json_file = tmp_path / "head_categories.json"
+        json_file.write_text(json.dumps(SAMPLE_JSON))
+
+        with patch('utils.head_detection._JSON_PATH', json_file):
+            result = load_head_categories("nonexistent-model")
         
-        assert is_prev == False
-        assert score < 0.4, f"Expected low score, got {score}"
-    
-    def test_short_sequence_returns_false(self, default_head_config):
-        """Sequence shorter than min_seq_len should return False."""
-        short_matrix = torch.ones(2, 2) / 2
-        is_prev, score = detect_previous_token_head(short_matrix, default_head_config)
+        assert result is None
+
+    def test_returns_none_when_no_file(self, tmp_path):
+        """Should return None when JSON file doesn't exist."""
+        with patch('utils.head_detection._JSON_PATH', tmp_path / "missing.json"):
+            result = load_head_categories("test-model")
         
-        assert is_prev == False
+        assert result is None
+
+    def test_caches_results(self, tmp_path):
+        """Should cache loaded data."""
+        json_file = tmp_path / "head_categories.json"
+        json_file.write_text(json.dumps(SAMPLE_JSON))
+
+        with patch('utils.head_detection._JSON_PATH', json_file):
+            result1 = load_head_categories("test-model")
+            # Delete file to prove cache is used
+            json_file.unlink()
+            result2 = load_head_categories("test-model")
+        
+        assert result1 is result2
+
+    def test_short_name_alias(self, tmp_path):
+        """Should find model by short name (after /)."""
+        data = {"my-model": {"model_name": "my-model", "categories": {}}}
+        json_file = tmp_path / "head_categories.json"
+        json_file.write_text(json.dumps(data))
+
+        with patch('utils.head_detection._JSON_PATH', json_file):
+            result = load_head_categories("org/my-model")
+        
+        assert result is not None
+
+
+# =============================================================================
+# Tests for verify_head_activation
+# =============================================================================
+
+class TestVerifyHeadActivation:
+    """Tests for verify_head_activation function."""
+
+    def test_previous_token_strong(self):
+        """Strong previous-token pattern should score high."""
+        size = 6
+        matrix = torch.zeros(size, size)
+        for i in range(1, size):
+            matrix[i, i - 1] = 0.8
+            matrix[i, i] = 0.2
+        matrix[0, 0] = 1.0
+
+        score = verify_head_activation(matrix, [1, 2, 3, 4, 5, 6], "previous_token")
+        assert score > 0.6
+
+    def test_previous_token_weak(self):
+        """Uniform attention should have low previous-token score."""
+        size = 6
+        matrix = torch.ones(size, size) / size
+        score = verify_head_activation(matrix, [1, 2, 3, 4, 5, 6], "previous_token")
+        assert score < 0.3
+
+    def test_induction_with_repetition(self):
+        """Induction pattern should score > 0 when repeated tokens are present."""
+        # Tokens: [A, B, C, A, ?] — head should attend to B (position 1) from position 3
+        size = 5
+        matrix = torch.ones(size, size) / size  # Baseline uniform
+        matrix[3, 1] = 0.7  # Position 3 (second A) attends to position 1 (B after first A)
+        
+        token_ids = [10, 20, 30, 10, 40]  # Token 10 repeats
+        score = verify_head_activation(matrix, token_ids, "induction")
+        assert score > 0.3
+
+    def test_induction_no_repetition(self):
+        """Induction should return 0.0 when no tokens repeat."""
+        matrix = torch.ones(4, 4) / 4
+        score = verify_head_activation(matrix, [1, 2, 3, 4], "induction")
         assert score == 0.0
 
-
-class TestDetectFirstTokenHead:
-    """Tests for detect_first_token_head function."""
-    
-    def test_detects_first_token_pattern(self, first_token_attention_matrix, default_head_config):
-        """Should detect matrix with strong first-token attention."""
-        is_first, score = detect_first_token_head(
-            first_token_attention_matrix,
-            default_head_config
-        )
-        
-        assert is_first == True
-        assert score > 0.5, f"Expected high score, got {score}"
-    
-    def test_low_first_token_attention(self, default_head_config):
-        """Matrix with low attention to first token should not be detected."""
-        # Create matrix where first token gets very little attention
-        # Use size 5 to be above min_seq_len and avoid overlap at [0,0]
+    def test_duplicate_token_with_repeats(self):
+        """Duplicate-token head should score > 0 when later positions attend to earlier same token."""
         size = 5
-        matrix = torch.zeros(size, size)
-        for i in range(size):
-            # Distribute attention: 5% to first token, 95% to last token
-            matrix[i, 0] = 0.05
-            matrix[i, -1] = 0.95
-        
-        is_first, score = detect_first_token_head(matrix, default_head_config)
-        
-        assert is_first == False
-        assert score < 0.25, f"Expected low score, got {score}"
+        matrix = torch.ones(size, size) / size
+        matrix[3, 0] = 0.6  # Position 3 (second occurrence of token 10) attends to position 0
 
+        token_ids = [10, 20, 30, 10, 40]
+        score = verify_head_activation(matrix, token_ids, "duplicate_token")
+        assert score > 0.3
 
-class TestDetectBowHead:
-    """Tests for detect_bow_head (bag-of-words / diffuse attention)."""
-    
-    def test_detects_uniform_as_bow(self, uniform_attention_matrix, default_head_config):
-        """Uniform attention should be detected as BoW head."""
-        is_bow, score = detect_bow_head(uniform_attention_matrix, default_head_config)
-        
-        # Uniform has high entropy and low max attention - should be BoW
-        assert is_bow == True
-        assert score > 0.9, f"Expected high entropy score, got {score}"
-    
-    def test_rejects_peaked_attention(self, peaked_attention_matrix, default_head_config):
-        """Peaked attention should not be detected as BoW."""
-        is_bow, score = detect_bow_head(peaked_attention_matrix, default_head_config)
-        
-        # Peaked attention has low entropy - should not be BoW
-        assert is_bow == False
+    def test_duplicate_token_no_repeats(self):
+        """Should return 0.0 when no duplicates."""
+        matrix = torch.ones(4, 4) / 4
+        score = verify_head_activation(matrix, [1, 2, 3, 4], "duplicate_token")
+        assert score == 0.0
 
-
-class TestDetectSyntacticHead:
-    """Tests for detect_syntactic_head function."""
-    
-    def test_consistent_distance_pattern(self, default_head_config):
-        """Matrix with consistent distance pattern should be detected as syntactic."""
-        # Create matrix where each position attends to position 2 tokens back
+    def test_positional_strong(self):
+        """Strong first-token attention should score high."""
         size = 6
         matrix = torch.zeros(size, size)
         for i in range(size):
-            target = max(0, i - 2)  # 2 tokens back
-            matrix[i, target] = 1.0
+            matrix[i, 0] = 0.7
+            matrix[i, i] = 0.3
         
-        is_syn, score = detect_syntactic_head(matrix, default_head_config)
-        
-        # Should have consistent distance pattern
-        assert score > 0.0, f"Expected positive score for consistent pattern"
-    
-    def test_random_attention_returns_valid_values(self, default_head_config):
-        """Random attention should return valid boolean and score."""
-        torch.manual_seed(42)
-        random_matrix = torch.softmax(torch.randn(6, 6), dim=-1)
-        
-        is_syn, score = detect_syntactic_head(random_matrix, default_head_config)
-        
-        # Check it returns valid types (bool or numpy bool, and numeric score)
-        assert is_syn in [True, False] or bool(is_syn) in [True, False]
-        assert 0 <= float(score) <= 1
+        score = verify_head_activation(matrix, [1, 2, 3, 4, 5, 6], "positional")
+        assert score > 0.5
 
+    def test_diffuse_uniform(self):
+        """Uniform attention should have high diffuse score."""
+        size = 8
+        matrix = torch.ones(size, size) / size
+        score = verify_head_activation(matrix, list(range(size)), "diffuse")
+        assert score > 0.8
 
-class TestCategorizeAttentionHead:
-    """Tests for categorize_attention_head function."""
-    
-    def test_categorizes_previous_token_head(self, previous_token_attention_matrix, default_head_config):
-        """Should categorize previous-token pattern correctly."""
-        result = categorize_attention_head(
-            previous_token_attention_matrix,
-            layer_idx=0,
-            head_idx=3,
-            config=default_head_config
-        )
-        
-        assert result['category'] == 'previous_token'
-        assert result['layer'] == 0
-        assert result['head'] == 3
-        assert result['label'] == 'L0-H3'
-        assert 'scores' in result
-    
-    def test_categorizes_first_token_head(self, first_token_attention_matrix, default_head_config):
-        """Should categorize first-token pattern correctly."""
-        result = categorize_attention_head(
-            first_token_attention_matrix,
-            layer_idx=2,
-            head_idx=5,
-            config=default_head_config
-        )
-        
-        assert result['category'] == 'first_token'
-        assert result['label'] == 'L2-H5'
-    
-    def test_categorizes_bow_head(self, default_head_config):
-        """Should categorize diffuse attention as BoW when it doesn't match other patterns."""
-        # Create BoW-like matrix: diffuse attention but first token gets LESS than threshold
-        # This avoids triggering first_token detection (threshold 0.25)
-        size = 5
+    def test_diffuse_peaked(self):
+        """Peaked attention should have low diffuse score."""
+        size = 8
         matrix = torch.zeros(size, size)
-        for i in range(size):
-            # First token gets only 0.1, rest get roughly equal share
-            matrix[i, 0] = 0.1
-            remaining = 0.9 / (size - 1)
-            for j in range(1, size):
-                matrix[i, j] = remaining
-        
-        result = categorize_attention_head(
-            matrix,
-            layer_idx=1,
-            head_idx=0,
-            config=default_head_config
-        )
-        
-        assert result['category'] == 'bow'
-    
-    def test_result_structure(self, uniform_attention_matrix):
-        """Result should have all required keys."""
-        result = categorize_attention_head(
-            uniform_attention_matrix,
-            layer_idx=0,
-            head_idx=0
-        )
-        
-        required_keys = ['layer', 'head', 'category', 'scores', 'label']
-        for key in required_keys:
-            assert key in result, f"Missing key: {key}"
+        matrix[:, 0] = 1.0
+        score = verify_head_activation(matrix, list(range(size)), "diffuse")
+        assert score < 0.3
+
+    def test_unknown_category(self):
+        """Unknown category should return 0.0."""
+        matrix = torch.ones(4, 4) / 4
+        assert verify_head_activation(matrix, [1, 2, 3, 4], "nonexistent") == 0.0
+
+    def test_short_sequence(self):
+        """Very short sequence should return 0.0."""
+        matrix = torch.ones(1, 1)
+        assert verify_head_activation(matrix, [1], "previous_token") == 0.0
 
 
-class TestCategorizeAllHeads:
-    """Tests for categorize_all_heads function."""
-    
-    def test_returns_all_categories(self, mock_activation_data, default_head_config):
-        """Should return dict with all category keys."""
-        result = categorize_all_heads(mock_activation_data, default_head_config)
-        
-        expected_categories = ['previous_token', 'first_token', 'bow', 'syntactic', 'other']
-        for cat in expected_categories:
-            assert cat in result, f"Missing category: {cat}"
-            assert isinstance(result[cat], list)
-    
-    def test_handles_empty_attention_data(self, default_head_config):
-        """Should handle activation data with no attention outputs."""
-        empty_data = {'attention_outputs': {}}
-        result = categorize_all_heads(empty_data, default_head_config)
-        
-        # Should return empty lists for all categories
-        for cat, heads in result.items():
-            assert heads == []
+# =============================================================================
+# Tests for get_active_head_summary
+# =============================================================================
 
+class TestGetActiveHeadSummary:
+    """Tests for get_active_head_summary function."""
 
-class TestFormatCategorizationSummary:
-    """Tests for format_categorization_summary function."""
-    
-    def test_formats_empty_categorization(self):
-        """Should format empty categorization without error."""
-        empty = {
-            'previous_token': [],
-            'first_token': [],
-            'bow': [],
-            'syntactic': [],
-            'other': []
+    def _make_activation_data(self, token_ids, num_layers=2, num_heads=4, seq_len=None):
+        """Helper: create mock activation_data with given token_ids."""
+        if seq_len is None:
+            seq_len = len(token_ids)
+        
+        attention_outputs = {}
+        for layer in range(num_layers):
+            # Create uniform attention [1, num_heads, seq_len, seq_len]
+            attn = torch.ones(1, num_heads, seq_len, seq_len) / seq_len
+            attention_outputs[f'model.layers.{layer}.self_attn'] = {
+                'output': [
+                    [[0.1] * seq_len],  # hidden states (unused)
+                    attn.tolist()
+                ]
+            }
+        
+        return {
+            'model': 'test-model',
+            'input_ids': [token_ids],
+            'attention_outputs': attention_outputs,
         }
-        result = format_categorization_summary(empty)
-        
-        assert isinstance(result, str)
-        assert "Total Heads: 0" in result
-    
-    def test_formats_with_heads(self):
-        """Should format categorization with heads correctly."""
-        categorized = {
-            'previous_token': [
-                {'layer': 0, 'head': 1, 'label': 'L0-H1'},
-                {'layer': 0, 'head': 2, 'label': 'L0-H2'},
-            ],
-            'first_token': [
-                {'layer': 1, 'head': 0, 'label': 'L1-H0'},
-            ],
-            'bow': [],
-            'syntactic': [],
-            'other': []
-        }
-        result = format_categorization_summary(categorized)
-        
-        assert "Total Heads: 3" in result
-        assert "Previous-Token Heads: 2" in result
-        assert "First/Positional-Token Heads: 1" in result
-        assert "Layer 0" in result
-        assert "Layer 1" in result
 
+    def test_returns_none_for_unknown_model(self, tmp_path):
+        """Should return None when model not in JSON."""
+        json_file = tmp_path / "head_categories.json"
+        json_file.write_text(json.dumps(SAMPLE_JSON))
 
-class TestHeadCategorizationConfig:
-    """Tests for HeadCategorizationConfig defaults."""
-    
-    def test_default_values(self):
-        """Default config should have reasonable values."""
-        config = HeadCategorizationConfig()
+        with patch('utils.head_detection._JSON_PATH', json_file):
+            data = self._make_activation_data([1, 2, 3, 4])
+            result = get_active_head_summary(data, "unknown-model")
         
-        assert 0 < config.prev_token_threshold < 1
-        assert 0 < config.first_token_threshold < 1
-        assert 0 < config.bow_entropy_threshold < 1
-        assert config.min_seq_len > 0
-    
-    def test_config_is_mutable(self):
-        """Config values should be mutable for customization."""
-        config = HeadCategorizationConfig()
-        original = config.prev_token_threshold
+        assert result is None
+
+    def test_returns_categories_structure(self, tmp_path):
+        """Should return proper structure with categories."""
+        json_file = tmp_path / "head_categories.json"
+        json_file.write_text(json.dumps(SAMPLE_JSON))
+
+        with patch('utils.head_detection._JSON_PATH', json_file):
+            data = self._make_activation_data([1, 2, 3, 4])
+            result = get_active_head_summary(data, "test-model")
         
-        config.prev_token_threshold = 0.8
-        assert config.prev_token_threshold == 0.8
-        assert config.prev_token_threshold != original
+        assert result is not None
+        assert result["model_available"] is True
+        assert "categories" in result
+        assert "previous_token" in result["categories"]
+        assert "induction" in result["categories"]
+
+    def test_heads_have_activation_scores(self, tmp_path):
+        """Each head should have an activation_score."""
+        json_file = tmp_path / "head_categories.json"
+        json_file.write_text(json.dumps(SAMPLE_JSON))
+
+        with patch('utils.head_detection._JSON_PATH', json_file):
+            data = self._make_activation_data([1, 2, 3, 4])
+            result = get_active_head_summary(data, "test-model")
+
+        for cat_key, cat_data in result["categories"].items():
+            for head in cat_data.get("heads", []):
+                assert "activation_score" in head
+                assert "is_active" in head
+                assert "label" in head
+
+    def test_induction_grayed_when_no_repeats(self, tmp_path):
+        """Induction should be non-applicable when no repeated tokens."""
+        json_file = tmp_path / "head_categories.json"
+        json_file.write_text(json.dumps(SAMPLE_JSON))
+
+        with patch('utils.head_detection._JSON_PATH', json_file):
+            data = self._make_activation_data([1, 2, 3, 4])  # No repeats
+            result = get_active_head_summary(data, "test-model")
+
+        induction = result["categories"]["induction"]
+        assert induction["is_applicable"] is False
+        assert all(h["activation_score"] == 0.0 for h in induction["heads"])
+
+    def test_induction_active_with_repeats(self, tmp_path):
+        """Induction should be applicable when tokens repeat."""
+        json_file = tmp_path / "head_categories.json"
+        json_file.write_text(json.dumps(SAMPLE_JSON))
+
+        with patch('utils.head_detection._JSON_PATH', json_file):
+            data = self._make_activation_data([10, 20, 10, 30])  # Token 10 repeats
+            result = get_active_head_summary(data, "test-model")
+
+        induction = result["categories"]["induction"]
+        assert induction["is_applicable"] is True
+
+    def test_suggested_prompt_included(self, tmp_path):
+        """Suggested prompt should appear for repetition-dependent categories."""
+        json_file = tmp_path / "head_categories.json"
+        json_file.write_text(json.dumps(SAMPLE_JSON))
+
+        with patch('utils.head_detection._JSON_PATH', json_file):
+            data = self._make_activation_data([1, 2, 3, 4])
+            result = get_active_head_summary(data, "test-model")
+
+        assert result["categories"]["induction"]["suggested_prompt"] is not None
+        assert result["categories"]["duplicate_token"]["suggested_prompt"] is not None
+
+    def test_other_category_always_present(self, tmp_path):
+        """Other/Unclassified category should always be in the result."""
+        json_file = tmp_path / "head_categories.json"
+        json_file.write_text(json.dumps(SAMPLE_JSON))
+
+        with patch('utils.head_detection._JSON_PATH', json_file):
+            data = self._make_activation_data([1, 2, 3, 4])
+            result = get_active_head_summary(data, "test-model")
+
+        assert "other" in result["categories"]

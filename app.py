@@ -18,7 +18,7 @@ import json
 import torch
 from utils import (load_model_and_get_patterns, execute_forward_pass, extract_layer_data,
                    perform_beam_search, execute_forward_pass_with_multi_layer_head_ablation)
-from utils.head_detection import categorize_all_heads
+from utils.head_detection import get_active_head_summary
 from utils.model_config import get_auto_selections
 from utils.token_attribution import compute_integrated_gradients, compute_simple_gradient_attribution
 
@@ -576,10 +576,11 @@ def update_pipeline_content(activation_data, model_name):
         except:
             pass
         
-        # Agent G: Get full head categorization for attention stage UI (expandable categories)
+        # Get head categorization from pre-computed JSON + runtime verification
         head_categories = None
         try:
-            head_categories = categorize_all_heads(activation_data)
+            from utils.head_detection import get_active_head_summary
+            head_categories = get_active_head_summary(activation_data, model_name)
         except:
             pass
         

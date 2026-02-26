@@ -1,56 +1,58 @@
-# Attention Head Categories Explained
+# Attention Head Categories
 
-## What Are Head Categories?
+This document explains the different types of attention heads found in transformer models. These categories are determined through **offline analysis** using TransformerLens and **verified at runtime** against your actual input.
 
-The dashboard automatically analyzes all attention heads in the model and categorizes them based on their behavior patterns. This helps you understand what each head is doing without having to inspect every attention map manually.
+## Categories
 
-Head categories appear in **Stage 3 (Attention)** of the pipeline. Click any category to expand it and see which specific heads (like L0-H3, L2-H11) belong to it.
+### Previous Token
+**Symbol:** ● (active on most inputs)
 
-## The Five Categories
+Attends to the immediately preceding token — like reading left to right. This head helps the model track local word-by-word patterns. It's one of the most common and reliable head types.
 
-### Previous-Token Heads
+**What to look for in the visualization:** Strong diagonal line one position below the main diagonal.
 
-**What they do**: These heads strongly attend to the **immediately preceding token**. For every token at position *i*, the head focuses most of its attention on position *i-1*.
+### Induction
+**Symbol:** ● when repeated tokens exist, ○ otherwise
 
-**Why they matter**: Previous-token heads help the model track local context -- the word that just came before. They're important for bigram patterns (common two-word combinations like "of the" or "in a").
+Completes repeated patterns: if the model saw [A][B] before and now sees [A], it predicts [B] will follow. This is one of the most important mechanisms in transformer language models.
 
-**Detection**: A head is classified as Previous-Token if, on average, more than 40% of each token's attention goes to the token directly before it.
+**Requires:** Repeated tokens in your input. If no tokens repeat, this category appears grayed out.
 
-**In the dashboard**: These heads are labeled with a purple color. Ablating them often causes noticeable changes in predictions.
+**Try this prompt:** "The cat sat on the mat. The cat" — the repeated "The cat" activates induction heads.
 
-### First/Positional Heads
+### Duplicate Token
+**Symbol:** ● when duplicate tokens exist, ○ otherwise
 
-**What they do**: These heads focus heavily on the **first token** in the sequence or show strong **positional patterns** (always attending to a specific position regardless of content).
+Notices when the same word appears more than once, acting like a highlighter for repeated words. Helps the model track which words have already been said.
 
-**Why they matter**: The first token often serves as a "default" attention target. Positional heads help the model keep track of where it is in the sequence.
+**Requires:** Repeated tokens in your input.
 
-**Detection**: Classified when average attention to the first token exceeds 25%.
+**Try this prompt:** "The cat sat. The cat slept." — the repeated words activate duplicate-token heads.
 
-### Bag-of-Words (BoW) Heads
+### Positional / First-Token
+**Symbol:** ● (active on most inputs)
 
-**What they do**: These heads spread their attention **broadly and evenly** across many tokens, without focusing strongly on any particular one.
+Always pays attention to the very first word, using it as a fixed anchor point. The first token often serves as a "default" position when no specific token is relevant.
 
-**Why they matter**: BoW heads capture a general summary of the entire input. They help the model maintain an overall sense of what the text is about.
+**What to look for:** Strong vertical line at column 0 (all tokens attending to position 0).
 
-**Detection**: Classified when the attention distribution has high entropy (≥ 0.65 normalized) and no single token receives more than 35% attention.
+### Diffuse / Spread
+**Symbol:** ● (active on most inputs)
 
-### Syntactic Heads
+Spreads attention evenly across many words, gathering general context rather than focusing on one spot. Provides a "big picture" summary of the input.
 
-**What they do**: These heads attend to tokens at **consistent distances**, suggesting they track grammatical or structural relationships (like subject-verb pairs).
+**What to look for:** No strong patterns — attention is spread roughly evenly across all tokens.
 
-**Why they matter**: Syntactic heads help the model understand grammar and sentence structure. They might connect a verb to its subject or a pronoun to what it refers to.
+### Other / Unclassified
 
-**Detection**: Classified when tokens consistently attend to other tokens at similar distances, with low variance in attention distances.
+Heads whose dominant pattern doesn't fit the categories above. These may perform more complex or context-dependent operations.
 
-### Other
+## How It Works
 
-**What they do**: Heads that don't clearly fit any of the above patterns. They may have mixed or context-dependent behavior.
+1. **Offline Analysis:** A TransformerLens script analyzes each head across many test inputs and assigns categories based on dominant behavior patterns.
+2. **Runtime Verification:** When you enter a prompt, the app checks whether each head's known role is actually active on your specific input.
+3. **Active vs Inactive:** A filled circle (●) means the head's role is triggered. An open circle (○) means the role exists but isn't triggered on your current input (e.g., no repeated tokens for induction).
 
-**Why they matter**: "Other" doesn't mean unimportant. These heads may serve specialized roles that only activate for certain inputs. They're worth investigating through ablation experiments.
+## Important Note
 
-## Using Categories for Experiments
-
-Head categories are especially useful for guiding ablation experiments:
-- Ablate a **Previous-Token** head to see if local context patterns break
-- Ablate a **BoW** head to see if the model loses global context
-- Compare the effect of ablating heads from different categories on the same prompt
+These categories are simplified labels based on each head's dominant behavior pattern. In reality, attention heads can serve multiple roles and may behave differently depending on the input.

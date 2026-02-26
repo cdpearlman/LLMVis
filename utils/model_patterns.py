@@ -1421,23 +1421,4 @@ def generate_bertviz_html(activation_data: Dict[str, Any], layer_index: int, vie
         return f"<p>Error generating visualization: {str(e)}</p>"
 
 
-def get_head_category_counts(activation_data: Dict[str, Any]) -> Dict[str, int]:
-    """
-    Get counts of attention heads in each category.
-    
-    Useful for UI display showing the distribution of head types.
-    
-    Args:
-        activation_data: Output from execute_forward_pass with attention data
-    
-    Returns:
-        Dict mapping category name to count of heads in that category
-    """
-    from .head_detection import categorize_all_heads
-    
-    try:
-        categories = categorize_all_heads(activation_data)
-        return {category: len(heads) for category, heads in categories.items()}
-    except Exception as e:
-        print(f"Warning: Could not categorize heads: {e}")
-        return {}
+

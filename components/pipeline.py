@@ -400,133 +400,263 @@ def create_attention_content(attention_html=None, top_attended=None, layer_info=
     """
     Create content for the attention stage.
     
-    Agent G: Removed "Most attended tokens" section (deprecated). Now shows head categorization
-    to help users understand what different attention heads are doing.
+    Displays head categorization with active/inactive states, activation bars,
+    suggested prompts, and guided interpretation.
     
     Args:
         attention_html: BertViz HTML string for attention visualization
-        top_attended: DEPRECATED - no longer used, kept for backward compatibility
+        top_attended: DEPRECATED - no longer used
         layer_info: Optional layer information for context
-        head_categories: Dict mapping category names to lists of head info dicts (from categorize_all_heads)
-                        Each head info has: {'layer': N, 'head': M, 'label': 'LN-HM', ...}
-                        Can also accept counts dict for backward compatibility.
+        head_categories: Output from get_active_head_summary() — dict with 'categories' key
+                        containing per-category data with activation scores.
+                        Falls back gracefully if None or old format.
     """
     content_items = [
         html.Div([
             html.H5("What happens here:", style={'color': '#495057', 'marginBottom': '8px'}),
             html.P([
                 "The model looks at ", html.Strong("all tokens at once"), 
-                " and figures out which ones are related to each other. This is called 'attention' - ",
+                " and figures out which ones are related to each other. This is called 'attention' — ",
                 "each token 'attends to' other tokens to gather context for its prediction."
             ], style={'color': '#6c757d', 'fontSize': '14px', 'marginBottom': '12px'}),
             html.P([
-                "Attention has multiple ", html.Strong("heads"), " - each head learns to look for different types of relationships. ",
-                "For example, one head might track subject-verb agreement, while another tracks pronouns and their referents."
+                "Attention has multiple ", html.Strong("heads"), " — each head learns to look for different types of relationships. ",
+                "Below you can see what role each head plays and whether it's active on your current input."
             ], style={'color': '#6c757d', 'fontSize': '14px', 'marginBottom': '16px'})
         ])
     ]
     
-    # Agent G: Head Categorization Summary with expandable categories
-    if head_categories:
-        category_labels = {
-            'previous_token': ('Previous-Token', '#667eea', 'Heads that attend to the immediately preceding token'),
-            'first_token': ('First/Positional', '#764ba2', 'Heads that focus on the first token or positional patterns'),
-            'bow': ('Bag-of-Words', '#f093fb', 'Heads with diffuse attention across many tokens'),
-            'syntactic': ('Syntactic', '#4facfe', 'Heads that capture grammatical relationships'),
-            'other': ('Other', '#6c757d', 'Heads with mixed or specialized patterns')
+    # New: Head Roles Panel using get_active_head_summary() output
+    if head_categories and isinstance(head_categories, dict) and 'categories' in head_categories:
+        categories = head_categories['categories']
+        
+        # Color scheme per category
+        category_colors = {
+            'previous_token': '#667eea',
+            'induction': '#e67e22',
+            'duplicate_token': '#9b59b6',
+            'positional': '#2ecc71',
+            'diffuse': '#3498db',
+            'other': '#95a5a6'
         }
         
-        category_sections = []
-        for cat_key in ['previous_token', 'first_token', 'bow', 'syntactic', 'other']:
-            cat_data = head_categories.get(cat_key, [])
-            
-            # Handle both list format (full data) and int format (counts only, backward compat)
-            if isinstance(cat_data, int):
-                count = cat_data
-                head_list = []
-            else:
-                count = len(cat_data) if cat_data else 0
-                head_list = cat_data
-            
-            if count > 0 and cat_key in category_labels:
-                label, color, tooltip = category_labels[cat_key]
-                
-                # Build head list display (only if we have full data)
-                head_chips = []
-                if head_list:
-                    for head_info in head_list:
-                        head_label = head_info.get('label', f"L{head_info.get('layer', '?')}-H{head_info.get('head', '?')}")
-                        head_chips.append(
-                            html.Span(head_label, style={
-                                'display': 'inline-block',
-                                'padding': '4px 8px',
-                                'margin': '2px',
-                                'backgroundColor': f'{color}15',
-                                'border': f'1px solid {color}30',
-                                'borderRadius': '4px',
-                                'fontSize': '12px',
-                                'fontFamily': 'monospace'
-                            })
-                        )
-                
-                # Create expandable section for this category
-                category_sections.append(
-                    html.Details([
-                        html.Summary([
-                            html.Span(label, style={'fontWeight': '500', 'color': '#495057'}),
-                            html.Span(f" ({count})", style={'marginLeft': '4px', 'color': '#6c757d'})
-                        ], style={
-                            'padding': '8px 12px',
-                            'backgroundColor': f'{color}15',
-                            'border': f'1px solid {color}30',
-                            'borderRadius': '8px',
-                            'cursor': 'pointer',
-                            'userSelect': 'none',
-                            'listStyle': 'none',
-                            'display': 'flex',
-                            'alignItems': 'center'
-                        }, title=tooltip),
-                        # Expanded content - list of heads
-                        html.Div([
-                            html.P(tooltip, style={
-                                'color': '#6c757d',
-                                'fontSize': '12px',
-                                'marginBottom': '8px',
-                                'fontStyle': 'italic'
-                            }),
-                            html.Div(head_chips if head_chips else [
-                                html.Span("Head details not available", style={'color': '#999', 'fontSize': '12px'})
-                            ], style={
-                                'display': 'flex',
-                                'flexWrap': 'wrap',
-                                'gap': '4px'
-                            })
-                        ], style={
-                            'padding': '12px',
-                            'backgroundColor': '#fafbfc',
-                            'borderRadius': '0 0 8px 8px',
-                            'marginTop': '-1px',
-                            'border': f'1px solid {color}30',
-                            'borderTop': 'none'
-                        })
-                    ], style={'marginBottom': '8px'})
-                )
+        # Find the top recommended head for guided interpretation
+        guided_head = None
+        guided_cat = None
+        for cat_key in ['previous_token', 'induction', 'positional']:
+            cat_data = categories.get(cat_key, {})
+            heads = cat_data.get('heads', [])
+            active_heads = [h for h in heads if h.get('is_active')]
+            if active_heads:
+                best = max(active_heads, key=lambda h: h['activation_score'])
+                if guided_head is None or best['activation_score'] > guided_head['activation_score']:
+                    guided_head = best
+                    guided_cat = cat_data.get('display_name', cat_key)
         
-        if category_sections:
+        # Guided interpretation recommendation
+        if guided_head:
             content_items.append(
                 html.Div([
-                    html.H5("Attention Head Categories:", style={'color': '#495057', 'marginBottom': '12px'}),
+                    html.I(className='fas fa-lightbulb', style={'color': '#f39c12', 'marginRight': '8px', 'fontSize': '16px'}),
+                    html.Span([
+                        html.Strong("Try this: "),
+                        f"Select Layer {guided_head['layer']}, Head {guided_head['head']} in the visualization below — ",
+                        f"this is a {guided_cat} head ",
+                        f"(activation: {guided_head['activation_score']:.0%} on your input)."
+                    ], style={'color': '#495057', 'fontSize': '13px'})
+                ], style={
+                    'padding': '12px 16px', 'backgroundColor': '#fef9e7', 'borderRadius': '8px',
+                    'border': '1px solid #f9e79f', 'marginBottom': '16px', 'display': 'flex', 'alignItems': 'center'
+                })
+            )
+        
+        # Build category sections
+        category_sections = []
+        category_order = ['previous_token', 'induction', 'duplicate_token', 'positional', 'diffuse', 'other']
+        
+        for cat_key in category_order:
+            cat_data = categories.get(cat_key, {})
+            if not cat_data:
+                continue
+            
+            display_name = cat_data.get('display_name', cat_key)
+            description = cat_data.get('description', '')
+            educational_text = cat_data.get('educational_text', '')
+            icon_name = cat_data.get('icon', 'circle')
+            is_applicable = cat_data.get('is_applicable', True)
+            suggested_prompt = cat_data.get('suggested_prompt')
+            heads = cat_data.get('heads', [])
+            color = category_colors.get(cat_key, '#95a5a6')
+            
+            # Active vs inactive indicator
+            has_active_heads = any(h.get('is_active') for h in heads)
+            status_icon = '●' if (is_applicable and has_active_heads) else '○'
+            status_color = color if (is_applicable and has_active_heads) else '#ccc'
+            
+            # Skip "other" if no heads (which is the normal case)
+            if cat_key == 'other' and not heads:
+                continue
+            
+            # Build head items with activation bars
+            head_items = []
+            if heads:
+                for head_info in heads:
+                    activation = head_info.get('activation_score', 0.0)
+                    is_active = head_info.get('is_active', False)
+                    label = head_info.get('label', f"L{head_info['layer']}-H{head_info['head']}")
+                    
+                    # Activation bar
+                    bar_width = max(activation * 100, 2)  # Min 2% for visibility
+                    bar_color = color if is_active else '#ddd'
+                    
+                    head_items.append(
+                        html.Div([
+                            # Head label
+                            html.Span(label, style={
+                                'fontFamily': 'monospace', 'fontSize': '12px', 'fontWeight': '500',
+                                'minWidth': '60px', 'color': '#495057' if is_active else '#aaa',
+                            }, title=f"See Layer {head_info['layer']}, Head {head_info['head']} in the visualization below"),
+                            # Activation bar
+                            html.Div([
+                                html.Div(style={
+                                    'width': f'{bar_width}%', 'height': '100%',
+                                    'backgroundColor': bar_color, 'borderRadius': '3px',
+                                    'transition': 'width 0.3s ease'
+                                })
+                            ], style={
+                                'flex': '1', 'height': '12px', 'backgroundColor': '#f0f0f0',
+                                'borderRadius': '3px', 'margin': '0 8px', 'overflow': 'hidden'
+                            }),
+                            # Score label
+                            html.Span(f"{activation:.2f}", style={
+                                'fontSize': '11px', 'fontFamily': 'monospace',
+                                'color': '#495057' if is_active else '#bbb', 'minWidth': '32px'
+                            })
+                        ], style={
+                            'display': 'flex', 'alignItems': 'center', 'marginBottom': '4px',
+                            'opacity': '1' if is_active else '0.5'
+                        })
+                    )
+            
+            # Build the category section
+            # Header content
+            summary_children = [
+                html.Span(status_icon, style={
+                    'color': status_color, 'fontSize': '16px', 'marginRight': '8px'
+                }),
+                html.Span(display_name, style={'fontWeight': '500', 'color': '#495057'}),
+            ]
+            
+            if heads:
+                active_count = sum(1 for h in heads if h.get('is_active'))
+                summary_children.append(
+                    html.Span(f" ({active_count}/{len(heads)} active)", style={
+                        'marginLeft': '6px', 'color': '#6c757d', 'fontSize': '12px'
+                    })
+                )
+            
+            if not is_applicable:
+                summary_children.append(
+                    html.Span(" — not triggered on this input", style={
+                        'marginLeft': '6px', 'color': '#aaa', 'fontSize': '12px', 'fontStyle': 'italic'
+                    })
+                )
+            
+            # Expanded content
+            expanded_children = []
+            
+            # Educational explanation
+            if educational_text:
+                expanded_children.append(
+                    html.P(educational_text, style={
+                        'color': '#6c757d', 'fontSize': '13px', 'marginBottom': '10px',
+                        'fontStyle': 'italic', 'lineHeight': '1.5'
+                    })
+                )
+            
+            # Suggested prompt (for grayed-out categories)
+            if not is_applicable and suggested_prompt:
+                expanded_children.append(
+                    html.Div([
+                        html.I(className='fas fa-flask', style={'color': '#e67e22', 'marginRight': '6px'}),
+                        html.Span(suggested_prompt, style={'color': '#e67e22', 'fontSize': '12px'})
+                    ], style={
+                        'padding': '8px 12px', 'backgroundColor': '#fef5e7',
+                        'borderRadius': '6px', 'marginBottom': '10px', 'border': '1px solid #fde8c8'
+                    })
+                )
+            
+            # Head activation bars
+            if head_items:
+                expanded_children.append(html.Div(head_items))
+            
+            category_sections.append(
+                html.Details([
+                    html.Summary(summary_children, style={
+                        'padding': '10px 14px',
+                        'backgroundColor': f'{color}08' if is_applicable else '#fafafa',
+                        'border': f'1px solid {color}25' if is_applicable else '1px solid #eee',
+                        'borderRadius': '8px', 'cursor': 'pointer', 'userSelect': 'none',
+                        'listStyle': 'none', 'display': 'flex', 'alignItems': 'center'
+                    }),
+                    html.Div(expanded_children, style={
+                        'padding': '12px 14px', 'backgroundColor': '#fafbfc',
+                        'borderRadius': '0 0 8px 8px', 'marginTop': '-1px',
+                        'border': f'1px solid {color}25' if is_applicable else '1px solid #eee',
+                        'borderTop': 'none'
+                    })
+                ], style={'marginBottom': '8px'}, open=(cat_key == 'previous_token'))  # Default-open first category
+            )
+        
+        if category_sections:
+            # Legend
+            legend = html.Div([
+                html.Span("● = active on your input", style={
+                    'color': '#495057', 'fontSize': '11px', 'marginRight': '16px'
+                }),
+                html.Span("○ = role exists but not triggered", style={
+                    'color': '#aaa', 'fontSize': '11px'
+                })
+            ], style={'marginBottom': '10px'})
+            
+            content_items.append(
+                html.Div([
+                    html.H5("Attention Head Roles:", style={'color': '#495057', 'marginBottom': '8px'}),
                     html.P([
-                        html.I(className='fas fa-info-circle', style={'color': '#6c757d', 'marginRight': '6px'}),
-                        "Click each category to expand and see which heads belong to it."
+                        "Each category represents a type of behavior we detected in this model's attention heads. ",
+                        "Click a category to see individual heads and how strongly they're activated on your input."
                     ], style={'color': '#6c757d', 'fontSize': '12px', 'marginBottom': '12px'}),
-                    html.Div(category_sections)
+                    legend,
+                    html.Div(category_sections),
+                    # Accuracy caveat
+                    html.Div([
+                        html.I(className='fas fa-info-circle', style={'color': '#6c757d', 'marginRight': '6px', 'fontSize': '11px'}),
+                        html.Span(
+                            "These categories are simplified labels based on each head's dominant behavior. "
+                            "In reality, heads can serve multiple roles and may behave differently on different inputs.",
+                            style={'color': '#999', 'fontSize': '11px'}
+                        )
+                    ], style={'marginTop': '12px', 'padding': '8px 12px', 'backgroundColor': '#f8f9fa', 'borderRadius': '6px'})
                 ], style={'marginBottom': '16px'})
             )
+    elif head_categories is None:
+        # Model not analyzed — show fallback message
+        content_items.append(
+            html.Div([
+                html.I(className='fas fa-info-circle', style={'color': '#6c757d', 'marginRight': '8px'}),
+                html.Span(
+                    "Head categorization is not available for this model. "
+                    "The attention visualization below still shows the full attention patterns.",
+                    style={'color': '#6c757d', 'fontSize': '13px'}
+                )
+            ], style={
+                'padding': '12px', 'backgroundColor': '#f8f9fa', 'borderRadius': '8px',
+                'border': '1px solid #dee2e6', 'marginBottom': '16px'
+            })
+        )
     
     # BertViz visualization with navigation instructions
     if attention_html:
-        # Agent G: Enhanced navigation instructions for head view
         content_items.append(
             html.Div([
                 html.H5("How to Navigate the Attention Visualization:", style={'color': '#495057', 'marginBottom': '12px'}),
@@ -537,7 +667,6 @@ def create_attention_content(attention_html=None, top_attended=None, layer_info=
                         html.Span("Click on layer/head numbers at the top to view specific attention heads.",
                                  style={'color': '#6c757d'})
                     ], style={'marginBottom': '4px'}),
-                    # Sub-points for click behaviors
                     html.Div([
                         html.Span("• ", style={'color': '#f093fb', 'fontWeight': 'bold'}),
                         html.Strong("Single click ", style={'color': '#495057'}),

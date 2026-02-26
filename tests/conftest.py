@@ -199,12 +199,4 @@ def mock_attribution_result():
     }
 
 
-# =============================================================================
-# Head Categorization Config
-# =============================================================================
 
-@pytest.fixture
-def default_head_config():
-    """Default head categorization configuration for testing."""
-    from utils.head_detection import HeadCategorizationConfig
-    return HeadCategorizationConfig()
