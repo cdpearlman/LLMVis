@@ -59,7 +59,7 @@ app.layout = html.Div([
     dcc.Store(id='session-activation-store-original', storage_type='memory'),
     dcc.Store(id='sidebar-collapse-store', storage_type='session', data=True),
     dcc.Store(id='generation-results-store', storage_type='session'),
-    dcc.Store(id='investigation-active-tab', storage_type='session', data='ablation'),
+    # investigation-active-tab store is defined in components/investigation_panel.py
     dcc.Store(id='ablation-selected-heads', storage_type='session', data=[]),
     # Agent F: Stores for separating original prompt analysis from beam generation
     dcc.Store(id='session-original-prompt-store', storage_type='memory'),  # Original user prompt
