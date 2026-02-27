@@ -113,7 +113,7 @@ def create_attribution_content():
                     {'label': ' Integrated Gradients (more accurate, slower)', 'value': 'integrated'},
                     {'label': ' Simple Gradient (faster, less accurate)', 'value': 'simple'}
                 ],
-                value='simple',
+                value='integrated',
                 style={'display': 'flex', 'flexDirection': 'column', 'gap': '8px'}
             )
         ], style={'marginBottom': '16px'}),
@@ -127,9 +127,7 @@ def create_attribution_content():
                 value=None,
                 placeholder="Use top predicted token (default)",
                 className="module-dropdown"
-            ),
-            html.P("Leave empty to compute attribution for the top predicted token.",
-                  style={'color': '#6c757d', 'fontSize': '12px', 'marginTop': '4px'})
+            )
         ], style={'marginBottom': '16px'}),
         
         # Run attribution button

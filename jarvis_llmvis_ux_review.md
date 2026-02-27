@@ -36,7 +36,7 @@ The app is in solid working shape. The pipeline storytelling is clean, the BertV
 **Issues:**
 - **No visual "aha" moment.** The table shows Token→ID correctly, but doesn't show *why* "The" becomes 464 vs "the" becoming 262. The capitalization distinction (same word, different token) is sitting right there in this example and the app doesn't call it out. This is a perfect teachable moment — highlight it.
 - **No subword tokenization example.** The prompt was simple English so all tokens were whole words. When a student types something with subwords (e.g., "transformers"), they won't know that's unusual. Consider adding a note: "Notice: some words may split into multiple pieces — try typing 'unhappiness' to see subword tokenization."
-- **The token ID numbers mean nothing to students.** Worth a one-liner: "These IDs are just addresses in a vocabulary table of 50,257 words and word-pieces."
+- **The token ID numbers mean nothing to students.** Worth a one-liner: "These IDs are just addresses in a vocabulary table of tens of thousands of words and word-pieces."
 
 ---
 

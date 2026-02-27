@@ -104,13 +104,15 @@ app.layout = html.Div([
                             ], style={'flex': '1', 'marginRight': '20px'}),
                             
                             html.Div([
-                                html.Label("Number of Generation Choices:", className="input-label"),
+                                html.Label("Options to Generate:", className="input-label"),
                                 dcc.Slider(
                                     id='beam-width-slider',
                                     min=1, max=5, step=1, value=1,
                                     marks={1: '1', 3: '3', 5: '5'},
                                     tooltip={"placement": "bottom", "always_visible": True}
-                                )
+                                ),
+                                html.P("Generate multiple possible completions to compare",
+                                       style={'color': '#6c757d', 'fontSize': '11px', 'marginTop': '4px', 'marginBottom': '0'})
                             ], style={'flex': '1'})
                         ], style={'display': 'flex', 'marginBottom': '20px'}),
                         

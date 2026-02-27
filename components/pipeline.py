@@ -392,7 +392,22 @@ def create_embedding_content(hidden_dim=None, num_tokens=None):
                 "During training on billions of text examples, the model learned which numbers best represent each token. ",
                 "This table is frozen after training - every time you use the model, the same token always maps to the same vector."
             ], style={'color': '#6c757d', 'fontSize': '13px'})
-        ], style={'marginTop': '16px', 'padding': '12px', 'backgroundColor': '#fff8e1', 'borderRadius': '6px'})
+        ], style={'marginTop': '16px', 'padding': '12px', 'backgroundColor': '#fff8e1', 'borderRadius': '6px'}),
+        
+        # Positional embedding explanation
+        html.Div([
+            html.I(className='fas fa-map-marker-alt', style={'color': '#5c6bc0', 'marginRight': '8px'}),
+            html.Span([
+                html.Strong("Position matters too: "),
+                "Token embeddings alone don't capture word order — 'the cat chased the dog' and 'the dog chased the cat' ",
+                "would look the same. To fix this, the model also encodes ", html.Strong("positional information"),
+                ". Some models (like GPT-2) add a learned position vector to each token embedding. ",
+                "Others (like Pythia) use a technique called Rotary Positional Encoding, which encodes ",
+                "the relative distance between tokens directly in the attention step. ",
+                "Either way, the model knows both ", html.Em("what"), " each token is and ",
+                html.Em("where"), " it sits in the sequence."
+            ], style={'color': '#6c757d', 'fontSize': '13px'})
+        ], style={'marginTop': '12px', 'padding': '12px', 'backgroundColor': '#e8eaf6', 'borderRadius': '6px'})
     ])
 
 
@@ -814,7 +829,18 @@ def create_mlp_content(layer_count=None, hidden_dim=None, intermediate_dim=None)
                 html.Strong(f"{layer_count} layers" if layer_count else "transformer layers"),
                 ", with attention and MLP working together - attention gathers context, MLP retrieves knowledge."
             ], style={'color': '#6c757d', 'fontSize': '13px'})
-        ], style={'marginTop': '12px', 'padding': '12px', 'backgroundColor': '#e3f2fd', 'borderRadius': '6px'})
+        ], style={'marginTop': '12px', 'padding': '12px', 'backgroundColor': '#e3f2fd', 'borderRadius': '6px'}),
+        
+        # Residual stream explanation
+        html.Div([
+            html.I(className='fas fa-road', style={'color': '#26a69a', 'marginRight': '8px'}),
+            html.Span([
+                html.Strong("Adding, not replacing: "),
+                "The MLP doesn't replace the token's representation — it ",
+                html.Strong("adds"), " to the residual stream. Each layer contributes new information on top of ",
+                "everything computed before it, so the model accumulates understanding across all layers."
+            ], style={'color': '#6c757d', 'fontSize': '13px'})
+        ], style={'marginTop': '12px', 'padding': '12px', 'backgroundColor': '#e0f2f1', 'borderRadius': '6px'})
     ])
 
 
@@ -858,7 +884,7 @@ def _build_token_display(prompt_text, generated_tokens, position, actual_prob):
 
     confidence = html.Div([
         html.Span(
-            f"{actual_prob:.1%} confidence" if actual_prob else "",
+            f"{actual_prob:.1%} probability" if actual_prob else "",
             style={'color': '#6c757d', 'fontSize': '13px', 'marginTop': '8px', 'display': 'block'}
         )
     ])
@@ -974,9 +1000,14 @@ def create_output_content(top_tokens=None, predicted_token=None, predicted_prob=
             ])
         ]
 
-        # Slider / scrubber
+        # Slider / scrubber (only show when there are multiple tokens to step through)
         slider_marks = {i: {'label': generated_tokens[i].strip() or repr(generated_tokens[i])}
                         for i in range(num_positions)}
+        slider_style = {'marginBottom': '20px', 'padding': '12px 16px',
+                        'backgroundColor': '#f8f9fa', 'borderRadius': '8px',
+                        'border': '1px solid #dee2e6'}
+        if num_positions <= 1:
+            slider_style['display'] = 'none'
         content_items.append(
             html.Div([
                 html.Span("Step through generated tokens:",
@@ -991,9 +1022,7 @@ def create_output_content(top_tokens=None, predicted_token=None, predicted_prob=
                     marks=slider_marks,
                     included=False,
                 )
-            ], style={'marginBottom': '20px', 'padding': '12px 16px',
-                      'backgroundColor': '#f8f9fa', 'borderRadius': '8px',
-                      'border': '1px solid #dee2e6'})
+            ], style=slider_style)
         )
 
         # Initial render at position 0
@@ -1058,7 +1087,7 @@ def create_output_content(top_tokens=None, predicted_token=None, predicted_prob=
                         })
                     ], style={'display': 'inline'}),
                     html.Div([
-                        html.Span(f"{predicted_prob:.1%} confidence" if predicted_prob else "", style={
+                        html.Span(f"{predicted_prob:.1%} probability" if predicted_prob else "", style={
                             'color': '#6c757d', 'fontSize': '13px', 'marginTop': '8px', 'display': 'block'
                         })
                     ])

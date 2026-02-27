@@ -81,7 +81,8 @@ def create_ablation_panel():
             html.I(className='fas fa-play', style={'marginRight': '8px'}),
             "Run Ablation Experiment"
         ], id='run-ablation-btn', className='action-button primary-button',
-           disabled=True, style={'width': '100%', 'marginBottom': '16px'}),
+           disabled=True, title="Add at least one head above to run the experiment",
+           style={'width': '100%', 'marginBottom': '16px'}),
         
         # Results container
         dcc.Loading(

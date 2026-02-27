@@ -34,6 +34,9 @@ def create_sidebar():
             ]),
 
             html.H3("Module Selection", className="sidebar-title"),
+            html.P("Advanced: Select which model components to inspect. "
+                   "The defaults work well for most explorations.",
+                   style={'color': '#6c757d', 'fontSize': '11px', 'marginBottom': '12px', 'lineHeight': '1.4'}),
         
         # Loading/status indicator
         html.Div(id="loading-indicator", className="loading-container"),
@@ -82,7 +85,8 @@ def create_sidebar():
                 html.Button(
                     "Clear Selections", 
                     id="clear-selections-btn",
-                    className="action-button secondary-button"
+                    className="action-button secondary-button",
+                    title="Reset all module selections to default"
                 )
             ], className="button-container"),
             
