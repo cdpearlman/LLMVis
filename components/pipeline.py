@@ -487,7 +487,20 @@ def create_attention_content(attention_html=None, top_attended=None, layer_info=
         
         # Build category sections
         category_sections = []
-        category_order = ['previous_token', 'induction', 'duplicate_token', 'positional', 'diffuse', 'other']
+        # Sort categories by max activation score (highest first) for readability
+        def _cat_max_score(cat_key):
+            cat_data = categories.get(cat_key, {})
+            heads = cat_data.get('heads', [])
+            if not heads:
+                return -1
+            return max(h.get('activation_score', 0.0) for h in heads)
+        
+        category_order = sorted(
+            ['previous_token', 'induction', 'duplicate_token', 'positional', 'diffuse', 'other'],
+            key=_cat_max_score,
+            reverse=True
+        )
+        top_cat_key = category_order[0] if category_order else None
         
         for cat_key in category_order:
             cat_data = categories.get(cat_key, {})
@@ -515,7 +528,9 @@ def create_attention_content(attention_html=None, top_attended=None, layer_info=
             # Build head items with activation bars
             head_items = []
             if heads:
-                for head_info in heads:
+                # Sort heads by activation score descending for readability
+                heads_sorted = sorted(heads, key=lambda h: h.get('activation_score', 0.0), reverse=True)
+                for head_info in heads_sorted:
                     activation = head_info.get('activation_score', 0.0)
                     is_active = head_info.get('is_active', False)
                     label = head_info.get('label', f"L{head_info['layer']}-H{head_info['head']}")
@@ -620,7 +635,7 @@ def create_attention_content(attention_html=None, top_attended=None, layer_info=
                         'border': f'1px solid {color}25' if is_applicable else '1px solid #eee',
                         'borderTop': 'none'
                     })
-                ], style={'marginBottom': '8px'}, open=(cat_key == 'previous_token'))  # Default-open first category
+                ], style={'marginBottom': '8px'}, open=(cat_key == top_cat_key))  # Default-open highest-scored category
             )
         
         if category_sections:
