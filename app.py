@@ -136,16 +136,28 @@ app.layout = html.Div([
                 ),
                 
                 # Pipeline Visualization
-                html.Div([
-                    html.Hr(style={'margin': '30px 0', 'borderTop': '1px solid #dee2e6'}),
-                    create_pipeline_container()
-                ], id="pipeline-section"),
+                dcc.Loading(
+                    id="pipeline-loading",
+                    type="default",
+                    children=html.Div([
+                        html.Hr(style={'margin': '30px 0', 'borderTop': '1px solid #dee2e6'}),
+                        create_pipeline_container()
+                    ], id="pipeline-section"),
+                    color='#667eea',
+                    style={'minHeight': '100px'}
+                ),
                 
                 # Investigation Panel
-                html.Div([
-                    html.Hr(style={'margin': '30px 0', 'borderTop': '1px solid #dee2e6'}),
-                    create_investigation_panel()
-                ], id="investigation-section")
+                dcc.Loading(
+                    id="investigation-loading",
+                    type="default",
+                    children=html.Div([
+                        html.Hr(style={'margin': '30px 0', 'borderTop': '1px solid #dee2e6'}),
+                        create_investigation_panel()
+                    ], id="investigation-section"),
+                    color='#667eea',
+                    style={'minHeight': '100px'}
+                )
                 
             ], className="main-panel")
         ], className="content-container")
