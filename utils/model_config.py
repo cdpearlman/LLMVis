@@ -34,6 +34,18 @@ MODEL_FAMILIES: Dict[str, Dict[str, Any]] = {
         "norm_type": "layernorm",
     },
     
+    # GPT-Neo (EleutherAI) — similar to GPT-2 but with local attention
+    "gpt_neo": {
+        "description": "GPT-Neo architecture (EleutherAI)",
+        "templates": {
+            "attention_pattern": "transformer.h.{N}.attn.attention",
+            "mlp_pattern": "transformer.h.{N}.mlp",
+            "block_pattern": "transformer.h.{N}",
+        },
+        "norm_parameter": "transformer.ln_f.weight",
+        "norm_type": "layernorm",
+    },
+    
     # OPT
     "opt": {
         "description": "OPT architecture",
@@ -143,7 +155,12 @@ MODEL_TO_FAMILY: Dict[str, str] = {
     "facebook/opt-13b": "opt",
     "facebook/opt-30b": "opt",
     
-    # GPT-NeoX models
+    # GPT-Neo models (EleutherAI)
+    "EleutherAI/gpt-neo-125M": "gpt_neo",
+    "EleutherAI/gpt-neo-1.3B": "gpt_neo",
+    "EleutherAI/gpt-neo-2.7B": "gpt_neo",
+    
+    # GPT-NeoX / Pythia models (EleutherAI)
     "EleutherAI/gpt-neox-20b": "gpt_neox",
     "EleutherAI/pythia-70m": "gpt_neox",
     "EleutherAI/pythia-160m": "gpt_neox",

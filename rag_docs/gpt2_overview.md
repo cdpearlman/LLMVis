@@ -39,14 +39,14 @@ When analyzing GPT-2, you'll typically see:
 
 ## GPT-2 Variants
 
-The dashboard supports all GPT-2 sizes, though only the small variant is in the default dropdown:
+The dashboard includes GPT-2 Small and Medium in the dropdown. Larger variants can be loaded by typing the model ID:
 
 - **GPT-2 Small** (124M params, 12 layers) -- in dropdown as "GPT-2 (124M)"
-- **GPT-2 Medium** (355M params, 24 layers) -- enter `gpt2-medium` in the dropdown
+- **GPT-2 Medium** (355M params, 24 layers) -- in dropdown as "GPT-2 Medium (355M)"
 - **GPT-2 Large** (774M params, 36 layers) -- enter `gpt2-large`
 - **GPT-2 XL** (1.5B params, 48 layers) -- enter `gpt2-xl`
 
-Larger variants have more layers and heads but use more memory and are slower.
+Comparing GPT-2 Small and Medium is a great way to see how attention heads specialize as models scale up within the same architecture.
 
 ## HuggingFace Model IDs
 

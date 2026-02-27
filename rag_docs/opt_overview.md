@@ -18,7 +18,8 @@ OPT's architecture is close to GPT-2 but has some differences:
 
 ### Key Differences from GPT-2
 
-- **Learned positional embeddings**: Like GPT-2, OPT uses learned absolute position embeddings (unlike LLaMA's RoPE)
+- **ReLU activation**: OPT uses **ReLU** instead of GPT-2's GELU. This is the only model in the dashboard with ReLU, making it useful for comparing how activation functions affect MLP behavior.
+- **Learned positional embeddings**: Like GPT-2, OPT uses learned absolute position embeddings (unlike Pythia's or Qwen's RoPE)
 - **LayerNorm placement**: OPT uses pre-norm LayerNorm (applied before each sublayer), which is slightly different from GPT-2's original arrangement
 - **Larger variants available**: OPT scales up to 175 billion parameters, though only smaller variants are practical for interactive use
 
@@ -36,13 +37,9 @@ When using OPT models:
 - **OPT-125M is very similar to GPT-2**: Same number of layers (12), heads (12), and hidden dimension (768). You'll see similar attention patterns and predictions.
 - **Different module paths**: The dashboard auto-detects OPT's internal structure (e.g., `model.decoder.layers.N.self_attn`), so hooking works automatically.
 - **Tokenization**: OPT's tokenizer is very similar to GPT-2's, so the same text usually produces similar (but not identical) token sequences.
-- **Good for comparison**: Running the same prompt on GPT-2 and OPT-125M can show how similar architectures with different training data produce different predictions.
+- **Good for comparison**: Running the same prompt on GPT-2 and OPT-125M can show how similar architectures with different training data and activation functions produce different predictions.
 
 ## HuggingFace Model IDs
 
-- `facebook/opt-125m`
-- `facebook/opt-350m`
-- `facebook/opt-1.3b`
-- `facebook/opt-2.7b`
-
-Note: OPT models are not in the default dropdown but can be loaded by typing the model ID directly.
+- `facebook/opt-125m` (in dropdown)
+- `facebook/opt-350m`, `facebook/opt-1.3b` (larger, enter manually)

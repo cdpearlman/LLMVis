@@ -55,10 +55,14 @@ If you're new to the dashboard, follow this path:
 5. **Experiment: Comparing Heads** -- Systematically compare head categories
 6. **Experiment: Beam Search** -- Explore alternative generation paths
 
-## After the Basics
+## After the Basics: Cross-Model Comparisons
 
-Once you've completed the guided experiments:
-- **Compare models**: Run the same prompt on GPT-2 and Qwen2.5-0.5B to see architectural differences
+Once you've completed the guided experiments, try comparing models to see how architecture affects behavior:
+
+- **GPT-2 vs GPT-Neo 125M**: Same size and PE type, but GPT-Neo alternates local/global attention — see how attention scope matters
+- **GPT-2 vs Pythia-160M**: Same size but different positional encoding (absolute vs rotary) — see how RoPE changes attention patterns
+- **GPT-2 vs OPT-125M**: Same size but OPT uses ReLU instead of GELU — compare MLP behavior
+- **GPT-2 vs GPT-2 Medium**: Same architecture at different scales — see how head specialization changes with more layers
+- **Pythia-160M vs Qwen2.5-0.5B**: Both use rotary PE but different normalization (LayerNorm vs RMSNorm) and activation (GELU vs SiLU)
 - **Try longer prompts**: See how attention patterns change with more context
 - **Combine techniques**: Use attribution to find important tokens, then ablate heads to find the components that process those tokens
-- **Explore edge cases**: Try prompts in other languages, code snippets, or mathematical expressions

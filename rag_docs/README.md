@@ -37,8 +37,10 @@ This folder contains documents used by the AI chatbot for Retrieval-Augmented Ge
 
 ### Category 3: Model-Specific Documentation
 - `gpt2_overview.md` - GPT-2 architecture, why it's a good starter, variants
-- `llama_overview.md` - LLaMA/Qwen/Mistral architecture, RoPE, GQA differences
-- `opt_overview.md` - OPT architecture, comparison with GPT-2
+- `gpt_neo_overview.md` - GPT-Neo architecture, local attention, comparison with GPT-2
+- `pythia_overview.md` - Pythia architecture, RoPE, parallel attn+MLP, interpretability focus
+- `opt_overview.md` - OPT architecture, ReLU activation, comparison with GPT-2
+- `qwen_overview.md` - Qwen2.5 (LLaMA-like) architecture, RMSNorm, SiLU, GQA
 
 ### Category 4: Guided Experiments (Step-by-Step)
 - `experiment_first_analysis.md` - Your first analysis with GPT-2

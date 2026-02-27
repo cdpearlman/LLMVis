@@ -10,22 +10,22 @@ from dash import html, dcc
 
 # Available models organized by family
 AVAILABLE_MODELS = [
-    # LLaMA-like models (Qwen)
-    {"label": "Qwen2.5-0.5B", "value": "Qwen/Qwen2.5-0.5B"},
-    # {"label": "Qwen2.5-1.5B", "value": "Qwen/Qwen2.5-1.5B"},
-    
-    # GPT-2 family
-    {"label": "GPT-2 (124M)", "value": "gpt2"}
-    # {"label": "GPT-2 Medium (355M)", "value": "gpt2-medium"},
-    # {"label": "GPT-2 Large (774M)", "value": "gpt2-large"},
-    
-    # # OPT family
-    # {"label": "OPT-125M", "value": "facebook/opt-125m"},
-    # {"label": "OPT-350M", "value": "facebook/opt-350m"},
-    
-    # # GPT-NeoX family (Pythia)
-    # {"label": "Pythia-70M", "value": "EleutherAI/pythia-70m"},
-    # {"label": "Pythia-160M", "value": "EleutherAI/pythia-160m"},
+    # GPT-2 family (OpenAI) — absolute positional encoding, LayerNorm, GELU
+    {"label": "GPT-2 (124M)", "value": "gpt2"},
+    {"label": "GPT-2 Medium (355M)", "value": "gpt2-medium"},
+
+    # GPT-Neo (EleutherAI) — absolute PE, LayerNorm, GELU
+    {"label": "GPT-Neo 125M", "value": "EleutherAI/gpt-neo-125M"},
+
+    # Pythia (EleutherAI) — rotary PE, LayerNorm, GELU, parallel attn+MLP
+    {"label": "Pythia-160M", "value": "EleutherAI/pythia-160m"},
+    {"label": "Pythia-410M", "value": "EleutherAI/pythia-410m"},
+
+    # OPT (Meta) — absolute PE, LayerNorm, ReLU activation
+    {"label": "OPT-125M", "value": "facebook/opt-125m"},
+
+    # Qwen2.5 (Alibaba) — rotary PE, RMSNorm, SiLU activation
+    {"label": "Qwen2.5-0.5B (494M)", "value": "Qwen/Qwen2.5-0.5B"},
 ]
 
 def create_model_selector():

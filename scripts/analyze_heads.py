@@ -48,6 +48,7 @@ HF_TO_TL_NAME = {
     "openai-community/gpt2-large": "gpt2-large",
     "gpt2-xl": "gpt2-xl",
     "openai-community/gpt2-xl": "gpt2-xl",
+    "EleutherAI/gpt-neo-125M": "gpt-neo-125M",
     "EleutherAI/pythia-70m": "pythia-70m",
     "EleutherAI/pythia-160m": "pythia-160m",
     "EleutherAI/pythia-410m": "pythia-410m",
@@ -56,6 +57,7 @@ HF_TO_TL_NAME = {
     "facebook/opt-125m": "opt-125m",
     "facebook/opt-350m": "opt-350m",
     "facebook/opt-1.3b": "opt-1.3b",
+    "Qwen/Qwen2.5-0.5B": "qwen2.5-0.5b",
 }
 
 # Default models to analyze
@@ -64,10 +66,11 @@ DEFAULT_MODELS = ["gpt2"]
 ALL_PRIORITY_MODELS = [
     "gpt2",
     "gpt2-medium",
-    "EleutherAI/pythia-70m",
+    "EleutherAI/gpt-neo-125M",
     "EleutherAI/pythia-160m",
     "EleutherAI/pythia-410m",
     "facebook/opt-125m",
+    "Qwen/Qwen2.5-0.5B",
 ]
 
 # ============================================================================
