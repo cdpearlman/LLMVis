@@ -80,11 +80,4 @@ The project is structured around a central Dash application with modular compone
     *   `head_detection.py`: Attention head categorization logic.
     *   `beam_search.py`: Beam search implementation.
 *   `tests/`: Comprehensive test suite ensuring stability.
-*   `conductor/`: Detailed project documentation and product guidelines.
-
-## Documentation
-
-Additional project documentation is available in the `conductor/` directory:
-*   [Product Definition](conductor/product.md)
-*   [Tech Stack](conductor/tech-stack.md)
-*   [Workflow](conductor/workflow.md)
+*   `.context/`: Project memory — modules (architecture, conventions, education, product, testing) and data files (sessions, decisions, lessons).
