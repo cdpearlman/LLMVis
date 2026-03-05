@@ -42,8 +42,7 @@ def create_investigation_panel():
             'marginBottom': '1.5rem'
         }),
         
-        # Store for active tab
-        dcc.Store(id='investigation-active-tab', data='ablation'),
+        # Note: investigation-active-tab Store is defined in app.py (with session storage)
         
         # Tab content containers
         html.Div([
