@@ -1368,8 +1368,22 @@ def generate_bertviz_html(activation_data: Dict[str, Any], layer_index: int, vie
             """
         else:
             # Full version: BertViz head_view (less overwhelming, scrollable heads)
+            from utils.colors import BERTVIZ_HEAD_COLORS
             html_result = head_view(attentions, tokens, html_action='return')
-            return html_result.data if hasattr(html_result, 'data') else str(html_result)
+            html_str = html_result.data if hasattr(html_result, 'data') else str(html_result)
+
+            # Patch BertViz color scheme to match our swatch palette (no collisions for ≤16 heads)
+            _colors_js = repr(BERTVIZ_HEAD_COLORS).replace("'", '"')  # JSON-safe array literal
+            _patch = f"headColors = d3.scaleOrdinal({_colors_js});"
+            html_str = html_str.replace(
+                'headColors = d3.scaleOrdinal(d3.schemeCategory10);',
+                _patch
+            )
+            html_str = html_str.replace(
+                'headColors = d3.scale.category10();',
+                _patch
+            )
+            return html_str
             
     except Exception as e:
         import traceback

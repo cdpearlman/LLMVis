@@ -8,6 +8,7 @@ and viewing the resulting changes in model output.
 from dash import html, dcc
 import plotly.graph_objs as go
 import json
+from utils.colors import head_color
 
 def create_ablation_panel():
     """Create the main ablation tool content."""
@@ -126,7 +127,14 @@ def create_selected_heads_display(selected_heads):
         
         chips.append(
             html.Span([
-                html.Span(label, style={'marginRight': '6px'}),
+                html.Span([
+                    html.Span("\u25a0 ", style={
+                        'color': head_color(head),
+                        'fontSize': '14px',
+                        'marginRight': '2px',
+                    }),
+                    html.Span(label, style={'marginRight': '6px'}),
+                ], style={'display': 'inline-flex', 'alignItems': 'center'}),
                 html.Button(
                     '×',
                     id={'type': 'ablation-remove-btn', 'layer': layer, 'head': head},

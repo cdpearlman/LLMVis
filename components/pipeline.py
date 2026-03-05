@@ -11,6 +11,7 @@ Provides a linear, expandable visualization of:
 
 from dash import html, dcc
 import plotly.graph_objs as go
+from utils.colors import head_color
 
 
 def create_pipeline_container():
@@ -541,10 +542,18 @@ def create_attention_content(attention_html=None, top_attended=None, layer_info=
                     
                     head_items.append(
                         html.Div([
-                            # Head label
-                            html.Span(label, style={
+                            # Head label with color swatch
+                            html.Span([
+                                html.Span("■", style={
+                                    'color': head_color(head_info['head']),
+                                    'fontSize': '14px',
+                                    'marginRight': '6px',
+                                }),
+                                label
+                            ], style={
                                 'fontFamily': 'monospace', 'fontSize': '12px', 'fontWeight': '500',
                                 'minWidth': '60px', 'color': '#495057' if is_active else '#aaa',
+                                'display': 'inline-flex', 'alignItems': 'center',
                             }, title=f"See Layer {head_info['layer']}, Head {head_info['head']} in the visualization below"),
                             # Activation bar
                             html.Div([
