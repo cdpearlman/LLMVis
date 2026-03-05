@@ -5,7 +5,6 @@ import torch
 import torch.nn.functional as F
 from typing import Dict, List, Tuple, Any, Optional
 from transformers import AutoModelForCausalLM, AutoTokenizer
-from pyvene import RepresentationConfig, IntervenableConfig, IntervenableModel
 
 
 def extract_patterns(model, use_modules=True) -> Dict[str, List[str]]:
@@ -275,40 +274,17 @@ def execute_forward_pass(model, tokenizer, prompt: str, config: Dict[str, Any],
         print("No modules specified for capture")
         return {"error": "No modules specified"}
     
-    # Build IntervenableConfig from module names
-    intervenable_representations = []
-    for mod_name in all_modules:
-        # Extract layer index from module name
-        layer_match = re.search(r'\.(\d+)(?:\.|$)', mod_name)
-        if not layer_match:
-            return {"error": f"Invalid module name format: {mod_name}"}
-        
-        # Determine component type based on module name
-        if 'attn' in mod_name or 'attention' in mod_name:
-            component = 'attention_output'
-        else:
-            # Layer/block modules (e.g., "model.layers.0", "transformer.h.0")
-            # These represent the residual stream (full layer output)
-            component = 'block_output'
-        
-        intervenable_representations.append(
-            RepresentationConfig(layer=int(layer_match.group(1)), component=component, unit="pos")
-        )
-    
-    # Create IntervenableConfig and wrap model
-    intervenable_config = IntervenableConfig(
-        intervenable_representations=intervenable_representations
-    )
-    intervenable_model = IntervenableModel(intervenable_config, model)
-    
-    print(f"Created IntervenableModel with {len(intervenable_representations)} representations")
-    
-    # Prepare inputs
+    # Register hooks directly on the original model to capture activations.
+    # (Avoids PyVene IntervenableModel which can remap module names and break
+    # hook registration, especially after model switching.)
     inputs = tokenizer(prompt, return_tensors="pt")
-    
-    # Register hooks to capture activations
     captured = {}
-    name_to_module = dict(intervenable_model.model.named_modules())
+    name_to_module = dict(model.named_modules())
+    
+    # Debug: warn if any requested modules are missing
+    missing_modules = [m for m in all_modules if m not in name_to_module]
+    if missing_modules:
+        print(f"Warning: {len(missing_modules)} modules not found in model: {missing_modules[:3]}...")
     
     def make_hook(mod_name: str):
         return lambda module, inputs, output: captured.update({mod_name: {"output": safe_to_serializable(output)}})
@@ -318,9 +294,9 @@ def execute_forward_pass(model, tokenizer, prompt: str, config: Dict[str, Any],
         for mod_name in all_modules if mod_name in name_to_module
     ]
     
-    # Execute forward pass through underlying model and capture actual output
+    # Execute forward pass and capture actual output
     with torch.no_grad():
-        model_output = intervenable_model.model(**inputs, use_cache=False, output_attentions=True)
+        model_output = model(**inputs, use_cache=False, output_attentions=True)
     
     # Remove hooks
     for hook in hooks:
@@ -377,10 +353,14 @@ def execute_forward_pass(model, tokenizer, prompt: str, config: Dict[str, Any],
             ]
 
     # Build output dictionary
+    # Pre-decode tokens so downstream code doesn't need the tokenizer
+    decoded_tokens = [tokenizer.decode([tid]) for tid in inputs["input_ids"][0].tolist()]
+    
     result = {
         "model": getattr(model.config, "name_or_path", "unknown"),
         "prompt": prompt,
         "input_ids": safe_to_serializable(inputs["input_ids"]),
+        "tokens": decoded_tokens,
         "attention_modules": list(attention_outputs.keys()),
         "attention_outputs": attention_outputs,
         "block_modules": list(block_outputs.keys()),
@@ -393,6 +373,13 @@ def execute_forward_pass(model, tokenizer, prompt: str, config: Dict[str, Any],
         "prompt_token_count": prompt_token_count,
         "generated_tokens": generated_tokens,
         "original_prompt": original_prompt,
+        # Model config so pipeline doesn't need to reload the model
+        "model_config": {
+            "hidden_size": model.config.hidden_size,
+            "num_attention_heads": model.config.num_attention_heads,
+            "num_hidden_layers": model.config.num_hidden_layers,
+            "intermediate_size": getattr(model.config, 'intermediate_size', model.config.hidden_size * 4),
+        },
     }
     
     print(f"Captured {len(captured)} module outputs using PyVene")
@@ -438,33 +425,12 @@ def execute_forward_pass_with_head_ablation(model, tokenizer, prompt: str, confi
     if not target_attention_module:
         return {"error": f"Could not find attention module for layer {ablate_layer_num}"}
     
-    # Build IntervenableConfig
-    intervenable_representations = []
-    for mod_name in all_modules:
-        layer_match = re.search(r'\.(\d+)(?:\.|$)', mod_name)
-        if not layer_match:
-            return {"error": f"Invalid module name format: {mod_name}"}
-        
-        if 'attn' in mod_name or 'attention' in mod_name:
-            component = 'attention_output'
-        else:
-            component = 'block_output'
-        
-        intervenable_representations.append(
-            RepresentationConfig(layer=int(layer_match.group(1)), component=component, unit="pos")
-        )
-    
-    intervenable_config = IntervenableConfig(
-        intervenable_representations=intervenable_representations
-    )
-    intervenable_model = IntervenableModel(intervenable_config, model)
-    
     # Prepare inputs
     inputs = tokenizer(prompt, return_tensors="pt")
     
-    # Register hooks to capture activations
+    # Register hooks directly on the original model (avoids PyVene module renaming issues)
     captured = {}
-    name_to_module = dict(intervenable_model.model.named_modules())
+    name_to_module = dict(model.named_modules())
     
     def make_hook(mod_name: str):
         return lambda module, inputs, output: captured.update({mod_name: {"output": safe_to_serializable(output)}})
@@ -525,7 +491,7 @@ def execute_forward_pass_with_head_ablation(model, tokenizer, prompt: str, confi
     
     # Execute forward pass
     with torch.no_grad():
-        model_output = intervenable_model.model(**inputs, use_cache=False)
+        model_output = model(**inputs, use_cache=False)
     
     # Remove hooks
     for hook in hooks:
@@ -627,33 +593,12 @@ def execute_forward_pass_with_multi_layer_head_ablation(model, tokenizer, prompt
         else:
             return {"error": f"Could not find attention module for layer {layer_num}"}
     
-    # Build IntervenableConfig
-    intervenable_representations = []
-    for mod_name in all_modules:
-        layer_match = re.search(r'\.(\d+)(?:\.|$)', mod_name)
-        if not layer_match:
-            return {"error": f"Invalid module name format: {mod_name}"}
-        
-        if 'attn' in mod_name or 'attention' in mod_name:
-            component = 'attention_output'
-        else:
-            component = 'block_output'
-        
-        intervenable_representations.append(
-            RepresentationConfig(layer=int(layer_match.group(1)), component=component, unit="pos")
-        )
-    
-    intervenable_config = IntervenableConfig(
-        intervenable_representations=intervenable_representations
-    )
-    intervenable_model = IntervenableModel(intervenable_config, model)
-    
     # Prepare inputs
     inputs = tokenizer(prompt, return_tensors="pt")
     
-    # Register hooks to capture activations
+    # Register hooks directly on the original model (avoids PyVene module renaming issues)
     captured = {}
-    name_to_module = dict(intervenable_model.model.named_modules())
+    name_to_module = dict(model.named_modules())
     
     def make_hook(mod_name: str):
         return lambda module, inputs, output: captured.update({mod_name: {"output": safe_to_serializable(output)}})
@@ -733,7 +678,7 @@ def execute_forward_pass_with_multi_layer_head_ablation(model, tokenizer, prompt
     
     # Execute forward pass
     with torch.no_grad():
-        model_output = intervenable_model.model(**inputs, use_cache=False, output_attentions=True)
+        model_output = model(**inputs, use_cache=False, output_attentions=True)
     
     # Remove hooks
     for hook in hooks:
@@ -785,10 +730,14 @@ def execute_forward_pass_with_multi_layer_head_ablation(model, tokenizer, prompt
             ]
             
     # Build output dictionary
+    # Pre-decode tokens so downstream code doesn't need the tokenizer
+    decoded_tokens = [tokenizer.decode([tid]) for tid in inputs["input_ids"][0].tolist()]
+    
     result = {
         "model": getattr(model.config, "name_or_path", "unknown"),
         "prompt": prompt,
         "input_ids": safe_to_serializable(inputs["input_ids"]),
+        "tokens": decoded_tokens,
         "attention_modules": list(attention_outputs.keys()),
         "attention_outputs": attention_outputs,
         "block_modules": list(block_outputs.keys()),
@@ -802,6 +751,13 @@ def execute_forward_pass_with_multi_layer_head_ablation(model, tokenizer, prompt
         "prompt_token_count": prompt_token_count,
         "generated_tokens": generated_tokens,
         "original_prompt": original_prompt,
+        # Model config so pipeline doesn't need to reload the model
+        "model_config": {
+            "hidden_size": model.config.hidden_size,
+            "num_attention_heads": model.config.num_attention_heads,
+            "num_hidden_layers": model.config.num_hidden_layers,
+            "intermediate_size": getattr(model.config, 'intermediate_size', model.config.hidden_size * 4),
+        },
     }
     
     return result

@@ -203,14 +203,28 @@ def toggle_glossary(open_clicks, close_clicks, overlay_clicks):
      Output('attention-modules-dropdown', 'value', allow_duplicate=True),
      Output('block-modules-dropdown', 'value', allow_duplicate=True),
      Output('norm-params-dropdown', 'value', allow_duplicate=True),
-     Output('loading-indicator', 'children')],
+     Output('loading-indicator', 'children'),
+     # Clear all stale stores when model changes
+     Output('session-activation-store', 'data', allow_duplicate=True),
+     Output('session-activation-store-original', 'data', allow_duplicate=True),
+     Output('generation-results-store', 'data', allow_duplicate=True),
+     Output('generation-results-container', 'children', allow_duplicate=True),
+     Output('session-original-prompt-store', 'data', allow_duplicate=True),
+     Output('session-selected-beam-store', 'data', allow_duplicate=True),
+     Output('ablation-selected-heads', 'data', allow_duplicate=True),
+     Output('pipeline-container', 'style', allow_duplicate=True),
+     Output('investigation-panel', 'style', allow_duplicate=True)],
     [Input('model-dropdown', 'value')],
     prevent_initial_call=True
 )
 def load_model_patterns(selected_model):
     """Load and categorize model patterns when a model is selected."""
+    # 9 new cleared outputs: activation, activation-original, gen-results-store,
+    # gen-results-container, original-prompt, selected-beam, ablation-heads,
+    # pipeline style, investigation style
+    cleared_stores = ({}, {}, None, [], {}, {}, [], {'display': 'none'}, {'display': 'none'})
     if not selected_model:
-        return {}, [], [], [], None, None, None, None
+        return ({}, [], [], [], None, None, None, None) + cleared_stores
     
     try:
         module_patterns, param_patterns = load_model_and_get_patterns(selected_model)
@@ -269,7 +283,7 @@ def load_model_patterns(selected_model):
                 auto_selections.get('attention_selection', []),
                 auto_selections.get('block_selection', []),
                 auto_selections.get('norm_selection', []),
-                loading_content)
+                loading_content) + cleared_stores
         
     except Exception as e:
         print(f"Error loading model patterns: {e}")
@@ -277,7 +291,7 @@ def load_model_patterns(selected_model):
             html.I(className="fas fa-exclamation-triangle", style={'color': '#dc3545', 'marginRight': '8px'}),
             f"Error loading model: {str(e)}"
         ], className="status-error")
-        return {}, [], [], [], None, None, None, error_content
+        return ({}, [], [], [], None, None, None, error_content) + cleared_stores
 
 
 @app.callback(
@@ -357,7 +371,7 @@ def run_generation(n_clicks, model_name, prompt, max_new_tokens, beam_width, pat
     for comparison in experiments.
     """
     if not n_clicks or not model_name or not prompt:
-        return no_update, no_update, no_update, no_update, no_update, no_update, no_update
+        return no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update
 
     try:
         from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -450,11 +464,11 @@ def store_selected_beam(n_clicks_list, results_data, existing_activation_data, o
     the entire chosen output, not just the input.
     """
     if not any(n_clicks_list) or not results_data:
-        return no_update, no_update, no_update
+        return no_update, no_update, no_update, no_update
     
     ctx = dash.callback_context
     if not ctx.triggered:
-        return no_update, no_update, no_update
+        return no_update, no_update, no_update, no_update
         
     triggered_id = json.loads(ctx.triggered[0]['prop_id'].split('.')[0])
     index = triggered_id['index']
@@ -551,21 +565,28 @@ def update_pipeline_content(activation_data, model_name):
     if not activation_data or not model_name:
         return tuple(empty_outputs)
     
+    # Safety check: ensure activation data matches the current model
+    data_model = activation_data.get('model', '')
+    if data_model and data_model != model_name and data_model != 'unknown':
+        # Stale activation data from a different model — show empty
+        return tuple(empty_outputs)
+    
     try:
         from transformers import AutoModelForCausalLM, AutoTokenizer
         model = AutoModelForCausalLM.from_pretrained(model_name, attn_implementation='eager')
         tokenizer = AutoTokenizer.from_pretrained(model_name)
         
-        # Extract data
+        # Use pre-decoded tokens if available, otherwise decode from input_ids
         input_ids = activation_data.get('input_ids', [[]])[0]
-        tokens = [tokenizer.decode([tid]) for tid in input_ids]
+        tokens = activation_data.get('tokens') or [tokenizer.decode([tid]) for tid in input_ids]
         layer_data = extract_layer_data(activation_data, model, tokenizer)
         
-        # Get model config info
-        hidden_dim = model.config.hidden_size
-        num_heads = model.config.num_attention_heads
-        num_layers = model.config.num_hidden_layers
-        intermediate_dim = getattr(model.config, 'intermediate_size', hidden_dim * 4)
+        # Use stored model config if available, otherwise read from model
+        model_cfg = activation_data.get('model_config', {})
+        hidden_dim = model_cfg.get('hidden_size', model.config.hidden_size)
+        num_heads = model_cfg.get('num_attention_heads', model.config.num_attention_heads)
+        num_layers = model_cfg.get('num_hidden_layers', model.config.num_hidden_layers)
+        intermediate_dim = model_cfg.get('intermediate_size', getattr(model.config, 'intermediate_size', hidden_dim * 4))
         
         # Get actual output
         actual_output = activation_data.get('actual_output', {})
