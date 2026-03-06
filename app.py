@@ -973,6 +973,8 @@ def update_ablation_scrubber(position, original_data, ablated_data):
     if position is None or not original_data or not ablated_data:
         import dash
         return dash.no_update
+    
+    from components.ablation_panel import build_token_map, build_text_box, build_chart, build_divergence_indicator
         
     orig_pos_data = original_data.get('per_position_top5', [])
     abl_pos_data = ablated_data.get('per_position_top5', [])
@@ -980,75 +982,6 @@ def update_ablation_scrubber(position, original_data, ablated_data):
     orig_tokens = original_data.get('generated_tokens', [])
     abl_tokens = ablated_data.get('generated_tokens', [])
     
-    # Helper to build token map
-    def build_token_map(tokens, current_pos, changed_indices):
-        from dash import html
-        elements = []
-        for i, token in enumerate(tokens):
-            if i > 0: elements.append(html.Span(" → ", style={'color': '#ced4da', 'margin': '0 4px'}))
-            
-            is_current = i == current_pos
-            is_changed = i in changed_indices
-            
-            style = {'fontWeight': 'bold' if is_current else 'normal'}
-            if is_current:
-                style['color'] = '#ffffff'
-                style['backgroundColor'] = '#dc3545' if is_changed else '#28a745'
-                style['padding'] = '2px 6px'
-                style['borderRadius'] = '4px'
-            elif is_changed:
-                style['color'] = '#dc3545'
-                
-            elements.append(html.Span(f"T{i} ({token.strip()})", style=style))
-        return elements
-
-    # Helper to build text box
-    def build_text_box(prompt_text, tokens, current_pos, changed_indices):
-        from dash import html
-        elements = [html.Span(prompt_text, style={'color': '#6c757d'})]
-        for i, token in enumerate(tokens):
-            is_current = i == current_pos
-            is_changed = i in changed_indices
-            
-            style = {}
-            if is_current:
-                style['backgroundColor'] = '#ffc107' if is_changed else '#0dcaf0'
-                style['color'] = '#000'
-                style['borderRadius'] = '3px'
-                style['padding'] = '0 2px'
-                style['fontWeight'] = 'bold'
-                
-            elements.append(html.Span(token, style=style))
-        return elements
-        
-    def build_chart(pos_data, actual_token, main_color):
-        import plotly.graph_objs as go
-        if not pos_data: return go.Figure().update_layout(margin=dict(l=0, r=0, t=0, b=0), height=200)
-        
-        top5 = pos_data.get('top5', [])
-        tokens = [t['token'] for t in reversed(top5)]
-        probs = [t['probability'] for t in reversed(top5)]
-        
-        colors = []
-        for t in tokens:
-            if t == actual_token:
-                colors.append(main_color)
-            else:
-                colors.append('#e2e8f0' if main_color == '#4c51bf' else '#f8d7da')
-                
-        fig = go.Figure(go.Bar(
-            x=probs, y=tokens, orientation='h', marker_color=colors,
-            text=[f"{p:.1%}" for p in probs], textposition='auto'
-        ))
-        fig.update_layout(
-            margin=dict(l=0, r=0, t=0, b=0), height=200,
-            xaxis=dict(visible=False, range=[0, 1]),
-            yaxis=dict(tickfont=dict(size=12)),
-            paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
-            showlegend=False
-        )
-        return fig
-
     # Find changed indices
     changed_indices = set()
     for i in range(max(len(orig_tokens), len(abl_tokens))):
@@ -1066,23 +999,13 @@ def update_ablation_scrubber(position, original_data, ablated_data):
     orig_chart = []
     abl_chart = []
     
-    from dash import html
-    divergence_indicator = html.Div()
-    
     if position < len(orig_pos_data):
         orig_chart = build_chart(orig_pos_data[position], orig_pos_data[position].get('actual_token'), '#4c51bf')
     if position < len(abl_pos_data):
         abl_chart = build_chart(abl_pos_data[position], abl_pos_data[position].get('actual_token'), '#e53e3e')
         
     is_diverged = position in changed_indices
-    if is_diverged:
-        divergence_indicator = html.Div([
-            html.I(className="fas fa-exclamation-circle", style={'color': '#dc3545', 'fontSize': '32px', 'backgroundColor': '#fff5f5', 'borderRadius': '50%', 'padding': '10px', 'boxShadow': '0 0 15px rgba(220,53,69,0.4)'})
-        ])
-    else:
-        divergence_indicator = html.Div([
-            html.I(className="fas fa-check-circle", style={'color': '#28a745', 'fontSize': '32px', 'backgroundColor': '#f0fdf4', 'borderRadius': '50%', 'padding': '10px'})
-        ])
+    divergence_indicator = build_divergence_indicator(is_diverged)
         
     return orig_map, orig_text_box, orig_chart, abl_map, abl_text_box, abl_chart, divergence_indicator
 

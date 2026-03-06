@@ -10,6 +10,102 @@ import plotly.graph_objs as go
 import json
 from utils.colors import head_color
 
+
+# ============================================================================
+# Shared rendering helpers (used by both initial render and scrubber callback)
+# ============================================================================
+
+def build_token_map(tokens, current_pos, changed_indices):
+    """Build a token map display showing token sequence with current position highlighted."""
+    elements = []
+    for i, token in enumerate(tokens):
+        if i > 0:
+            elements.append(html.Span(" → ", style={'color': '#ced4da', 'margin': '0 4px'}))
+
+        is_current = i == current_pos
+        is_changed = i in changed_indices
+
+        style = {'fontWeight': 'bold' if is_current else 'normal'}
+        if is_current:
+            style['color'] = '#ffffff'
+            style['backgroundColor'] = '#dc3545' if is_changed else '#28a745'
+            style['padding'] = '2px 6px'
+            style['borderRadius'] = '4px'
+        elif is_changed:
+            style['color'] = '#dc3545'
+
+        elements.append(html.Span(f"T{i} ({token.strip()})", style=style))
+    return elements
+
+
+def build_text_box(prompt_text, tokens, current_pos, changed_indices):
+    """Build a text box with the prompt and generated tokens, highlighting the current position."""
+    elements = [html.Span(prompt_text, style={'color': '#6c757d'})]
+    for i, token in enumerate(tokens):
+        is_current = i == current_pos
+        is_changed = i in changed_indices
+
+        style = {}
+        if is_current:
+            style['backgroundColor'] = '#ffc107' if is_changed else '#0dcaf0'
+            style['color'] = '#000'
+            style['borderRadius'] = '3px'
+            style['padding'] = '0 2px'
+            style['fontWeight'] = 'bold'
+
+        elements.append(html.Span(token, style=style))
+    return elements
+
+
+def build_chart(pos_data, actual_token, main_color):
+    """Build a horizontal bar chart of top-5 predictions for a given position."""
+    if not pos_data:
+        return go.Figure().update_layout(margin=dict(l=0, r=0, t=0, b=0), height=200)
+
+    top5 = pos_data.get('top5', [])
+    tokens = [t['token'] for t in reversed(top5)]
+    probs = [t['probability'] for t in reversed(top5)]
+
+    colors = []
+    for t in tokens:
+        if t == actual_token:
+            colors.append(main_color)
+        else:
+            colors.append('#e2e8f0' if main_color == '#4c51bf' else '#f8d7da')
+
+    fig = go.Figure(go.Bar(
+        x=probs, y=tokens, orientation='h', marker_color=colors,
+        text=[f"{p:.1%}" for p in probs], textposition='auto'
+    ))
+    fig.update_layout(
+        margin=dict(l=0, r=0, t=0, b=0), height=200,
+        xaxis=dict(visible=False, range=[0, 1]),
+        yaxis=dict(tickfont=dict(size=12)),
+        paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+        showlegend=False
+    )
+    return fig
+
+
+def build_divergence_indicator(is_diverged):
+    """Build the divergence indicator icon (check or exclamation)."""
+    if is_diverged:
+        return html.Div([
+            html.I(className="fas fa-exclamation-circle", style={
+                'color': '#dc3545', 'fontSize': '32px', 'backgroundColor': '#fff5f5',
+                'borderRadius': '50%', 'padding': '10px',
+                'boxShadow': '0 0 15px rgba(220,53,69,0.4)'
+            })
+        ])
+    else:
+        return html.Div([
+            html.I(className="fas fa-check-circle", style={
+                'color': '#28a745', 'fontSize': '32px', 'backgroundColor': '#f0fdf4',
+                'borderRadius': '50%', 'padding': '10px'
+            })
+        ])
+
+
 def create_ablation_panel():
     """Create the main ablation tool content."""
     return html.Div([
@@ -268,6 +364,31 @@ def create_ablation_results_display(original_data, ablated_data, selected_heads,
         )
     ], style={'padding': '0 20px 20px 20px'})
     
+    # --- Pre-populate position 0 content so the display isn't blank ---
+    prompt_text = original_data.get('original_prompt', original_data.get('prompt', '')) if original_data else ''
+    
+    # Compute changed indices (same logic as the scrubber callback)
+    changed_indices = set()
+    for i in range(max(len(orig_tokens), len(abl_tokens))):
+        if i >= len(orig_tokens) or i >= len(abl_tokens) or orig_tokens[i] != abl_tokens[i]:
+            changed_indices.add(i)
+    
+    pos0 = 0
+    init_orig_map = build_token_map(orig_tokens, pos0, set())
+    init_abl_map = build_token_map(abl_tokens, pos0, changed_indices)
+    init_orig_text = build_text_box(prompt_text, orig_tokens, pos0, set())
+    init_abl_text = build_text_box(prompt_text, abl_tokens, pos0, changed_indices)
+    
+    init_orig_chart = go.Figure().update_layout(margin=dict(l=0, r=0, t=0, b=0), height=200)
+    init_abl_chart = go.Figure().update_layout(margin=dict(l=0, r=0, t=0, b=0), height=200)
+    if pos0 < len(orig_positions):
+        init_orig_chart = build_chart(orig_positions[pos0], orig_positions[pos0].get('actual_token'), '#4c51bf')
+    if pos0 < len(abl_positions):
+        init_abl_chart = build_chart(abl_positions[pos0], abl_positions[pos0].get('actual_token'), '#e53e3e')
+    
+    init_diverged = pos0 in changed_indices
+    init_divergence = build_divergence_indicator(init_diverged)
+    
     # Comparison Grid
     comparison_grid = html.Div([
         # Original Output Column (Green Theme)
@@ -277,20 +398,20 @@ def create_ablation_results_display(original_data, ablated_data, selected_heads,
                 'borderRadius': '16px', 'fontWeight': 'bold', 'fontSize': '12px',
                 'display': 'inline-block', 'marginBottom': '15px'
             }),
-            html.Div(id='ablation-original-token-map', style={'fontSize': '12px', 'color': '#6c757d', 'marginBottom': '10px', 'minHeight': '40px', 'textAlign': 'left', 'lineHeight': '1.5'}),
-            html.Div(id='ablation-original-text-box', style={
+            html.Div(init_orig_map, id='ablation-original-token-map', style={'fontSize': '12px', 'color': '#6c757d', 'marginBottom': '10px', 'minHeight': '40px', 'textAlign': 'left', 'lineHeight': '1.5'}),
+            html.Div(init_orig_text, id='ablation-original-text-box', style={
                 'backgroundColor': '#f8f9fa', 'border': '1px solid #dee2e6', 'borderRadius': '8px', 
                 'padding': '15px', 'fontFamily': 'monospace', 'fontSize': '14px', 'minHeight': '80px', 'marginBottom': '15px', 'textAlign': 'left', 'whiteSpace': 'pre-wrap'
             }),
             html.Div("TOP 5 PREDICTIONS", style={'textAlign': 'center', 'fontWeight': 'bold', 'color': '#495057', 'fontSize': '12px', 'marginBottom': '10px'}),
-            dcc.Graph(id='ablation-original-top5-chart', config={'displayModeBar': False}, style={'height': '200px'})
+            dcc.Graph(id='ablation-original-top5-chart', figure=init_orig_chart, config={'displayModeBar': False}, style={'height': '200px'})
         ], style={
             'flex': '1', 'border': '2px solid #28a745', 'borderRadius': '12px', 
             'padding': '20px', 'textAlign': 'center', 'backgroundColor': 'white', 'width': '45%'
         }),
         
         # Center Divergence Indicator
-        html.Div(id='ablation-divergence-indicator', style={
+        html.Div(init_divergence, id='ablation-divergence-indicator', style={
             'width': '60px', 'display': 'flex', 'flexDirection': 'column', 
             'alignItems': 'center', 'justifyContent': 'center'
         }),
@@ -302,13 +423,13 @@ def create_ablation_results_display(original_data, ablated_data, selected_heads,
                 'borderRadius': '16px', 'fontWeight': 'bold', 'fontSize': '12px',
                 'display': 'inline-block', 'marginBottom': '15px'
             }),
-            html.Div(id='ablation-ablated-token-map', style={'fontSize': '12px', 'color': '#6c757d', 'marginBottom': '10px', 'minHeight': '40px', 'textAlign': 'left', 'lineHeight': '1.5'}),
-            html.Div(id='ablation-ablated-text-box', style={
+            html.Div(init_abl_map, id='ablation-ablated-token-map', style={'fontSize': '12px', 'color': '#6c757d', 'marginBottom': '10px', 'minHeight': '40px', 'textAlign': 'left', 'lineHeight': '1.5'}),
+            html.Div(init_abl_text, id='ablation-ablated-text-box', style={
                 'backgroundColor': '#f8f9fa', 'border': '1px solid #dee2e6', 'borderRadius': '8px', 
                 'padding': '15px', 'fontFamily': 'monospace', 'fontSize': '14px', 'minHeight': '80px', 'marginBottom': '15px', 'textAlign': 'left', 'whiteSpace': 'pre-wrap'
             }),
             html.Div("TOP 5 PREDICTIONS", style={'textAlign': 'center', 'fontWeight': 'bold', 'color': '#495057', 'fontSize': '12px', 'marginBottom': '10px'}),
-            dcc.Graph(id='ablation-ablated-top5-chart', config={'displayModeBar': False}, style={'height': '200px'})
+            dcc.Graph(id='ablation-ablated-top5-chart', figure=init_abl_chart, config={'displayModeBar': False}, style={'height': '200px'})
         ], style={
             'flex': '1', 'border': '2px solid #dc3545', 'borderRadius': '12px', 
             'padding': '20px', 'textAlign': 'center', 'backgroundColor': 'white', 'width': '45%'

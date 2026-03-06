@@ -1,4 +1,5 @@
-- specs on what each attention head does
+To Do:
+- generating with 1 output token doesn't show the "selected" beam, so users can't see the output from the model
 
 Done:
 - change attention to entire generated sequence
@@ -10,3 +11,4 @@ Done:
 - shorter, concise responses in system prompt
 - add video links to glossary
     - three blue one brown
+- specs on what each attention head does
