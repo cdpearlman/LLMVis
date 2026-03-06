@@ -432,9 +432,50 @@ def run_generation(n_clicks, model_name, prompt, max_new_tokens, beam_width, pat
                     activation_data, activation_data, original_prompt_data, {})
             
         else:
-            # Single token generation - store the result as selected beam
-            selected_beam_data = {'text': results[0]['text'], 'score': results[0].get('score', 0)}
-            return (results_ui, results, {'display': 'block'}, {'display': 'block'}, 
+            if beam_width > 1:
+                # Multiple beams, single token — show selection UI
+                results_ui.append(html.H4("Generated Sequences", className="section-title"))
+                results_ui.append(html.P("Select a sequence to store for comparison after experiments.",
+                                         style={'color': '#6c757d', 'fontSize': '13px', 'marginBottom': '12px'}))
+                for i, result in enumerate(results):
+                    results_ui.append(html.Div([
+                        html.Div([
+                            html.Span(f"Rank {i+1}", style={'fontWeight': 'bold', 'marginRight': '10px', 'color': '#667eea'})
+                        ], style={'marginBottom': '5px'}),
+                        html.Div(result['text'], style={'fontFamily': 'monospace', 'backgroundColor': '#fff', 'padding': '10px', 'borderRadius': '4px', 'border': '1px solid #dee2e6'}),
+                        html.Button("Select for Comparison", id={'type': 'result-item', 'index': i}, n_clicks=0,
+                                   className="action-button secondary-button", style={'marginTop': '10px', 'fontSize': '12px'})
+                    ], style={'marginBottom': '15px', 'padding': '15px', 'backgroundColor': '#f8f9fa', 'borderRadius': '6px'}))
+                selected_beam_data = {}
+            else:
+                # Single beam, single token — auto-select and show "Selected" badge
+                result = results[0]
+                selected_beam_data = {'text': result['text'], 'score': result.get('score', 0)}
+                results_ui.append(html.Div([
+                    html.H4("Selected Sequence", className="section-title"),
+                    html.Div([
+                        html.Div([
+                            html.Span([
+                                html.I(className="fas fa-check-circle", style={'marginRight': '8px', 'color': '#28a745'}),
+                                "Selected for Comparison"
+                            ], style={
+                                'display': 'inline-flex', 'alignItems': 'center',
+                                'padding': '6px 12px', 'backgroundColor': '#d4edda',
+                                'color': '#155724', 'borderRadius': '16px',
+                                'fontSize': '12px', 'fontWeight': '500', 'marginBottom': '12px'
+                            })
+                        ]),
+                        html.Div(result['text'], style={
+                            'fontFamily': 'monospace', 'backgroundColor': '#fff',
+                            'padding': '12px', 'borderRadius': '6px', 'border': '2px solid #28a745'
+                        })
+                    ], style={
+                        'padding': '16px', 'backgroundColor': '#f8f9fa',
+                        'borderRadius': '8px', 'border': '1px solid #dee2e6'
+                    })
+                ]))
+
+            return (results_ui, results, {'display': 'block'}, {'display': 'block'},
                     activation_data, activation_data, original_prompt_data, selected_beam_data)
 
     except Exception as e:
