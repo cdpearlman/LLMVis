@@ -1383,6 +1383,31 @@ def generate_bertviz_html(activation_data: Dict[str, Any], layer_index: int, vie
                 'headColors = d3.scale.category10();',
                 _patch
             )
+
+            # Inject head-index labels inside the checkbox swatches.
+            # Target the first `updateCheckboxes();` call inside drawCheckboxes
+            # and prepend D3 code that appends <text> elements over each rect.
+            _label_js = (
+                'checkboxContainer.selectAll("text")\n'
+                '            .data(config.headVis)\n'
+                '            .enter()\n'
+                '            .append("text")\n'
+                '            .text((d, i) => i)\n'
+                '            .attr("x", (d, i) => i * CHECKBOX_SIZE + CHECKBOX_SIZE / 2)\n'
+                '            .attr("y", top + CHECKBOX_SIZE / 2)\n'
+                '            .attr("text-anchor", "middle")\n'
+                '            .attr("dominant-baseline", "central")\n'
+                '            .attr("font-size", "10px")\n'
+                '            .attr("font-weight", "bold")\n'
+                '            .attr("fill", "white")\n'
+                '            .attr("pointer-events", "none");\n'
+                '        updateCheckboxes();'
+            )
+            html_str = html_str.replace(
+                'updateCheckboxes();\n\n        checkbox.on',
+                _label_js + '\n\n        checkbox.on',
+                1,  # replace only the first occurrence
+            )
             return html_str
             
     except Exception as e:
