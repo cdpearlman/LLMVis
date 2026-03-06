@@ -968,7 +968,7 @@ def run_ablation_experiment(n_clicks, selected_heads, activation_data, model_nam
             selected_heads, selected_beam, ablated_beam
         )
         
-        return results_display, ablated_data, activation_data
+        return results_display, ablated_data, original_data_for_display
         
     except Exception as e:
         import traceback
