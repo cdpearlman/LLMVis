@@ -939,12 +939,32 @@ def run_ablation_experiment(n_clicks, selected_heads, activation_data, model_nam
         # Mark as ablated so UI knows
         ablated_data['ablated'] = True
         
+        # Ensure original data has generation info for the comparison display.
+        # When no beam was selected (multi-token without "Select for Comparison"),
+        # activation_data lacks generated_tokens/per_position_top5.
+        original_data_for_display = activation_data
+        if not activation_data.get('generated_tokens'):
+            original_beam_results = perform_beam_search(
+                model, tokenizer, prompt, beam_width, max_new_tokens
+            )
+            if original_beam_results:
+                original_text = original_beam_results[0]['text']
+                original_data_for_display = execute_forward_pass(
+                    model, tokenizer, original_text, config, original_prompt=prompt
+                )
+                # Auto-populate selected_beam for text display
+                if not selected_beam:
+                    selected_beam = {
+                        'text': original_text,
+                        'score': original_beam_results[0].get('score', 0)
+                    }
+        
         ablated_output = ablated_data.get('actual_output', {})
         ablated_token = ablated_output.get('token', '')
         ablated_prob = ablated_output.get('probability', 0)
         
         results_display = create_ablation_results_display(
-            activation_data, ablated_data,
+            original_data_for_display, ablated_data,
             selected_heads, selected_beam, ablated_beam
         )
         
