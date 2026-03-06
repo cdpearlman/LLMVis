@@ -1187,9 +1187,11 @@ _chat_stream_queue = queue.Queue()
 _chat_stream_active = False
 _chat_stream_content = ""
 
-def _background_generate(user_input, chat_history, rag_context, dashboard_context):
+def _background_generate(user_input, chat_history, dashboard_context):
     global _chat_stream_active
     try:
+        from utils.rag_utils import build_rag_context
+        rag_context = build_rag_context(user_input, top_k=3)
         from utils.openrouter_client import generate_stream
         for chunk in generate_stream(user_input, chat_history, rag_context, dashboard_context):
             _chat_stream_queue.put(chunk)
@@ -1265,7 +1267,6 @@ def send_chat_message(send_clicks, user_input, chat_history,
                       model_name, prompt, activation_data, ablated_heads):
     """Handle sending a chat message and start stream."""
     global _chat_stream_active, _chat_stream_content
-    from utils.rag_utils import build_rag_context
     
     if not user_input or not user_input.strip():
         return no_update, no_update, no_update, no_update, no_update
@@ -1290,8 +1291,6 @@ def send_chat_message(send_clicks, user_input, chat_history,
         if top5: dashboard_context['top_predictions'] = top5
     if ablated_heads: dashboard_context['ablated_heads'] = ablated_heads
     
-    rag_context = build_rag_context(user_input, top_k=3)
-    
     _chat_stream_content = ""
     while not _chat_stream_queue.empty():
         try: _chat_stream_queue.get_nowait()
@@ -1300,11 +1299,11 @@ def send_chat_message(send_clicks, user_input, chat_history,
     _chat_stream_active = True
     threading.Thread(
         target=_background_generate, 
-        args=(user_input, chat_history[:-2], rag_context, dashboard_context), 
+        args=(user_input, chat_history[:-2], dashboard_context), 
         daemon=True
     ).start()
     
-    messages_ui = render_messages(chat_history)
+    messages_ui = render_messages(chat_history[:-1])
     
     return messages_ui, chat_history, '', {'display': 'flex'}, False
 
@@ -1360,7 +1359,9 @@ def update_messages_from_store(chat_history):
         greeting_history = [{'role': 'assistant', 'content': GREETING_MESSAGE}]
         return render_messages(greeting_history), greeting_history
     
-    return render_messages(chat_history), no_update
+    # Filter out empty assistant placeholders (used during streaming)
+    display_history = [m for m in chat_history if m.get('content')]
+    return render_messages(display_history), no_update
 
 
 # Client-side callback for scroll down

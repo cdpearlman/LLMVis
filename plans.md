@@ -1,5 +1,4 @@
 To Do:
-- add head index numbers to color swatches in BertViz visualization graph
 - clicking send in the chatbot doesn't immediately show the purple text bubble from the user and the typing animation, there are a couple seconds of nothing. It should immediately populate the text bubble and start the typing animation
 
 Done:
@@ -14,3 +13,4 @@ Done:
     - three blue one brown
 - specs on what each attention head does
 - generating with 1 output token doesn't show the "selected" beam, so users can't see the output from the model
+- add head index numbers to color swatches in BertViz visualization graph
