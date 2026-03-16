@@ -94,7 +94,7 @@ app.layout = html.Div([
                         
                         html.Div([
                             html.Div([
-                                html.Label("Number of New Tokens:", className="input-label"),
+                                html.Label("Words to Generate:", className="input-label"),
                                 dcc.Slider(
                                     id='max-new-tokens-slider',
                                     min=1, max=20, step=1, value=1,
@@ -668,11 +668,11 @@ def update_pipeline_content(activation_data, model_name):
         outputs.append(create_tokenization_content(tokens, input_ids))
         
         # Stage 2: Embedding
-        outputs.append(f"{hidden_dim}-dim vectors")
+        outputs.append(f"{hidden_dim} numbers per word")
         outputs.append(create_embedding_content(hidden_dim, len(tokens)))
         
         # Stage 3: Attention (Agent G: now includes head_categories)
-        outputs.append(f"{num_heads} heads × {num_layers} layers")
+        outputs.append(f"{num_heads} detectors × {num_layers} layers")
         outputs.append(create_attention_content(attention_html, None, head_categories=head_categories))
         
         # Stage 4: MLP
@@ -831,7 +831,7 @@ def update_ablation_selectors(activation_data, selected_layer, model_name):
     # Update head options based on selected layer
     head_options = []
     if selected_layer is not None:
-        head_options = [{'label': f'Head {i}', 'value': i} for i in range(num_heads)]
+        head_options = [{'label': f'Detector {i}', 'value': i} for i in range(num_heads)]
     
     # If only layer changed, return no_update for layer options to avoid flickering
     if trigger_id == 'ablation-layer-select':
@@ -952,7 +952,7 @@ def run_ablation_experiment(n_clicks, selected_heads, activation_data, model_nam
                     heads_by_layer[layer].append(head)
         
         if not heads_by_layer:
-            return html.Div("No valid heads selected.", style={'color': '#dc3545'}), no_update, no_update
+            return html.Div("No valid detectors selected.", style={'color': '#dc3545'}), no_update, no_update
         
         # Run ablation for generation
         ablated_beam = None
@@ -1014,7 +1014,7 @@ def run_ablation_experiment(n_clicks, selected_heads, activation_data, model_nam
     except Exception as e:
         import traceback
         traceback.print_exc()
-        return html.Div(f"Ablation error: {str(e)}", style={'color': '#dc3545'}), no_update, no_update
+        return html.Div(f"Removal test error: {str(e)}", style={'color': '#dc3545'}), no_update, no_update
 
 
 @app.callback(

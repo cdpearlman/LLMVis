@@ -13,11 +13,11 @@ from typing import List, Dict, Optional
 GREETING_MESSAGE = """Hi there! I'm your AI assistant for exploring transformer models.
 
 I can help you understand:
-- How attention heads and layers process your input
+- How attention detectors and layers process your input
 - What various experiments can reveal about model behavior
 - General transformer and ML concepts
 
-Try asking: "What does attention head 0 in layer 1 do?" or "Why did ablating this head change the output?"
+Try asking: "What does attention detector 0 in layer 1 do?" or "Why did removing this detector change the output?"
 """
 
 

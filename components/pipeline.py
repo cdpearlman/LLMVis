@@ -39,7 +39,7 @@ def create_pipeline_container():
             create_stage_container(
                 stage_id='tokenization',
                 stage_num=1,
-                title='Tokenization',
+                title='Text Splitting',
                 icon='fa-puzzle-piece',
                 color='#667eea',
                 summary_id='stage-1-summary',
@@ -50,7 +50,7 @@ def create_pipeline_container():
             create_stage_container(
                 stage_id='embedding',
                 stage_num=2,
-                title='Embedding',
+                title='Meaning Encoding',
                 icon='fa-cube',
                 color='#764ba2',
                 summary_id='stage-2-summary',
@@ -72,7 +72,7 @@ def create_pipeline_container():
             create_stage_container(
                 stage_id='mlp',
                 stage_num=4,
-                title='MLP (Feed-Forward)',
+                title='Knowledge Retrieval',
                 icon='fa-network-wired',
                 color='#4facfe',
                 summary_id='stage-4-summary',
@@ -98,10 +98,10 @@ def create_flow_indicator():
     """Create the horizontal flow indicator showing all stages."""
     stages = [
         ('Input', '#6c757d'),
-        ('Tokens', '#667eea'),
-        ('Embed', '#764ba2'),
+        ('Split', '#667eea'),
+        ('Encode', '#764ba2'),
         ('Attention', '#f093fb'),
-        ('MLP', '#4facfe'),
+        ('Knowledge', '#4facfe'),
         ('Output', '#00f2fe'),
     ]
     
@@ -288,9 +288,9 @@ def create_tokenization_content(tokens, token_ids, model_name=None):
         html.Div([
             html.H5("What happens here:", style={'color': '#495057', 'marginBottom': '8px'}),
             html.P([
-                "Your text is split into ", 
-                html.Strong(f"{len(tokens)} tokens"),
-                " - small pieces that the model can understand. Each token is assigned a unique ID from the model's vocabulary."
+                "Your text is split into ",
+                html.Strong(f"{len(tokens)} pieces"),
+                " (called ", html.Em("tokens"), ") — small chunks that the model can understand. Each piece is assigned a unique ID from the model's vocabulary."
             ], style={'color': '#6c757d', 'fontSize': '14px', 'marginBottom': '16px'})
         ]),
         
@@ -339,19 +339,19 @@ def create_embedding_content(hidden_dim=None, num_tokens=None):
         hidden_dim: Embedding dimension (e.g., 768)
         num_tokens: Number of tokens being processed
     """
-    dim_text = f"{hidden_dim}-dimensional" if hidden_dim else "high-dimensional"
-    
+    dim_text = f"a list of {hidden_dim} numbers" if hidden_dim else "a long list of numbers"
+
     return html.Div([
         html.Div([
             html.H5("What happens here:", style={'color': '#495057', 'marginBottom': '8px'}),
             html.P([
-                "Each token ID is used to look up a ", html.Strong(dim_text), " vector from a ",
-                html.Strong("pre-learned embedding table"), ". Think of it like a dictionary: the model has already ",
-                "memorized a numeric representation for every word in its vocabulary during training."
+                "Each piece is converted into ", html.Strong(dim_text), " using a ",
+                html.Strong("pre-learned lookup table"), ". Think of it like a dictionary: the model has already ",
+                "memorized a numeric code for every word in its vocabulary during training."
             ], style={'color': '#6c757d', 'fontSize': '14px', 'marginBottom': '12px'}),
             html.P([
-                "These embeddings capture semantic meaning - words with similar meanings (like 'happy' and 'joyful') ",
-                "have similar vectors, allowing the model to understand relationships between words."
+                "These numeric codes capture meaning — words with similar meanings (like 'happy' and 'joyful') ",
+                "get similar numbers, allowing the model to understand relationships between words."
             ], style={'color': '#6c757d', 'fontSize': '14px', 'marginBottom': '16px'})
         ]),
         
@@ -373,7 +373,7 @@ def create_embedding_content(hidden_dim=None, num_tokens=None):
                 html.Span('→', style={'margin': '0 16px', 'fontSize': '24px', 'color': '#adb5bd'}),
                 html.Div([
                     html.Span('[', style={'fontSize': '20px', 'color': '#495057'}),
-                    html.Span(f' {dim_text} vector ', style={
+                    html.Span(f' {dim_text} ', style={
                         'padding': '4px 12px',
                         'backgroundColor': '#e5d4ff',
                         'borderRadius': '4px',
@@ -390,8 +390,8 @@ def create_embedding_content(hidden_dim=None, num_tokens=None):
             html.I(className='fas fa-lightbulb', style={'color': '#ffc107', 'marginRight': '8px'}),
             html.Span([
                 html.Strong("How the lookup table was created: "),
-                "During training on billions of text examples, the model learned which numbers best represent each token. ",
-                "This table is frozen after training - every time you use the model, the same token always maps to the same vector."
+                "During training on billions of text examples, the model learned which numbers best represent each word piece. ",
+                "This table is frozen after training — every time you use the model, the same piece always maps to the same list of numbers."
             ], style={'color': '#6c757d', 'fontSize': '13px'})
         ], style={'marginTop': '16px', 'padding': '12px', 'backgroundColor': '#fff8e1', 'borderRadius': '6px'}),
         
@@ -400,12 +400,12 @@ def create_embedding_content(hidden_dim=None, num_tokens=None):
             html.I(className='fas fa-map-marker-alt', style={'color': '#5c6bc0', 'marginRight': '8px'}),
             html.Span([
                 html.Strong("Position matters too: "),
-                "Token embeddings alone don't capture word order — 'the cat chased the dog' and 'the dog chased the cat' ",
+                "These numeric codes alone don't capture word order — 'the cat chased the dog' and 'the dog chased the cat' ",
                 "would look the same. To fix this, the model also encodes ", html.Strong("positional information"),
-                ". Some models (like GPT-2) add a learned position vector to each token embedding. ",
+                ". Some models (like GPT-2) add a learned set of position numbers to each piece's code. ",
                 "Others (like Pythia) use a technique called Rotary Positional Encoding, which encodes ",
-                "the relative distance between tokens directly in the attention step. ",
-                "Either way, the model knows both ", html.Em("what"), " each token is and ",
+                "the relative distance between pieces directly in the attention step. ",
+                "Either way, the model knows both ", html.Em("what"), " each piece is and ",
                 html.Em("where"), " it sits in the sequence."
             ], style={'color': '#6c757d', 'fontSize': '13px'})
         ], style={'marginTop': '12px', 'padding': '12px', 'backgroundColor': '#e8eaf6', 'borderRadius': '6px'})
@@ -431,13 +431,13 @@ def create_attention_content(attention_html=None, top_attended=None, layer_info=
         html.Div([
             html.H5("What happens here:", style={'color': '#495057', 'marginBottom': '8px'}),
             html.P([
-                "The model looks at ", html.Strong("all tokens at once"), 
+                "The model looks at ", html.Strong("all pieces at once"),
                 " and figures out which ones are related to each other. This is called 'attention' — ",
-                "each token 'attends to' other tokens to gather context for its prediction."
+                "each piece 'attends to' other pieces to gather context for its prediction."
             ], style={'color': '#6c757d', 'fontSize': '14px', 'marginBottom': '12px'}),
             html.P([
-                "Attention has multiple ", html.Strong("heads"), " — each head learns to look for different types of relationships. ",
-                "Below you can see what role each head plays and whether it's active on your current input."
+                "Attention uses multiple ", html.Strong("detectors"), " (technically called 'heads') — each one learns to look for different types of relationships. ",
+                "Below you can see what role each detector plays and whether it's active on your current input."
             ], style={'color': '#6c757d', 'fontSize': '14px', 'marginBottom': '16px'})
         ])
     ]
@@ -476,9 +476,9 @@ def create_attention_content(attention_html=None, top_attended=None, layer_info=
                     html.I(className='fas fa-lightbulb', style={'color': '#f39c12', 'marginRight': '8px', 'fontSize': '16px'}),
                     html.Span([
                         html.Strong("Try this: "),
-                        f"Select Layer {guided_head['layer']}, Head {guided_head['head']} in the visualization below — ",
-                        f"this is a {guided_cat} head ",
-                        f"(activation: {guided_head['activation_score']:.0%} on your input)."
+                        f"Select Layer {guided_head['layer']}, Detector {guided_head['head']} in the visualization below — ",
+                        f"this is a {guided_cat} detector ",
+                        f"(activity level: {guided_head['activation_score']:.0%} on your input)."
                     ], style={'color': '#495057', 'fontSize': '13px'})
                 ], style={
                     'padding': '12px 16px', 'backgroundColor': '#fef9e7', 'borderRadius': '8px',
@@ -554,7 +554,7 @@ def create_attention_content(attention_html=None, top_attended=None, layer_info=
                                 'fontFamily': 'monospace', 'fontSize': '12px', 'fontWeight': '500',
                                 'minWidth': '60px', 'color': '#495057' if is_active else '#aaa',
                                 'display': 'inline-flex', 'alignItems': 'center',
-                            }, title=f"See Layer {head_info['layer']}, Head {head_info['head']} in the visualization below"),
+                            }, title=f"See Layer {head_info['layer']}, Detector {head_info['head']} in the visualization below"),
                             # Activation bar
                             html.Div([
                                 html.Div(style={
@@ -660,10 +660,10 @@ def create_attention_content(attention_html=None, top_attended=None, layer_info=
             
             content_items.append(
                 html.Div([
-                    html.H5("Attention Head Roles:", style={'color': '#495057', 'marginBottom': '8px'}),
+                    html.H5("Attention Detector Roles:", style={'color': '#495057', 'marginBottom': '8px'}),
                     html.P([
-                        "Each category represents a type of behavior we detected in this model's attention heads. ",
-                        "Click a category to see individual heads and how strongly they're activated on your input."
+                        "Each category represents a type of behavior we detected in this model's attention detectors. ",
+                        "Click a category to see individual detectors and how strongly they're activated on your input."
                     ], style={'color': '#6c757d', 'fontSize': '12px', 'marginBottom': '12px'}),
                     legend,
                     html.Div(category_sections),
@@ -671,8 +671,8 @@ def create_attention_content(attention_html=None, top_attended=None, layer_info=
                     html.Div([
                         html.I(className='fas fa-info-circle', style={'color': '#6c757d', 'marginRight': '6px', 'fontSize': '11px'}),
                         html.Span(
-                            "These categories are simplified labels based on each head's dominant behavior. "
-                            "In reality, heads can serve multiple roles and may behave differently on different inputs.",
+                            "These categories are simplified labels based on each detector's dominant behavior. "
+                            "In reality, detectors can serve multiple roles and may behave differently on different inputs.",
                             style={'color': '#999', 'fontSize': '11px'}
                         )
                     ], style={'marginTop': '12px', 'padding': '8px 12px', 'backgroundColor': '#f8f9fa', 'borderRadius': '6px'})
@@ -684,7 +684,7 @@ def create_attention_content(attention_html=None, top_attended=None, layer_info=
             html.Div([
                 html.I(className='fas fa-info-circle', style={'color': '#6c757d', 'marginRight': '8px'}),
                 html.Span(
-                    "Head categorization is not available for this model. "
+                    "Detector categorization is not available for this model. "
                     "The attention visualization below still shows the full attention patterns.",
                     style={'color': '#6c757d', 'fontSize': '13px'}
                 )
@@ -702,26 +702,26 @@ def create_attention_content(attention_html=None, top_attended=None, layer_info=
                 html.Div([
                     html.Div([
                         html.I(className='fas fa-mouse-pointer', style={'color': '#f093fb', 'marginRight': '8px'}),
-                        html.Strong("Select heads: "),
-                        html.Span("Click on layer/head numbers at the top to view specific attention heads.",
+                        html.Strong("Select detectors: "),
+                        html.Span("Click on layer/detector numbers at the top to view specific attention detectors.",
                                  style={'color': '#6c757d'})
                     ], style={'marginBottom': '4px'}),
                     html.Div([
                         html.Span("• ", style={'color': '#f093fb', 'fontWeight': 'bold'}),
                         html.Strong("Single click ", style={'color': '#495057'}),
-                        html.Span("on a colored head square: selects or deselects that head",
+                        html.Span("on a colored square: selects or deselects that detector",
                                  style={'color': '#6c757d'})
                     ], style={'marginLeft': '28px', 'marginBottom': '4px', 'fontSize': '13px'}),
                     html.Div([
                         html.Span("• ", style={'color': '#f093fb', 'fontWeight': 'bold'}),
                         html.Strong("Double click ", style={'color': '#495057'}),
-                        html.Span("on a colored head square: selects only that head (deselects all others)",
+                        html.Span("on a colored square: selects only that detector (deselects all others)",
                                  style={'color': '#6c757d'})
                     ], style={'marginLeft': '28px', 'marginBottom': '12px', 'fontSize': '13px'}),
                     html.Div([
                         html.I(className='fas fa-arrows-alt-h', style={'color': '#f093fb', 'marginRight': '8px'}),
                         html.Strong("Lines show attention: "),
-                        html.Span("Each line connects a token (left) to tokens it attends to (right). ",
+                        html.Span("Each line connects a word (left) to words it attends to (right). ",
                                  style={'color': '#6c757d'})
                     ], style={'marginBottom': '8px'}),
                     html.Div([
@@ -774,14 +774,14 @@ def create_mlp_content(layer_count=None, hidden_dim=None, intermediate_dim=None)
         html.Div([
             html.H5("What happens here:", style={'color': '#495057', 'marginBottom': '8px'}),
             html.P([
-                "After attention gathers context, each token's representation passes through a ", 
-                html.Strong("Feed-Forward Network (MLP)"),
+                "After attention gathers context, each piece's representation passes through a ",
+                html.Strong("knowledge retrieval layer"), " (technically called a Feed-Forward Network or MLP)",
                 ". This is where the model's ", html.Strong("factual knowledge"), " is stored."
             ], style={'color': '#6c757d', 'fontSize': '14px', 'marginBottom': '12px'}),
             html.P([
-                "During training, the MLP weights learned to encode facts and patterns from the training data. ",
-                "For example, when processing 'The capital of France is', the MLP layers help recall that 'Paris' is the answer. ",
-                "Researchers have found that specific facts are often stored in specific MLP neurons."
+                "During training, these layers learned to encode facts and patterns from the training data. ",
+                "For example, when processing 'The capital of France is', these knowledge layers help recall that 'Paris' is the answer. ",
+                "Researchers have found that specific facts are often stored in specific neurons within these layers."
             ], style={'color': '#6c757d', 'fontSize': '14px', 'marginBottom': '16px'})
         ]),
         
@@ -851,7 +851,7 @@ def create_mlp_content(layer_count=None, hidden_dim=None, intermediate_dim=None)
             html.Span([
                 f"This happens in each of the model's ",
                 html.Strong(f"{layer_count} layers" if layer_count else "transformer layers"),
-                ", with attention and MLP working together - attention gathers context, MLP retrieves knowledge."
+                ", with attention and knowledge retrieval working together — attention gathers context, and the knowledge layers retrieve facts."
             ], style={'color': '#6c757d', 'fontSize': '13px'})
         ], style={'marginTop': '12px', 'padding': '12px', 'backgroundColor': '#e3f2fd', 'borderRadius': '6px'}),
         
@@ -860,8 +860,8 @@ def create_mlp_content(layer_count=None, hidden_dim=None, intermediate_dim=None)
             html.I(className='fas fa-road', style={'color': '#26a69a', 'marginRight': '8px'}),
             html.Span([
                 html.Strong("Adding, not replacing: "),
-                "The MLP doesn't replace the token's representation — it ",
-                html.Strong("adds"), " to the residual stream. Each layer contributes new information on top of ",
+                "The knowledge layer doesn't replace the piece's representation — it ",
+                html.Strong("adds"), " to it. Each layer contributes new information on top of ",
                 "everything computed before it, so the model accumulates understanding across all layers."
             ], style={'color': '#6c757d', 'fontSize': '13px'})
         ], style={'marginTop': '12px', 'padding': '12px', 'backgroundColor': '#e0f2f1', 'borderRadius': '6px'})

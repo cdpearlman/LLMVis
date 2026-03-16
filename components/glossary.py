@@ -20,50 +20,50 @@ def create_glossary_modal():
             
             html.Div([
                 _create_term_entry(
-                    "Tokenization", 
-                    "Breaking text into pieces", 
+                    "Text Splitting (Tokenization)",
+                    "Breaking text into pieces",
                     "Models don't read words like we do. They break text into small chunks called 'tokens'. A token can be a whole word (like 'apple'), part of a word (like 'ing' in 'playing'), or even a space.",
                     "https://www.youtube.com/embed/wjZofJX0v4M?start=0"
                 ),
                 _create_term_entry(
-                    "Embedding", 
-                    "Converting tokens to numbers",
-                    "Once text is tokenized, each token is converted into a list of numbers (a vector). This vector represents the meaning of the token. Words with similar meanings (like 'dog' and 'puppy') have similar vectors.",
+                    "Meaning Encoding (Embedding)",
+                    "Converting words to numbers",
+                    "Once text is split into pieces, each piece is converted into a list of numbers. This list represents the meaning of the piece. Words with similar meanings (like 'dog' and 'puppy') get similar numbers.",
                     "https://www.youtube.com/embed/wjZofJX0v4M?start=195"
                 ),
                 _create_term_entry(
-                    "Attention", 
+                    "Attention",
                     "Context Lookup",
                     "This is how the model understands context. When processing a word (like 'it'), the model 'pays attention' to other words in the sentence (like 'the cat') to figure out what 'it' refers to. It's like a spotlight shining on relevant past information.",
                     "https://www.youtube.com/embed/eMlx5fFNoYc?start=0"
                 ),
                 _create_term_entry(
-                    "Attention Heads",
+                    "Attention Detectors (Heads)",
                     "Parallel Context Searchers",
-                    "Instead of having just one attention mechanism, models use multiple 'heads' in parallel. Each head can learn to look for different types of relationships (e.g., one head might look for adjectives, while another tracks pronouns).",
+                    "Instead of having just one attention mechanism, models use multiple 'detectors' (called 'heads') in parallel. Each detector can learn to look for different types of relationships (e.g., one might look for adjectives, while another tracks pronouns).",
                     "https://www.youtube.com/embed/eMlx5fFNoYc?start=420"
                 ),
                 _create_term_entry(
-                    "Residual Stream", 
+                    "Residual Stream",
                     "The Information Highway",
                     "Think of this as a conveyor belt carrying the model's current understanding of the sentence. As it passes through each layer, the layer adds new information to it (via addition), refining the prediction step-by-step.",
                     "https://www.youtube.com/embed/wjZofJX0v4M?start=1173"
                 ),
                 _create_term_entry(
-                    "Logits / Log-Probs", 
+                    "Confidence Scores (Logits)",
                     "Prediction Scores",
-                    "The raw scores the model assigns to every possible next token. Higher scores mean the model thinks that token is more likely to come next.",
+                    "The raw scores the model assigns to every possible next word. Higher scores mean the model thinks that word is more likely to come next.",
                     "https://www.youtube.com/embed/wjZofJX0v4M?start=850"
                 ),
                 _create_term_entry(
-                    "Beam Search", 
+                    "Beam Search",
                     "Exploring Multiple Paths",
-                    "Instead of just picking the single best next word, Beam Search explores several likely future paths simultaneously (like parallel universes) and picks the one that makes the most sense overall. The 'Number of Generation Choices' setting controls how many paths are explored at once."
+                    "Instead of just picking the single best next word, Beam Search explores several likely future paths simultaneously (like parallel universes) and picks the one that makes the most sense overall. The 'Options to Generate' setting controls how many paths are explored at once."
                 ),
                 _create_term_entry(
-                    "Ablation (Activation Patching)", 
+                    "Test by Removing (Ablation)",
                     "Digital Brain Surgery",
-                    "A technique used to understand which parts of a model are responsible for certain behaviors. By artificially modifying or 'turning off' specific attention heads or activations, we can measure how much the model's output changes, revealing the importance of those components."
+                    "A technique used to understand which parts of a model are responsible for certain behaviors. By artificially 'turning off' specific attention detectors, we can measure how much the model's output changes, revealing the importance of those components."
                 )
             ], className="glossary-content-area"),
             

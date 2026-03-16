@@ -111,17 +111,18 @@ def create_ablation_panel():
     return html.Div([
         # Explanation
         html.Div([
-            html.H5("What is Ablation?", style={'color': '#495057', 'marginBottom': '8px'}),
+            html.H5("What is Test by Removing?", style={'color': '#495057', 'marginBottom': '8px'}),
             html.P([
-                "Ablation lets you ", html.Strong("remove specific attention heads"),
-                " to see how they affect the model's output. If removing a head changes the prediction significantly, ",
-                "that head was important for this particular input."
+                "This tool lets you ", html.Strong("remove specific attention detectors"),
+                " to see how they affect the model's output. If removing a detector changes the prediction significantly, ",
+                "that detector was important for this particular input.",
+                " (This technique is called ", html.Em("ablation"), " in research.)"
             ], style={'color': '#6c757d', 'fontSize': '14px', 'marginBottom': '16px'})
         ]),
         
         # Head Selector Interface
         html.Div([
-            html.Label("Add Head to Ablation List:", className="input-label", style={'marginBottom': '8px', 'display': 'block'}),
+            html.Label("Add a Detector to Remove:", className="input-label", style={'marginBottom': '8px', 'display': 'block'}),
             html.Div([
                 # Layer Select
                 html.Div([
@@ -137,7 +138,7 @@ def create_ablation_panel():
                 html.Div([
                     dcc.Dropdown(
                         id='ablation-head-select',
-                        placeholder="Head",
+                        placeholder="Detector",
                         options=[], # Populated by callback
                         style={'fontSize': '14px'}
                     )
@@ -147,16 +148,16 @@ def create_ablation_panel():
                 html.Button([
                     html.I(className='fas fa-plus'),
                 ], id='ablation-add-head-btn', className='action-button secondary-button',
-                   title="Add Head", style={'padding': '8px 12px'})
+                   title="Add Detector", style={'padding': '8px 12px'})
                 
             ], style={'display': 'flex', 'alignItems': 'center'})
         ], style={'marginBottom': '16px', 'padding': '16px', 'backgroundColor': '#f8f9fa', 'borderRadius': '8px', 'border': '1px solid #e2e8f0'}),
         
         # Selected heads display (chips with remove buttons)
         html.Div([
-            html.Label("Selected Heads:", className="input-label", style={'marginBottom': '8px', 'display': 'block'}),
+            html.Label("Selected Detectors:", className="input-label", style={'marginBottom': '8px', 'display': 'block'}),
             html.Div(id='ablation-selected-display', children=[
-                html.Span("No heads selected yet", style={'color': '#6c757d', 'fontSize': '13px', 'fontStyle': 'italic'})
+                html.Span("No detectors selected yet", style={'color': '#6c757d', 'fontSize': '13px', 'fontStyle': 'italic'})
             ], style={
                 'padding': '12px',
                 'backgroundColor': '#f8f9fa',
@@ -169,16 +170,16 @@ def create_ablation_panel():
         # Reset button
         html.Button([
             html.I(className='fas fa-trash-alt', style={'marginRight': '8px'}),
-            "Clear Selected Heads"
+            "Clear Selected Detectors"
         ], id='clear-ablation-btn', className='action-button secondary-button',
            style={'width': '100%', 'marginBottom': '8px'}),
 
         # Run ablation button
         html.Button([
             html.I(className='fas fa-play', style={'marginRight': '8px'}),
-            "Run Ablation Experiment"
+            "Run Removal Test"
         ], id='run-ablation-btn', className='action-button primary-button',
-           disabled=True, title="Add at least one head above to run the experiment",
+           disabled=True, title="Add at least one detector above to run the test",
            style={'width': '100%', 'marginBottom': '16px'}),
         
         # Results container
@@ -204,7 +205,7 @@ def create_selected_heads_display(selected_heads):
     """
     if not selected_heads:
         return html.Div(
-            "No heads selected yet",
+            "No detectors selected yet",
             style={'color': '#6c757d', 'fontSize': '13px', 'fontStyle': 'italic', 'padding': '8px 0'}
         )
     
@@ -281,9 +282,9 @@ def create_ablation_results_display(original_data, ablated_data, selected_heads,
     
     # Summary of what was ablated
     results.append(html.Div([
-        html.H5("Ablation Results", style={'color': '#495057', 'marginBottom': '16px'}),
+        html.H5("Removal Test Results", style={'color': '#495057', 'marginBottom': '16px'}),
         html.Div([
-            html.Span("Ablated heads: ", style={'color': '#6c757d'}),
+            html.Span("Removed detectors: ", style={'color': '#6c757d'}),
             html.Span(', '.join(all_heads_formatted),
                      style={'fontWeight': '500', 'color': '#667eea', 'fontFamily': 'monospace'})
         ], style={'marginBottom': '16px'})
@@ -418,7 +419,7 @@ def create_ablation_results_display(original_data, ablated_data, selected_heads,
         
         # Ablated Output Column (Red Theme)
         html.Div([
-            html.Div("ABLATED OUTPUT", style={
+            html.Div("MODIFIED OUTPUT", style={
                 'backgroundColor': '#dc3545', 'color': 'white', 'padding': '4px 16px', 
                 'borderRadius': '16px', 'fontWeight': 'bold', 'fontSize': '12px',
                 'display': 'inline-block', 'marginBottom': '15px'
@@ -453,14 +454,14 @@ def create_ablation_results_display(original_data, ablated_data, selected_heads,
         html.Div([
             # Tokens Changed
             html.Div([
-                html.Div("TOKENS CHANGED:", style={'fontSize': '11px', 'fontWeight': 'bold', 'color': '#495057'}),
+                html.Div("WORDS CHANGED:", style={'fontSize': '11px', 'fontWeight': 'bold', 'color': '#495057'}),
                 html.Div(f"{tokens_changed}/{max_len}", style={'fontSize': '28px', 'fontWeight': 'bold', 'color': '#212529', 'lineHeight': '1.2'}),
                 html.Div(f"{percent_changed:.1f}% of sequence modified", style={'fontSize': '11px', 'color': '#6c757d'})
             ], style={'flex': '1', 'borderRight': '1px solid #dee2e6', 'paddingRight': '15px'}),
             
             # Avg Prob Shift
             html.Div([
-                html.Div("AVERAGE PROBABILITY SHIFT:", style={'fontSize': '11px', 'fontWeight': 'bold', 'color': '#495057'}),
+                html.Div("AVERAGE CONFIDENCE CHANGE:", style={'fontSize': '11px', 'fontWeight': 'bold', 'color': '#495057'}),
                 html.Div([
                     html.Span(f"{avg_prob_shift*100:+.1f}%", style={'color': '#dc3545' if avg_prob_shift < 0 else '#28a745', 'marginRight': '5px'}),
                     html.I(className=f"fas {'fa-arrow-down' if avg_prob_shift < 0 else 'fa-arrow-up'}", style={'color': '#dc3545' if avg_prob_shift < 0 else '#28a745'})

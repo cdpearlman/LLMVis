@@ -27,13 +27,13 @@ def create_investigation_panel():
         html.Div([
             html.Button([
                 html.I(className='fas fa-cut', style={'marginRight': '8px'}),
-                "Ablation"
+                "Test by Removing"
             ], id='investigation-tab-ablation', className='investigation-tab active',
                n_clicks=0, style=get_tab_style(True)),
             
             html.Button([
                 html.I(className='fas fa-highlighter', style={'marginRight': '8px'}),
-                "Token Attribution"
+                "Word Influence"
             ], id='investigation-tab-attribution', className='investigation-tab',
                n_clicks=0, style=get_tab_style(False))
         ], className='investigation-tabs', style={
@@ -95,22 +95,23 @@ def create_attribution_content():
     return html.Div([
         # Explanation
         html.Div([
-            html.H5("What is Token Attribution?", style={'color': '#495057', 'marginBottom': '8px'}),
+            html.H5("What is Word Influence?", style={'color': '#495057', 'marginBottom': '8px'}),
             html.P([
-                "Token attribution uses ", html.Strong("gradient analysis"),
-                " to identify which input tokens had the most influence on the model's prediction. ",
-                "Tokens with higher attribution contributed more to the final output."
+                "This tool uses mathematical analysis ",
+                "to identify which input words had the most influence on the model's prediction. ",
+                "Words with higher influence scores contributed more to the final output.",
+                " (This technique is called ", html.Em("token attribution"), " in research.)"
             ], style={'color': '#6c757d', 'fontSize': '14px', 'marginBottom': '16px'})
         ]),
         
         # Method selector
         html.Div([
-            html.Label("Attribution Method:", className="input-label", style={'marginBottom': '8px', 'display': 'block'}),
+            html.Label("Analysis Method:", className="input-label", style={'marginBottom': '8px', 'display': 'block'}),
             dcc.RadioItems(
                 id='attribution-method-radio',
                 options=[
-                    {'label': ' Integrated Gradients (more accurate, slower)', 'value': 'integrated'},
-                    {'label': ' Simple Gradient (faster, less accurate)', 'value': 'simple'}
+                    {'label': ' Deep Analysis (more accurate, slower)', 'value': 'integrated'},
+                    {'label': ' Quick Analysis (faster, less accurate)', 'value': 'simple'}
                 ],
                 value='integrated',
                 style={'display': 'flex', 'flexDirection': 'column', 'gap': '8px'}
@@ -119,7 +120,7 @@ def create_attribution_content():
         
         # Target token selector
         html.Div([
-            html.Label("Target Token:", className="input-label", style={'marginBottom': '8px', 'display': 'block'}),
+            html.Label("Target Word:", className="input-label", style={'marginBottom': '8px', 'display': 'block'}),
             dcc.Dropdown(
                 id='attribution-target-dropdown',
                 options=[],  # Populated by callback with top-5 predictions
@@ -132,7 +133,7 @@ def create_attribution_content():
         # Run attribution button
         html.Button([
             html.I(className='fas fa-highlighter', style={'marginRight': '8px'}),
-            "Compute Attribution"
+            "Find Word Influence"
         ], id='run-attribution-btn', className='action-button primary-button',
            style={'width': '100%', 'marginBottom': '16px'}),
         
@@ -174,7 +175,7 @@ def create_attribution_results_display(attribution_data, target_token):
                 'fontFamily': 'monospace',
                 'fontSize': '13px',
                 'fontWeight': '500' if norm > 0.3 else '400'
-            }, title=f"Attribution: {norm:.2f}")
+            }, title=f"Influence: {norm:.2f}")
         )
     
     # Create bar chart
@@ -188,9 +189,9 @@ def create_attribution_results_display(attribution_data, target_token):
     ))
     
     fig.update_layout(
-        title="Attribution Scores by Token",
-        xaxis_title="Attribution (normalized)",
-        yaxis_title="Input Token",
+        title="Influence Scores by Input Word",
+        xaxis_title="Influence (normalized)",
+        yaxis_title="Input Word",
         height=max(200, len(tokens) * 30),
         margin=dict(l=20, r=60, t=40, b=20),
         paper_bgcolor='rgba(0,0,0,0)',
@@ -199,9 +200,9 @@ def create_attribution_results_display(attribution_data, target_token):
     )
     
     return html.Div([
-        html.H5("Token Attribution Results", style={'color': '#495057', 'marginBottom': '8px'}),
+        html.H5("Word Influence Results", style={'color': '#495057', 'marginBottom': '8px'}),
         html.P([
-            "Attribution for predicting: ",
+            "Influence on predicting: ",
             html.Span(target_token, style={
                 'padding': '4px 10px',
                 'backgroundColor': '#667eea',
@@ -214,7 +215,7 @@ def create_attribution_results_display(attribution_data, target_token):
         
         # Token chips visualization
         html.Div([
-            html.H6("Input tokens (darker = more important):", style={'color': '#6c757d', 'marginBottom': '8px'}),
+            html.H6("Input words (darker = more important):", style={'color': '#6c757d', 'marginBottom': '8px'}),
             html.Div(token_chips, style={'lineHeight': '2'})
         ], style={
             'padding': '16px',
@@ -237,7 +238,7 @@ def create_attribution_results_display(attribution_data, target_token):
         html.Div([
             html.I(className='fas fa-info-circle', style={'color': '#667eea', 'marginRight': '8px'}),
             html.Span(
-                "Tokens with higher attribution scores contributed more to the model's prediction. "
+                "Words with higher influence scores contributed more to the model's prediction. "
                 "This helps identify which parts of the input were most influential.",
                 style={'color': '#6c757d', 'fontSize': '13px'}
             )
