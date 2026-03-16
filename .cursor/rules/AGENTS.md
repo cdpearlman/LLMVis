@@ -38,9 +38,9 @@ Interactive Dash app for exploring LLM internals through visualization and exper
 ## Data Files
 | File | Path | Purpose |
 |------|------|---------|
-| Sessions | `.context/data/sessions.md` | Running work log (append-only) |
-| Decisions | `.context/data/decisions.md` | Decision records with reasoning (append-only) |
-| Lessons | `.context/data/lessons.md` | Hard-won knowledge and past mistakes (append-only) |
+| Sessions | `.context/data/sessions.md` | Running work log |
+| Decisions | `.context/data/decisions.md` | Decision records with reasoning |
+| Lessons | `.context/data/lessons.md` | Hard-won knowledge and past mistakes |
 
 ## Memory Maintenance
 
@@ -56,9 +56,12 @@ Always look for opportunities to update the memory system:
 3. Never update memory mid-task without mentioning it
 
 **Rules**:
-- Data files are append-only — add entries, never remove or overwrite past entries
-- Modules can be edited but changes should be targeted, not full rewrites
-- After substantive work sessions, append a summary to `.context/data/sessions.md`
+- Data files are append-first with compression — new entries are appended, but older entries may be compressed when:
+  - **Conflicting information**: A newer entry supersedes an older one (e.g., a feature is replaced or deprecated). Compress the old entry into a brief note that preserves the history without full detail.
+  - **Excessive size**: When a file exceeds ~30 entries, summarize the oldest ~20 into a dense "Archive" block at the top (a few lines), retaining the most recent ~10 as full entries. This keeps long-term memory without bloating context.
+- When compressing, never delete history entirely — always leave a condensed trace so the evolution of the project is visible.
+- Modules can be edited but changes should be targeted, not full rewrites.
+- After substantive work sessions, append a summary to `.context/data/sessions.md`.
 
 ## Preferences
 - Don't ask permission for changes that fall within an approved plan — just execute

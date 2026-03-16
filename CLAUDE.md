@@ -1,7 +1,3 @@
----
-trigger: always_on
----
-
 # Transformer Explanation Dashboard
 Interactive Dash app for exploring LLM internals through visualization and experimentation. Built with Python, Dash, PyTorch, HF Transformers, Bertviz, pyvene.
 
