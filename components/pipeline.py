@@ -534,7 +534,7 @@ def create_attention_content(attention_html=None, top_attended=None, layer_info=
                 for head_info in heads_sorted:
                     activation = head_info.get('activation_score', 0.0)
                     is_active = head_info.get('is_active', False)
-                    label = head_info.get('label', f"L{head_info['layer']}-H{head_info['head']}")
+                    label = head_info.get('label', f"L{head_info['layer']}-D{head_info['head']}")
                     
                     # Activation bar
                     bar_width = max(activation * 100, 2)  # Min 2% for visibility

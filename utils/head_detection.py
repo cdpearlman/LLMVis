@@ -313,7 +313,7 @@ def get_active_head_summary(
                 "offline_score": offline_score,
                 "activation_score": round(activation_score, 3),
                 "is_active": is_active,
-                "label": f"L{layer}-H{head}"
+                "label": f"L{layer}-D{head}"
             })
         
         result["categories"][cat_key] = {

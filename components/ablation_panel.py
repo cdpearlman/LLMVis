@@ -220,7 +220,7 @@ def create_selected_heads_display(selected_heads):
         if layer is None or head is None:
             continue
             
-        label = f"L{layer}-H{head}"
+        label = f"L{layer}-D{head}"
         
         chips.append(
             html.Span([
@@ -276,7 +276,7 @@ def create_ablation_results_display(original_data, ablated_data, selected_heads,
     including an interactive scrubber and metrics summary.
     """
     # Format selected heads for display
-    all_heads_formatted = [f"L{item['layer']}-H{item['head']}" for item in selected_heads if isinstance(item, dict)]
+    all_heads_formatted = [f"L{item['layer']}-D{item['head']}" for item in selected_heads if isinstance(item, dict)]
 
     results = []
     
