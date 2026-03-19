@@ -42,3 +42,11 @@
 **Decision**: "Detector" — short, accurate enough, pairs well with "L#-D#" notation
 **Reasoning**: "Feature Spotter" is misleading (heads compute relationships between tokens, not features). "Detector" captures the idea of detecting patterns/relationships without implying feature extraction.
 **Revisit if**: User testing shows "detector" is still confusing
+
+## Centralized model loading with forced float32
+**Date**: 2026-03-19
+**Context**: Models like Pythia (float16) and Qwen (bfloat16) produced gibberish on CPU-only HF Space due to dtype instability; GPT-2 worked because it's natively float32
+**Options considered**: (1) Add torch_dtype at each call site, (2) Centralize into a helper function, (3) Convert only at inference time
+**Decision**: Option 2 — `load_model_for_inference()` in model_patterns.py, forces float32 and verifies weight tying
+**Reasoning**: 6 call sites meant high risk of missing one; central helper is DRY and adds weight-tying safety net for tied-weight models
+**Revisit if**: GPU deployment makes float16/bfloat16 desirable for performance

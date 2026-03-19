@@ -20,3 +20,9 @@
 **Root cause**: Losing sight of the "is this useful for teaching?" question while focused on technical correctness
 **Fix**: Stepped back and re-evaluated against the educational mission
 **Rule going forward**: Sanity check every significant change: (1) Does this help someone understand transformers? (2) Is this accurate enough for correct intuition? (3) Am I in a rabbit hole?
+
+## 2026-03-19 — Missing torch_dtype causes silent gibberish on CPU
+**What happened**: Beam search produced gibberish (exclamation points, partial words) for Pythia/OPT/GPT-2 Medium on HF Space but worked locally
+**Root cause**: `from_pretrained()` without `torch_dtype=torch.float32` loads models in native dtype (float16/bfloat16). On CPU, these dtypes cause numerical instability and dtype mismatches in logit lens. GPT-2 Small happened to be natively float32, masking the bug.
+**Fix**: Created centralized `load_model_for_inference()` with forced float32 + weight-tying check
+**Rule going forward**: Always specify `torch_dtype=torch.float32` when loading models for CPU inference. Never scatter `from_pretrained` across multiple call sites — use a single loader.

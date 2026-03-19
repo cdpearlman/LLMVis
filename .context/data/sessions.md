@@ -15,3 +15,9 @@
 **Decisions made**: "Detector" chosen over "Feature Spotter" for attention heads; technical terms kept as parentheticals rather than removed entirely.
 **Commits**: abf6a1c, deb2071 (on `jargon-reduction` branch)
 **Open threads**: Branch not yet merged to main. Chatbot suggestion text updated but RAG docs in rag_docs/ still use old terminology (deferred per research doc).
+
+## 2026-03-19 — Fix dtype Mismatch (Gibberish Output & None Crashes)
+**Area**: Model loading, numerical stability, error handling
+**Work done**: Diagnosed and fixed chain of dtype-related failures causing gibberish output on HF Space for non-GPT-2 models. Created `load_model_for_inference()` helper forcing float32 + weight-tying verification. Replaced all 6 `from_pretrained` call sites (5 in app.py, 1 in model_patterns.py). Added None guards for probabilities and attention weights. Added dtype cast in logit_lens. 5 new tests, all 113 pass.
+**Commits**: 5528a77
+**Open threads**: Needs HF Space deployment verification (Pythia, Qwen, OPT).
