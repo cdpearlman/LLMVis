@@ -7,6 +7,26 @@ from typing import Dict, List, Tuple, Any, Optional
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 
+def load_model_for_inference(model_name: str):
+    """Load model with float32 dtype for CPU stability and verify weight tying."""
+    model = AutoModelForCausalLM.from_pretrained(
+        model_name,
+        attn_implementation='eager',
+        torch_dtype=torch.float32
+    )
+    model.eval()
+
+    # Verify lm_head is properly tied to embeddings (not randomly initialized)
+    embed = model.get_input_embeddings()
+    lm_head = model.get_output_embeddings()
+    if embed is not None and lm_head is not None:
+        if embed.weight.data_ptr() != lm_head.weight.data_ptr():
+            print(f"Warning: {model_name} lm_head not tied to embeddings, re-tying...")
+            model.tie_weights()
+
+    return model
+
+
 def extract_patterns(model, use_modules=True) -> Dict[str, List[str]]:
     """Extract patterns from model modules or parameters."""
     items = model.named_modules() if use_modules else model.named_parameters()
@@ -36,9 +56,8 @@ def load_model_and_get_patterns(model_name: str) -> Tuple[Dict[str, List[str]], 
     print(f"Loading model: {model_name}")
     
     # Load model and tokenizer
-    model = AutoModelForCausalLM.from_pretrained(model_name, attn_implementation='eager')
+    model = load_model_for_inference(model_name)
     tokenizer = AutoTokenizer.from_pretrained(model_name)
-    model.eval()
     
     # Extract patterns
     module_patterns = extract_patterns(model, use_modules=True)
@@ -919,10 +938,13 @@ def evaluate_sequence_ablation(model, tokenizer, sequence_text: str, config: Dic
 
 def _prepare_hidden_state(layer_output: Any) -> torch.Tensor:
     """Helper to convert layer output to tensor, handling tuple outputs."""
+    if layer_output is None:
+        raise ValueError("Layer output is None")
+
     # Handle PyVene captured tuple outputs where 2nd element is None (e.g. use_cache=False)
     if isinstance(layer_output, (list, tuple)) and len(layer_output) > 1 and layer_output[1] is None:
         layer_output = layer_output[0]
-        
+
     hidden = torch.tensor(layer_output) if not isinstance(layer_output, torch.Tensor) else layer_output
     if hidden.dim() == 4:
         hidden = hidden.squeeze(0)
@@ -954,7 +976,9 @@ def logit_lens_transformation(layer_output: Any, norm_data: List[Any], model, to
     with torch.no_grad():
         # Convert to tensor and ensure proper shape [batch, seq_len, hidden_dim]
         hidden = _prepare_hidden_state(layer_output)
-        
+        # Serialized intermediates may be float64; cast to model dtype
+        hidden = hidden.to(dtype=next(model.parameters()).dtype)
+
         # Step 1: Apply final layer normalization (critical for intermediate layers)
         final_norm = get_norm_layer_from_parameter(model, norm_parameter)
         if final_norm is not None:
@@ -1271,7 +1295,10 @@ def generate_bertviz_model_view_html(activation_data: Dict[str, Any]) -> str:
                 attention_output = attention_outputs[module_name]['output']
                 if isinstance(attention_output, list) and len(attention_output) >= 2:
                     # Get attention weights (element 1 of the output tuple)
-                    attention_weights = torch.tensor(attention_output[1])  # [batch, heads, seq, seq]
+                    raw_weights = attention_output[1]
+                    if raw_weights is None:
+                        continue  # Skip layers with missing attention data
+                    attention_weights = torch.tensor(raw_weights)  # [batch, heads, seq, seq]
                     layer_attention_pairs.append((layer_num, attention_weights))
         
         if not layer_attention_pairs:
@@ -1334,7 +1361,10 @@ def generate_bertviz_html(activation_data: Dict[str, Any], layer_index: int, vie
                 attention_output = attention_outputs[module_name]['output']
                 if isinstance(attention_output, list) and len(attention_output) >= 2:
                     # Get attention weights (element 1 of the output tuple)
-                    attention_weights = torch.tensor(attention_output[1])  # [batch, heads, seq, seq]
+                    raw_weights = attention_output[1]
+                    if raw_weights is None:
+                        continue  # Skip layers with missing attention data
+                    attention_weights = torch.tensor(raw_weights)  # [batch, heads, seq, seq]
                     layer_attention_pairs.append((layer_num, attention_weights))
         
         if not layer_attention_pairs:

@@ -10,8 +10,8 @@ Tests pure logic functions that don't require model loading:
 import pytest
 import torch
 import numpy as np
-from utils.model_patterns import merge_token_probabilities, safe_to_serializable
-from utils import execute_forward_pass_with_multi_layer_head_ablation
+from utils.model_patterns import merge_token_probabilities, safe_to_serializable, _prepare_hidden_state
+from utils import execute_forward_pass_with_multi_layer_head_ablation, load_model_for_inference
 
 
 class TestMergeTokenProbabilities:
@@ -478,3 +478,43 @@ class TestFullSequenceAttentionData:
             attn = data['attention_outputs'][module]['output'][1]
             assert len(attn[0][0]) == 8
             assert len(attn[0][0][0]) == 8
+
+
+class TestPrepareHiddenState:
+    """Tests for _prepare_hidden_state helper."""
+
+    def test_raises_on_none(self):
+        """_prepare_hidden_state(None) should raise ValueError."""
+        with pytest.raises(ValueError, match="Layer output is None"):
+            _prepare_hidden_state(None)
+
+    def test_unwraps_tuple_with_none_second(self):
+        """Tuple where second element is None should unwrap first element."""
+        result = _prepare_hidden_state(([[1.0, 2.0]], None))
+        assert isinstance(result, torch.Tensor)
+        assert result.shape[-1] == 2
+
+    def test_converts_list(self):
+        """Plain list should be converted to torch.Tensor."""
+        result = _prepare_hidden_state([[[1.0, 2.0]]])
+        assert isinstance(result, torch.Tensor)
+
+
+class TestSafeToSerializableTupleWithNone:
+    """Test that safe_to_serializable handles tuples containing None."""
+
+    def test_tuple_with_tensor_and_none(self):
+        """Tuple of (tensor, None) should become [list, None]."""
+        tensor = torch.tensor([1.0, 2.0])
+        result = safe_to_serializable((tensor, None))
+        assert isinstance(result, list)
+        assert result[0] == [1.0, 2.0]
+        assert result[1] is None
+
+
+class TestLoadModelForInference:
+    """Tests for load_model_for_inference helper."""
+
+    def test_function_is_importable(self):
+        """load_model_for_inference should be importable from utils."""
+        assert callable(load_model_for_inference)

@@ -16,7 +16,8 @@ import dash
 from dash import html, dcc, Input, Output, State, callback, no_update, ALL, MATCH
 import json
 import torch
-from utils import (load_model_and_get_patterns, execute_forward_pass, extract_layer_data,
+from utils import (load_model_for_inference, load_model_and_get_patterns,
+                   execute_forward_pass, extract_layer_data,
                    perform_beam_search, execute_forward_pass_with_multi_layer_head_ablation)
 from utils.head_detection import get_active_head_summary
 from utils.model_config import get_auto_selections
@@ -374,10 +375,9 @@ def run_generation(n_clicks, model_name, prompt, max_new_tokens, beam_width, pat
         return no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update
 
     try:
-        from transformers import AutoModelForCausalLM, AutoTokenizer
-        model = AutoModelForCausalLM.from_pretrained(model_name, attn_implementation='eager')
+        from transformers import AutoTokenizer
+        model = load_model_for_inference(model_name)
         tokenizer = AutoTokenizer.from_pretrained(model_name)
-        model.eval()
 
         # Always run beam search (even with max_new_tokens=1)
         results = perform_beam_search(model, tokenizer, prompt, beam_width, max_new_tokens)
@@ -555,16 +555,15 @@ def store_selected_beam(n_clicks_list, results_data, existing_activation_data, o
     new_activation_data = no_update
     if existing_activation_data:
         try:
-            from transformers import AutoModelForCausalLM, AutoTokenizer
+            from transformers import AutoTokenizer
             model_name = existing_activation_data['model']
             config = {
                 'attention_modules': existing_activation_data['attention_modules'],
                 'block_modules': existing_activation_data['block_modules'],
                 'norm_parameters': existing_activation_data.get('norm_parameters', [])
             }
-            model = AutoModelForCausalLM.from_pretrained(model_name, attn_implementation='eager')
+            model = load_model_for_inference(model_name)
             tokenizer = AutoTokenizer.from_pretrained(model_name)
-            model.eval()
             # Pass original_prompt so per-position top-5 data is computed for scrubber
             orig_prompt = original_prompt_data.get('prompt', '') if original_prompt_data else ''
             new_activation_data = execute_forward_pass(
@@ -613,10 +612,10 @@ def update_pipeline_content(activation_data, model_name):
         return tuple(empty_outputs)
     
     try:
-        from transformers import AutoModelForCausalLM, AutoTokenizer
-        model = AutoModelForCausalLM.from_pretrained(model_name, attn_implementation='eager')
+        from transformers import AutoTokenizer
+        model = load_model_for_inference(model_name)
         tokenizer = AutoTokenizer.from_pretrained(model_name)
-        
+
         # Use pre-decoded tokens if available, otherwise decode from input_ids
         input_ids = activation_data.get('input_ids', [[]])[0]
         tokens = activation_data.get('tokens') or [tokenizer.decode([tid]) for tid in input_ids]
@@ -922,11 +921,10 @@ def run_ablation_experiment(n_clicks, selected_heads, activation_data, model_nam
         return no_update, no_update, no_update
     
     try:
-        from transformers import AutoModelForCausalLM, AutoTokenizer
-        model = AutoModelForCausalLM.from_pretrained(model_name, attn_implementation='eager')
+        from transformers import AutoTokenizer
+        model = load_model_for_inference(model_name)
         tokenizer = AutoTokenizer.from_pretrained(model_name)
-        model.eval()
-        
+
         sequence_text = prompt
         
         config = {
@@ -1087,7 +1085,9 @@ def update_attribution_target_options(activation_data):
     options = []
     for t in global_top5:
         if isinstance(t, dict):
-            options.append({'label': f"{t['token']} ({t['probability']:.1%})", 'value': t['token']})
+            prob = t.get('probability')
+            prob_str = f" ({prob:.1%})" if prob is not None else ""
+            options.append({'label': f"{t['token']}{prob_str}", 'value': t['token']})
         else:
             options.append({'label': t[0], 'value': t[0]})
     return options
@@ -1108,11 +1108,10 @@ def run_attribution_experiment(n_clicks, method, target_token, activation_data, 
         return no_update
     
     try:
-        from transformers import AutoModelForCausalLM, AutoTokenizer
-        model = AutoModelForCausalLM.from_pretrained(model_name, attn_implementation='eager')
+        from transformers import AutoTokenizer
+        model = load_model_for_inference(model_name)
         tokenizer = AutoTokenizer.from_pretrained(model_name)
-        model.eval()
-        
+
         sequence_text = activation_data.get('prompt', prompt)
         
         # Get target token ID if specified

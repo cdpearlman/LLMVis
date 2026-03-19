@@ -1,11 +1,12 @@
-from .model_patterns import (load_model_and_get_patterns, execute_forward_pass, 
-                             logit_lens_transformation, extract_layer_data, 
+from .model_patterns import (load_model_for_inference, load_model_and_get_patterns,
+                             execute_forward_pass,
+                             logit_lens_transformation, extract_layer_data,
                              generate_bertviz_html,
                              execute_forward_pass_with_head_ablation,
                              execute_forward_pass_with_multi_layer_head_ablation,
-                             merge_token_probabilities, 
+                             merge_token_probabilities,
                              compute_global_top5_tokens, compute_per_position_top5,
-                             detect_significant_probability_increases, 
+                             detect_significant_probability_increases,
                              evaluate_sequence_ablation, generate_bertviz_model_view_html)
 from .model_config import get_model_family, get_family_config, get_auto_selections, MODEL_TO_FAMILY, MODEL_FAMILIES
 from .head_detection import load_head_categories, verify_head_activation, get_active_head_summary
@@ -16,7 +17,8 @@ from .token_attribution import compute_integrated_gradients, compute_simple_grad
 
 __all__ = [
     # Model patterns
-    'load_model_and_get_patterns', 
+    'load_model_for_inference',
+    'load_model_and_get_patterns',
     'execute_forward_pass',
     'execute_forward_pass_with_head_ablation',
     'execute_forward_pass_with_multi_layer_head_ablation',

@@ -1127,7 +1127,7 @@ def create_output_content(top_tokens=None, predicted_token=None, predicted_prob=
         fig = go.Figure(go.Bar(
             x=probs, y=tokens, orientation='h',
             marker_color=['#00f2fe' if i == 0 else '#4facfe' for i in range(len(tokens))],
-            text=[f"{p:.1%}" for p in probs], textposition='outside',
+            text=[f"{p:.1%}" if p is not None else "?" for p in probs], textposition='outside',
             hovertemplate='%{y} (%{x:.1%})<extra></extra>'
         ))
         fig.update_layout(
