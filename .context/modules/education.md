@@ -19,6 +19,13 @@ Every architectural explanation should be paired with an interactive element. Do
 - **Mid level**: In-situ descriptions followed by interactive examples
 - **Deep level**: Glossary entries, video links, chatbot for open-ended questions
 
+### Terminology Convention (Jargon Reduction)
+- UI headings and button labels use plain English as the primary term
+- Technical terms appear in parentheses or as italicized secondary notes: e.g., "Test by Removing (Ablation)"
+- Key renames: Tokenization → Text Splitting, Embedding → Meaning Encoding, MLP → Knowledge Retrieval, Ablation → Test by Removing, Token Attribution → Word Influence, Attention Heads → Detectors
+- Identifier notation: L#-D# (Layer-Detector) instead of L#-H# (Layer-Head)
+- RAG docs (rag_docs/) still use original terminology — a future pass may update those
+
 ### Framing
 - Speak to curiosity: "What happens if...?" and "How does this work?"
 - Tone is enthusiastic and accessible but concise — no walls of text
