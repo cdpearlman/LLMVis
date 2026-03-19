@@ -916,7 +916,7 @@ def _build_token_display(prompt_text, generated_tokens, position, actual_prob):
     return html.Div([
         html.Div([
             html.Span(
-                f"Token {position + 1} of {len(generated_tokens)}:",
+                f"Word {position + 1} of {len(generated_tokens)}:",
                 style={'color': '#495057', 'marginBottom': '12px', 'display': 'block', 'fontWeight': '500'}
             ),
             html.Div(context_parts + [highlighted], style={'display': 'inline'}),
@@ -959,9 +959,9 @@ def _build_top5_chart(top5_data, actual_token=None):
     ))
 
     fig.update_layout(
-        title="Top 5 Next-Token Predictions",
+        title="Top 5 Next-Word Predictions",
         xaxis_title="Probability",
-        yaxis_title="Token",
+        yaxis_title="Word",
         height=250,
         margin=dict(l=20, r=60, t=40, b=20),
         paper_bgcolor='rgba(0,0,0,0)',
@@ -976,7 +976,7 @@ def _build_top5_chart(top5_data, actual_token=None):
         children.append(html.Div([
             html.I(className='fas fa-info-circle', style={'color': '#6c757d', 'marginRight': '6px'}),
             html.Span([
-                "The actual token \"", html.Strong(actual_token.strip()),
+                "The actual word \"", html.Strong(actual_token.strip()),
                 "\" was not in the top 5 predictions at this position."
             ], style={'color': '#6c757d', 'fontSize': '13px'})
         ], style={'padding': '8px 12px'}))
@@ -1018,8 +1018,8 @@ def create_output_content(top_tokens=None, predicted_token=None, predicted_prob=
                 html.P([
                     "The model converts the final hidden state into a ",
                     html.Strong("probability distribution"),
-                    " over all possible next tokens. Use the slider below to step through "
-                    "each generated token and see the model's top predictions at that point."
+                    " over all possible next words. Use the slider below to step through "
+                    "each generated word and see the model's top predictions at that point."
                 ], style={'color': '#6c757d', 'fontSize': '14px', 'marginBottom': '16px'})
             ])
         ]
@@ -1034,7 +1034,7 @@ def create_output_content(top_tokens=None, predicted_token=None, predicted_prob=
             slider_style['display'] = 'none'
         content_items.append(
             html.Div([
-                html.Span("Step through generated tokens:",
+                html.Span("Step through generated words:",
                            style={'color': '#495057', 'fontWeight': '500', 'display': 'block',
                                   'marginBottom': '8px'}),
                 dcc.Slider(
@@ -1069,10 +1069,10 @@ def create_output_content(top_tokens=None, predicted_token=None, predicted_prob=
             html.Div([
                 html.I(className='fas fa-info-circle', style={'color': '#6c757d', 'marginRight': '8px'}),
                 html.Span([
-                    html.Strong("Note on Token Selection: "),
-                    "While the probabilities above show the model's raw preference for the immediate next token, the final choice ",
+                    html.Strong("Note on Word Selection: "),
+                    "While the probabilities above show the model's raw preference for the immediate next word, the final choice ",
                     "can be influenced by other factors. Techniques like ", html.Strong("Beam Search"),
-                    " look ahead at multiple possible sequences to find the best overall result, rather than just the single most likely token at each step. ",
+                    " look ahead at multiple possible sequences to find the best overall result, rather than just the single most likely word at each step. ",
                     "Additionally, architectures like ", html.Strong("Mixture of Experts (MoE)"),
                     " might route processing through different specialized internal networks which can impact the final output distribution."
                 ], style={'color': '#6c757d', 'fontSize': '13px'})
@@ -1088,7 +1088,7 @@ def create_output_content(top_tokens=None, predicted_token=None, predicted_prob=
             html.H5("What happens here:", style={'color': '#495057', 'marginBottom': '8px'}),
             html.P([
                 "The model converts the final hidden state into a ", html.Strong("probability distribution"),
-                " over all possible next tokens. The token with the highest probability is typically chosen as the output."
+                " over all possible next words. The word with the highest probability is typically chosen as the output."
             ], style={'color': '#6c757d', 'fontSize': '14px', 'marginBottom': '16px'})
         ])
     ]
@@ -1131,7 +1131,7 @@ def create_output_content(top_tokens=None, predicted_token=None, predicted_prob=
             hovertemplate='%{y} (%{x:.1%})<extra></extra>'
         ))
         fig.update_layout(
-            title="Top 5 Predictions", xaxis_title="Probability", yaxis_title="Token",
+            title="Top 5 Predictions", xaxis_title="Probability", yaxis_title="Word",
             height=250, margin=dict(l=20, r=60, t=40, b=20),
             paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
             yaxis=dict(autorange='reversed')
