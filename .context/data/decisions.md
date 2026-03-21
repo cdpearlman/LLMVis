@@ -43,6 +43,22 @@
 **Reasoning**: "Feature Spotter" is misleading (heads compute relationships between tokens, not features). "Detector" captures the idea of detecting patterns/relationships without implying feature extraction.
 **Revisit if**: User testing shows "detector" is still confusing
 
+## Verb-phrase chip labels completing a sentence stem
+**Date**: 2026-03-21
+**Context**: Example prompt chips needed labels that are immediately meaningful to non-technical users
+**Options considered**: (1) Noun-phrase labels ("Object Tracking", "Word Agreement"), (2) Verb-phrase labels completing "See how models: ___"
+**Decision**: Option 2 — verb phrases ("Track indirect objects", "Resolve ambiguity", etc.) with a sentence-stem intro
+**Reasoning**: Noun labels read like category names and don't tell users what they'll learn. Verb phrases complete a natural sentence, making the purpose self-evident before clicking.
+**Revisit if**: More than ~6 chips are added and the sentence-stem pattern becomes awkward
+
+## Replace "Word Agreement" chip with "Resolve ambiguity"
+**Date**: 2026-03-21
+**Context**: "Word Agreement" tested subject-verb number agreement — a grammar concept most users won't connect to transformer behavior
+**Options considered**: Keep with better label, replace with ambiguity resolution, replace with negation handling
+**Decision**: Replace with "Resolve ambiguity" — prompt "The bat flew over the" tests how context disambiguates polysemous words
+**Reasoning**: Ambiguity resolution is immediately intuitive (bat = animal or sports equipment), produces visible attention patterns (model attends back to "flew"), and the label completes the sentence stem naturally
+**Revisit if**: User testing shows the prompt doesn't produce interesting enough patterns across models
+
 ## Centralized model loading with forced float32
 **Date**: 2026-03-19
 **Context**: Models like Pythia (float16) and Qwen (bfloat16) produced gibberish on CPU-only HF Space due to dtype instability; GPT-2 worked because it's natively float32

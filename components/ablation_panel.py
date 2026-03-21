@@ -153,6 +153,15 @@ def create_ablation_panel():
             ], style={'display': 'flex', 'alignItems': 'center'})
         ], style={'marginBottom': '16px', 'padding': '16px', 'backgroundColor': '#f8f9fa', 'borderRadius': '8px', 'border': '1px solid #e2e8f0'}),
         
+        # Quick Select by Category
+        html.Div([
+            html.Label("Quick Select by Category:", className="input-label",
+                       style={'marginBottom': '8px', 'display': 'block'}),
+            html.Div(id='ablation-category-buttons', children=[],
+                     style={'display': 'flex', 'flexWrap': 'wrap', 'gap': '8px'})
+        ], style={'marginBottom': '16px', 'padding': '16px', 'backgroundColor': '#f8f9fa',
+                  'borderRadius': '8px', 'border': '1px solid #e2e8f0'}),
+
         # Selected heads display (chips with remove buttons)
         html.Div([
             html.Label("Selected Detectors:", className="input-label", style={'marginBottom': '8px', 'display': 'block'}),

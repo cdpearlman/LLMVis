@@ -1,3 +1,3 @@
-- make it more obvious that this is an experiment (pre-loaded things to ask)
+- ~~make it more obvious that this is an experiment (pre-loaded things to ask)~~ done (018a9f2)
 - make sure chatbot explains simpler
 - glossary button move

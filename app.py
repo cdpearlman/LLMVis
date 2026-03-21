@@ -65,6 +65,7 @@ app.layout = html.Div([
     # Agent F: Stores for separating original prompt analysis from beam generation
     dcc.Store(id='session-original-prompt-store', storage_type='memory'),  # Original user prompt
     dcc.Store(id='session-selected-beam-store', storage_type='memory'),    # Selected beam for comparison
+    dcc.Store(id='head-categories-store', storage_type='memory'),          # Category→heads mapping for ablation
     
     # Main container
     html.Div([
@@ -594,22 +595,23 @@ def store_selected_beam(n_clicks_list, results_data, existing_activation_data, o
      Output('stage-4-summary', 'children'),
      Output('stage-4-content', 'children'),
      Output('stage-5-summary', 'children'),
-     Output('stage-5-content', 'children')],
+     Output('stage-5-content', 'children'),
+     Output('head-categories-store', 'data')],
     [Input('session-activation-store', 'data')],
     [State('model-dropdown', 'value')]
 )
 def update_pipeline_content(activation_data, model_name):
     """Update all pipeline stage content based on activation data."""
     empty_outputs = ["Awaiting analysis...", html.P("Run analysis to see details.", style={'color': '#6c757d'})] * 5
-    
+
     if not activation_data or not model_name:
-        return tuple(empty_outputs)
+        return tuple(empty_outputs) + (None,)
     
     # Safety check: ensure activation data matches the current model
     data_model = activation_data.get('model', '')
     if data_model and data_model != model_name and data_model != 'unknown':
         # Stale activation data from a different model — show empty
-        return tuple(empty_outputs)
+        return tuple(empty_outputs) + (None,)
     
     try:
         from transformers import AutoTokenizer
@@ -694,13 +696,24 @@ def update_pipeline_content(activation_data, model_name):
             generated_tokens=generated_tokens,
             prompt_text=scrubber_prompt
         ))
-        
-        return tuple(outputs)
-        
+
+        # Build simplified category→heads mapping for ablation panel
+        categories_store = None
+        if head_categories and head_categories.get('categories'):
+            categories_store = {}
+            for cat_key, cat_data in head_categories['categories'].items():
+                categories_store[cat_key] = {
+                    'display_name': cat_data.get('display_name', cat_key),
+                    'heads': [{'layer': h['layer'], 'head': h['head']}
+                              for h in cat_data.get('heads', [])]
+                }
+
+        return tuple(outputs) + (categories_store,)
+
     except Exception as e:
         import traceback
         traceback.print_exc()
-        return tuple(empty_outputs)
+        return tuple(empty_outputs) + (None,)
 
 
 # ============================================================================
@@ -804,24 +817,21 @@ def switch_investigation_tab(abl_clicks, attr_clicks, current_tab):
     [Output('ablation-layer-select', 'options'),
      Output('ablation-head-select', 'options')],
     [Input('session-activation-store', 'data'),
-     Input('ablation-layer-select', 'value')],
-    [State('model-dropdown', 'value')]
+     Input('ablation-layer-select', 'value')]
 )
-def update_ablation_selectors(activation_data, selected_layer, model_name):
+def update_ablation_selectors(activation_data, selected_layer):
     """Update options for layer and head dropdowns."""
     ctx = dash.callback_context
     trigger_id = ctx.triggered[0]['prop_id'].split('.')[0] if ctx.triggered else None
-    
-    if not activation_data or not model_name:
+
+    if not activation_data:
         return [], []
     
-    # Get model config
-    try:
-        from transformers import AutoConfig
-        config = AutoConfig.from_pretrained(model_name)
-        num_layers = config.num_hidden_layers
-        num_heads = config.num_attention_heads
-    except:
+    # Get model config from activation data (already loaded during forward pass)
+    model_config = activation_data.get('model_config', {})
+    num_layers = model_config.get('num_hidden_layers')
+    num_heads = model_config.get('num_attention_heads')
+    if not num_layers or not num_heads:
         return [], []
     
     # Update layer options (only if data changed or init)
@@ -840,33 +850,60 @@ def update_ablation_selectors(activation_data, selected_layer, model_name):
 
 
 @app.callback(
+    Output('ablation-category-buttons', 'children'),
+    Input('head-categories-store', 'data')
+)
+def render_category_buttons(categories_data):
+    """Render one button per head category when category data is available."""
+    if not categories_data:
+        return []
+
+    buttons = []
+    for cat_key, cat_info in categories_data.items():
+        display_name = cat_info.get('display_name', cat_key)
+        head_count = len(cat_info.get('heads', []))
+        buttons.append(
+            html.Button(
+                f"{display_name} ({head_count})",
+                id={'type': 'ablation-category-btn', 'category': cat_key},
+                n_clicks=0,
+                className='action-button secondary-button',
+                style={'fontSize': '12px', 'padding': '6px 12px'}
+            )
+        )
+    return buttons
+
+
+@app.callback(
     [Output('ablation-selected-heads', 'data'),
      Output('run-ablation-btn', 'disabled'),
      Output('ablation-selected-display', 'children'),
      Output('ablation-head-select', 'value')],
     [Input('ablation-add-head-btn', 'n_clicks'),
      Input('clear-ablation-btn', 'n_clicks'),
-     Input({'type': 'ablation-remove-btn', 'layer': ALL, 'head': ALL}, 'n_clicks')],
+     Input({'type': 'ablation-remove-btn', 'layer': ALL, 'head': ALL}, 'n_clicks'),
+     Input({'type': 'ablation-category-btn', 'category': ALL}, 'n_clicks')],
     [State('ablation-layer-select', 'value'),
      State('ablation-head-select', 'value'),
-     State('ablation-selected-heads', 'data')],
+     State('ablation-selected-heads', 'data'),
+     State('head-categories-store', 'data')],
     prevent_initial_call=True
 )
-def manage_ablation_heads(add_clicks, clear_clicks, remove_clicks, 
-                         layer_val, head_val, selected_heads):
+def manage_ablation_heads(add_clicks, clear_clicks, remove_clicks, category_clicks,
+                         layer_val, head_val, selected_heads, categories_data):
     """
-    Manage the list of selected heads (Add, Clear, Remove).
+    Manage the list of selected heads (Add, Clear, Remove, Category select).
     """
     ctx = dash.callback_context
     if not ctx.triggered:
         return no_update, no_update, no_update, no_update
-    
+
     triggered_id = ctx.triggered[0]['prop_id']
-    
+
     # Initialize selected_heads
     if selected_heads is None:
         selected_heads = []
-    
+
     # Handle "Add"
     if 'ablation-add-head-btn' in triggered_id:
         if layer_val is not None and head_val is not None:
@@ -897,7 +934,21 @@ def manage_ablation_heads(add_clicks, clear_clicks, remove_clicks,
             if not (isinstance(item, dict) and item.get('layer') == rm_layer and item.get('head') == rm_head)
         ]
         return selected_heads, len(selected_heads) == 0, create_selected_heads_display(selected_heads), no_update
-    
+
+    # Handle category button click
+    elif 'ablation-category-btn' in triggered_id:
+        if categories_data:
+            prop_id = json.loads(triggered_id.split('.')[0])
+            cat_key = prop_id['category']
+            cat_heads = categories_data.get(cat_key, {}).get('heads', [])
+            # Append, deduplicated
+            existing = {(h['layer'], h['head']) for h in selected_heads if isinstance(h, dict)}
+            for h in cat_heads:
+                if (h['layer'], h['head']) not in existing:
+                    selected_heads.append({'layer': h['layer'], 'head': h['head']})
+            selected_heads.sort(key=lambda x: (x['layer'], x['head']))
+        return selected_heads, len(selected_heads) == 0, create_selected_heads_display(selected_heads), no_update
+
     return no_update, no_update, no_update, no_update
 
 
