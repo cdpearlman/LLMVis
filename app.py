@@ -25,7 +25,7 @@ from utils.token_attribution import compute_integrated_gradients, compute_simple
 
 # Import modular components
 from components.sidebar import create_sidebar
-from components.model_selector import create_model_selector
+from components.model_selector import create_model_selector, EXAMPLE_PROMPTS
 from components.glossary import create_glossary_modal
 from components.pipeline import (create_pipeline_container, create_tokenization_content,
                                   create_embedding_content, create_attention_content,
@@ -33,7 +33,7 @@ from components.pipeline import (create_pipeline_container, create_tokenization_
                                   _build_token_display, _build_top5_chart)
 from components.investigation_panel import create_investigation_panel, create_attribution_results_display
 from components.ablation_panel import create_selected_heads_display, create_ablation_results_display
-from components.chatbot import create_chatbot_container, render_messages
+from components.chatbot import create_chatbot_container, render_messages, SUGGESTED_QUESTIONS
 
 # Initialize Dash app
 app = dash.Dash(
@@ -1440,6 +1440,44 @@ app.clientside_callback(
     Input('chat-open-store', 'data'),
     prevent_initial_call=True
 )
+
+
+# ============================================================================
+# EXAMPLE PROMPT CHIPS
+# ============================================================================
+
+@callback(
+    Output('prompt-input', 'value', allow_duplicate=True),
+    Input({"type": "example-prompt-btn", "index": ALL}, "n_clicks"),
+    prevent_initial_call=True
+)
+def fill_prompt_from_chip(n_clicks_list):
+    """Populate the prompt textarea when an example prompt chip is clicked."""
+    if not any(n_clicks_list):
+        return no_update
+    triggered = dash.ctx.triggered_id
+    if triggered and "index" in triggered:
+        return EXAMPLE_PROMPTS[triggered["index"]]["prompt"]
+    return no_update
+
+
+# ============================================================================
+# CHAT SUGGESTION CHIPS
+# ============================================================================
+
+@callback(
+    Output('chat-input', 'value', allow_duplicate=True),
+    Input({"type": "chat-suggestion-btn", "index": ALL}, "n_clicks"),
+    prevent_initial_call=True
+)
+def fill_chat_from_suggestion(n_clicks_list):
+    """Populate the chat textarea when a suggestion chip is clicked."""
+    if not any(n_clicks_list):
+        return no_update
+    triggered = dash.ctx.triggered_id
+    if triggered and "index" in triggered:
+        return SUGGESTED_QUESTIONS[triggered["index"]]
+    return no_update
 
 
 if __name__ == '__main__':

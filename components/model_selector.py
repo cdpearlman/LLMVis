@@ -8,6 +8,30 @@ This component provides the interface for:
 
 from dash import html, dcc
 
+# Example prompts for guiding users toward meaningful experiments
+EXAMPLE_PROMPTS = [
+    {
+        "label": "Track indirect objects",
+        "prompt": "The chef gave the waiter a generous tip because",
+        "tooltip": "Tests whether the model tracks who gave and who received across clauses"
+    },
+    {
+        "label": "Resolve ambiguity",
+        "prompt": "The bat flew over the",
+        "tooltip": "Tests how earlier context shapes predictions when a word has multiple meanings (bat)"
+    },
+    {
+        "label": "Understand repetition",
+        "prompt": "The cat sat on the mat. The cat sat on the",
+        "tooltip": "Activates duplicate-token and induction detectors that complete repeated sequences"
+    },
+    {
+        "label": "Link pronouns",
+        "prompt": "The nurse said that she",
+        "tooltip": "Tests coreference resolution and reveals gender bias in attention detectors"
+    }
+]
+
 # Available models organized by family
 AVAILABLE_MODELS = [
     # GPT-2 family (OpenAI) — absolute positional encoding, LayerNorm, GELU
@@ -47,6 +71,17 @@ def create_model_selector():
         # Prompt input
         html.Div([
             html.Label("Enter Prompt:", className="input-label"),
+            html.Div("Not sure what to prompt? See how models:", className="example-prompts-label"),
+            html.Div([
+                html.Button(
+                    p["label"],
+                    id={"type": "example-prompt-btn", "index": i},
+                    className="example-prompt-chip",
+                    title=p["tooltip"],
+                    n_clicks=0
+                )
+                for i, p in enumerate(EXAMPLE_PROMPTS)
+            ], className="example-prompts-container"),
             dcc.Textarea(
                 id='prompt-input',
                 placeholder="Enter text prompt for analysis...",

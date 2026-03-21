@@ -17,8 +17,15 @@ I can help you understand:
 - What various experiments can reveal about model behavior
 - General transformer and ML concepts
 
-Try asking: "What does attention detector 0 in layer 1 do?" or "Why did removing this detector change the output?"
+Try one of the suggestions below, or ask your own question!
 """
+
+SUGGESTED_QUESTIONS = [
+    "Walk me through an example experiment step by step",
+    "What prompt should I start with and why?",
+    "What can I learn from this dashboard?",
+    "What should I look for in the attention patterns?"
+]
 
 
 def create_chat_icon():
@@ -158,6 +165,15 @@ def create_input_area():
         Dash HTML component for input area
     """
     return html.Div([
+        html.Div([
+            html.Button(
+                q,
+                id={"type": "chat-suggestion-btn", "index": i},
+                className="chat-suggestion-chip",
+                n_clicks=0
+            )
+            for i, q in enumerate(SUGGESTED_QUESTIONS)
+        ], className="chat-suggestions-container"),
         html.Div([
             dcc.Textarea(
                 id="chat-input",
