@@ -90,15 +90,9 @@ Use **5-8 generated tokens** — fast enough to keep the demo snappy, long enoug
 
 GPT-2's induction heads cluster heavily in Layer 5. This is actually a bonus for the demo — you can say *"all the pattern-matching lives in one layer"* and ablate multiple heads in the same layer with a few clicks.
 
-**Testing protocol:**
-- [ ] Run normal inference → confirm "mat" is top prediction
-- [ ] Note the attention pattern in BertViz (lines from second occurrence back to first)
-- [ ] Ablate L5-H1 alone → does the prediction change?
-- [ ] Ablate L5-H1 + L5-H5 together → stronger effect?
-- [ ] Ablate L5-H0 + L5-H1 + L5-H5 (triple knockout in one layer) → maximum disruption
-- [ ] Also try L6-H9 (score 0.30) and L7-H10 (score 0.28) if Layer 5 ablation alone isn't enough
-- [ ] Find the **minimal ablation** that visibly changes the output (ideal = one click, big change)
-- [ ] Record before/after outputs
+**How to ablate:** Use the "Induction" and "Duplicate Token" category buttons to select all heads at once.
+
+**Confirmed result:** Ablating induction + duplicate-token heads together successfully breaks pattern completion.
 
 **Narration by age:**
 - Elementary: *"We broke its memory! It forgot what it already read!"*
@@ -123,12 +117,9 @@ GPT-2's induction heads cluster heavily in Layer 5. This is actually a bonus for
 
 L4-H11 at 0.97 is remarkable — it's almost entirely dedicated to "look at the word right before me." This makes it a great single-click ablation target.
 
-**Testing protocol:**
-- [ ] Run normal inference → note coherent continuation
-- [ ] Ablate L4-H11 alone → does grammar degrade? (high likelihood given 0.97 score)
-- [ ] Ablate L4-H11 + L2-H2 → more degradation?
-- [ ] Generate ~8 tokens — does output become nonsensical?
-- [ ] **If effect is subtle, deprioritize** — move Experiment 3 to backup
+**How to ablate:** Use the "Previous Token" category button to select all heads at once.
+
+**Confirmed result:** Ablating previous-token heads successfully breaks grammar/coherence.
 
 **Narration:** *"This part of the AI's brain reads one word at a time, left to right — like you do. This one head spends 97% of its effort just looking at the previous word. What happens if we turn it off?"*
 
@@ -149,11 +140,9 @@ This layers on top of Experiment 1 for engaged groups who want more.
 
 Note: GPT-2's duplicate-token heads are in early layers (0-1) while induction heads are in Layer 5. This makes a nice story: *"The early layers spot the repetition, the middle layers use it to predict what comes next."*
 
-**Testing protocol:**
-- [ ] With Experiment 1's prompt loaded, ablate duplicate heads alone → compare impact to induction ablation
-- [ ] Ablate BOTH induction (L5-H1) + duplicate (L0-H1) heads together
-- [ ] Try full combo: all induction + all duplicate heads → maximum "brain damage"
-- [ ] Record the most dramatic combo
+**How to ablate:** Use both the "Induction" and "Duplicate Token" category buttons.
+
+**Confirmed result:** Combined induction + duplicate-token ablation produces maximum disruption — the model completely loses pattern completion ability.
 
 **Narration:** *"First we turned off pattern matching. Now let's ALSO turn off the part that notices repeated words... watch what happens."*
 
@@ -169,51 +158,33 @@ Note: GPT-2's duplicate-token heads are in early layers (0-1) while induction he
 - Great for the "Reveal" step (step 3 in demo loop) — pure attention visualization wow
 - Less about ablation, more about "look what the AI notices"
 
-**What to look for:**
-- [ ] Run inference → prediction should be flying-context (field, trees, fence, etc.)
-- [ ] In BertViz, find which heads strongly connect "bat" → "flew"
-- [ ] *"The AI figured out this is a flying bat, not a baseball bat — look at how it connects 'bat' to 'flew'."*
+**How to ablate:** Use the "Previous Token" category button.
 
-**Optional ablation:** If you find a head that strongly links "bat" → "flew", try ablating it — does the prediction shift to baseball context? Would be extraordinary if it works, but may not. Test it.
+**Confirmed result:** Ablating previous-token heads successfully disrupts this prompt.
+
+**Talking points:**
+- *"The AI figured out this is a flying bat, not a baseball bat — look at how it connects 'bat' to 'flew'."*
+- Show attention visualization first (the "Reveal" step), then ablate for engaged groups
 
 ---
 
-#### Pre-Testing Workflow
+#### Quick Reference Card
 
-**Round 1: Find your champion** (30 min)
-1. Load GPT-2
-2. Run Experiment 1 — test all ablation combos, record outputs
-3. Run Experiment 2 — test ablation combos, record outputs (L4-H11 at 0.97 is especially promising)
-4. Run Experiment 4 — note attention patterns
-5. Pick primary demo based on most dramatic, reliable difference
-
-**Round 2: Lock in details** (15 min)
-6. For champion demo: find the **single-head ablation** that produces the biggest change
-7. Note exact before/after outputs
-8. Practice narration 3x
-9. If single-head isn't dramatic enough, prepare a 2-head combo
-
-**Round 3: Backup ready** (10 min)
-10. Prepare second demo (different prompt, different head category)
-11. Memorize which heads to click for both demos
-
-#### Quick Reference Card (fill in after testing, bring to showcase)
-
-| Demo | Prompt | Normal Output | Ablate | Ablated Output |
-|------|--------|---------------|--------|----------------|
-| Primary | | | L?-H? | |
-| Backup | | | L?-H? | |
+| Demo | Prompt | Ablate (Category Buttons) | Effect |
+|------|--------|---------------------------|--------|
+| Primary | `The cat sat on the mat. The cat sat on the` | Induction + Duplicate Token | Breaks pattern completion |
+| Backup 1 | `The chef gave the waiter a generous tip because` | Previous Token | Breaks grammar/coherence |
+| Backup 2 | `The bat flew over the` | Previous Token | Disrupts ambiguity resolution |
 
 ---
 
 ### Pre-Showcase Prep Checklist
 
-- [ ] Identify 2-3 pre-loaded sentences that produce visually striking attention patterns (you said you have these)
+- [x] Identify pre-loaded sentences that produce visually striking attention patterns (3 confirmed — see Quick Reference Card)
+- [x] Verify ablation demos work reliably with chosen sentences (all 3 tested and confirmed)
 - [ ] Practice the 2-minute loop 3-5 times until it's smooth and natural
 - [ ] Test the monitor setup — make sure text is readable from 4-5 feet away (increase font/zoom if needed)
-- [ ] Verify the ablation demo works reliably with your chosen sentences (don't want a dud in front of students)
 - [ ] Print QR code large enough to scan from arm's length
-- [ ] Have a backup sentence ready in case a student's suggestion produces boring attention patterns
 - [ ] Check that dark mode / light mode looks good on the external monitor under showcase lighting
 
 ---

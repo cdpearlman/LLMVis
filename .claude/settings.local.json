@@ -7,7 +7,8 @@
       "Bash(git push:*)",
       "Bash(grep -E '\\\\.\\(py|json|yaml|yml\\)$')",
       "Bash(find /c/Users/cdpea/OneDrive/Documents/GradProject -name *.json -type f)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(python3:*)"
     ]
   }
 }

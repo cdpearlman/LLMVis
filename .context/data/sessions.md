@@ -33,3 +33,10 @@
 **Work done**: Implemented category-based bulk head selection for the ablation panel. Added `head-categories-store` (dcc.Store), populated it from `update_pipeline_content` using existing `get_active_head_summary()` data. New `render_category_buttons` callback renders one button per category with pattern-matching IDs. Extended `manage_ablation_heads` callback with new Input/State to handle category clicks (append + deduplicate). Added placeholder div in ablation_panel.py. All 113 tests pass.
 **Files changed**: app.py, components/ablation_panel.py
 **Open threads**: Uncommitted — needs commit and manual verification.
+
+## 2026-03-21 — Category Button Bug Fix + Showcase Plan Finalization
+**Area**: Ablation UX bug fix, showcase preparation
+**Work done**: Fixed key mismatch bug in category buttons (`'top_heads'` → `'heads'` in app.py:708). The `categories_store` builder was reading from the raw JSON key instead of the enriched return key from `get_active_head_summary()`, causing all buttons to show "(0)". Updated showcase-plan.md with tested experiment results.
+**Commits**: 3c5f2fd (category buttons), uncommitted (bug fix)
+**Testing results**: User confirmed: repetition prompt ablated by induction + duplicate-token heads; chef and bat prompts ablated by previous token heads alone.
+**Open threads**: Uncommitted bug fix. Showcase prep complete.

@@ -8,7 +8,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 # Add project root to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from utils.model_patterns import execute_forward_pass, execute_forward_pass_with_head_ablation, load_model_and_get_patterns
+from utils.model_patterns import execute_forward_pass, execute_forward_pass_with_multi_layer_head_ablation, load_model_and_get_patterns
 
 def test_ablation_changes_output():
     """
@@ -55,32 +55,30 @@ def test_ablation_changes_output():
     baseline_top_prob = baseline_result['actual_output']['probability']
     print(f"Baseline Output: '{baseline_top_token}' ({baseline_top_prob:.4f})")
 
-    # 2. Ablated Run (Layer 0, Head 0)
+    # 2. Ablated Run (Layer 0, Head 0) using multi-layer function with single entry
     print("Running ablation (L0H0)...")
-    ablation_result = execute_forward_pass_with_head_ablation(
+    ablation_result = execute_forward_pass_with_multi_layer_head_ablation(
         model, tokenizer, prompt, config,
-        ablate_layer_num=0,
-        ablate_head_indices=[0]
+        heads_by_layer={0: [0]}
     )
     ablated_top_token = ablation_result['actual_output']['token']
     ablated_top_prob = ablation_result['actual_output']['probability']
     print(f"Ablated Output: '{ablated_top_token}' ({ablated_top_prob:.4f})")
-    
+
     # 3. Assertions
     # We expect the probability to change, even if the token doesn't (depending on head importance)
     # Ideally, exact logit match should be false.
-    
+
     # Check if probabilities are different (using a small epsilon)
     prob_diff = abs(baseline_top_prob - ablated_top_prob)
     print(f"Probability Difference: {prob_diff}")
-    
-    # We assert that there IS a difference. 
+
+    # We assert that there IS a difference.
     # Note: If L0H0 is completely useless, this might fail. But usually it does something.
     assert prob_diff > 1e-6, "Ablation of L0H0 did not change the top token probability at all!"
 
     # Verify that the structure returned contains ablation info
-    assert ablation_result['ablated_layer'] == 0
-    assert ablation_result['ablated_heads'] == [0]
+    assert ablation_result['ablated_heads_by_layer'] == {0: [0]}
 
 if __name__ == "__main__":
     test_ablation_changes_output()

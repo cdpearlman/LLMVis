@@ -7,6 +7,22 @@ from typing import Dict, List, Tuple, Any, Optional
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 
+_OUTPUT_PROJ_NAMES = ['c_proj', 'o_proj', 'out_proj', 'dense']
+
+
+def _find_output_proj_submodule(attn_module, attn_module_name: str = ""):
+    """Find output projection submodule within an attention module.
+    Returns (name, submodule). Raises ValueError if not found."""
+    children = dict(attn_module.named_children())
+    for proj_name in _OUTPUT_PROJ_NAMES:
+        if proj_name in children:
+            return proj_name, children[proj_name]
+    raise ValueError(
+        f"No output projection found in {attn_module_name or type(attn_module).__name__}. "
+        f"Children: {list(children.keys())}. Expected one of: {_OUTPUT_PROJ_NAMES}"
+    )
+
+
 def load_model_for_inference(model_name: str):
     """Load model with float32 dtype for CPU stability and verify weight tying."""
     model = AutoModelForCausalLM.from_pretrained(
@@ -405,160 +421,6 @@ def execute_forward_pass(model, tokenizer, prompt: str, config: Dict[str, Any],
     return result
 
 
-def execute_forward_pass_with_head_ablation(model, tokenizer, prompt: str, config: Dict[str, Any],
-                                           ablate_layer_num: int, ablate_head_indices: List[int]) -> Dict[str, Any]:
-    """
-    Execute forward pass with specific attention heads zeroed out.
-    
-    Args:
-        model: Loaded transformer model
-        tokenizer: Loaded tokenizer
-        prompt: Input text prompt
-        config: Dict with module lists like {"attention_modules": [...], "block_modules": [...], ...}
-        ablate_layer_num: Layer number containing heads to ablate
-        ablate_head_indices: List of head indices to zero out (e.g., [0, 2, 5])
-    
-    Returns:
-        JSON-serializable dict with captured activations (with ablated heads)
-    """
-    print(f"Executing forward pass with head ablation: Layer {ablate_layer_num}, Heads {ablate_head_indices}")
-    
-    # Extract module lists from config
-    attention_modules = config.get("attention_modules", [])
-    block_modules = config.get("block_modules", [])
-    norm_parameters = config.get("norm_parameters", [])
-    logit_lens_parameter = config.get("logit_lens_parameter")
-    
-    all_modules = attention_modules + block_modules
-    if not all_modules:
-        return {"error": "No modules specified"}
-    
-    # Find the target attention module for the layer to ablate
-    target_attention_module = None
-    for mod_name in attention_modules:
-        layer_match = re.search(r'\.(\d+)(?:\.|$)', mod_name)
-        if layer_match and int(layer_match.group(1)) == ablate_layer_num:
-            target_attention_module = mod_name
-            break
-    
-    if not target_attention_module:
-        return {"error": f"Could not find attention module for layer {ablate_layer_num}"}
-    
-    # Prepare inputs
-    inputs = tokenizer(prompt, return_tensors="pt")
-    
-    # Register hooks directly on the original model (avoids PyVene module renaming issues)
-    captured = {}
-    name_to_module = dict(model.named_modules())
-    
-    def make_hook(mod_name: str):
-        return lambda module, inputs, output: captured.update({mod_name: {"output": safe_to_serializable(output)}})
-    
-    # Create head ablation hook that both ablates and captures
-    def head_ablation_hook(module, input, output):
-        """Zero out specific attention heads in the output AND capture it."""
-        ablated_output = output  # Default to original output
-        
-        if isinstance(output, tuple):
-            # Attention modules typically return (hidden_states, attention_weights, ...)
-            hidden_states = output[0]  # [batch, seq_len, hidden_dim]
-            
-            # Convert to tensor if needed
-            if not isinstance(hidden_states, torch.Tensor):
-                hidden_states = torch.tensor(hidden_states)
-            
-            batch_size, seq_len, hidden_dim = hidden_states.shape
-            
-            # Determine head dimension
-            # Assuming hidden_dim = num_heads * head_dim
-            # We need to get num_heads from the model config
-            num_heads = model.config.num_attention_heads
-            head_dim = hidden_dim // num_heads
-            
-            # Reshape to [batch, seq_len, num_heads, head_dim]
-            hidden_states_reshaped = hidden_states.view(batch_size, seq_len, num_heads, head_dim)
-            
-            # Zero out specified heads
-            for head_idx in ablate_head_indices:
-                if 0 <= head_idx < num_heads:
-                    hidden_states_reshaped[:, :, head_idx, :] = 0.0
-            
-            # Reshape back to [batch, seq_len, hidden_dim]
-            ablated_hidden = hidden_states_reshaped.view(batch_size, seq_len, hidden_dim)
-            
-            # Reconstruct output tuple
-            if len(output) > 1:
-                ablated_output = (ablated_hidden,) + output[1:]
-            else:
-                ablated_output = (ablated_hidden,)
-        
-        # Capture the ablated output (CRITICAL: this was missing!)
-        captured.update({target_attention_module: {"output": safe_to_serializable(ablated_output)}})
-        
-        return ablated_output
-    
-    # Register hooks
-    hooks = []
-    for mod_name in all_modules:
-        if mod_name in name_to_module:
-            if mod_name == target_attention_module:
-                # Apply head ablation hook
-                hooks.append(name_to_module[mod_name].register_forward_hook(head_ablation_hook))
-            else:
-                # Regular capture hook
-                hooks.append(name_to_module[mod_name].register_forward_hook(make_hook(mod_name)))
-    
-    # Execute forward pass
-    with torch.no_grad():
-        model_output = model(**inputs, use_cache=False)
-    
-    # Remove hooks
-    for hook in hooks:
-        hook.remove()
-    
-    # Separate outputs by type
-    attention_outputs = {}
-    block_outputs = {}
-    
-    for mod_name, output in captured.items():
-        if 'attn' in mod_name or 'attention' in mod_name:
-            attention_outputs[mod_name] = output
-        else:
-            block_outputs[mod_name] = output
-    
-    # Capture normalization parameters
-    all_params = dict(model.named_parameters())
-    norm_data = [safe_to_serializable(all_params[p]) for p in norm_parameters if p in all_params]
-    
-    # Extract predicted token from model output
-    actual_output = None
-    global_top5_tokens = []
-    try:
-        output_token, output_prob = get_actual_model_output(model_output, tokenizer)
-        actual_output = {"token": output_token, "probability": output_prob}
-        global_top5_tokens = compute_global_top5_tokens(model_output, tokenizer, top_k=5)
-    except Exception as e:
-        print(f"Warning: Could not extract model output: {e}")
-    
-    # Build output dictionary
-    result = {
-        "model": getattr(model.config, "name_or_path", "unknown"),
-        "prompt": prompt,
-        "input_ids": safe_to_serializable(inputs["input_ids"]),
-        "attention_modules": list(attention_outputs.keys()),
-        "attention_outputs": attention_outputs,
-        "block_modules": list(block_outputs.keys()),
-        "block_outputs": block_outputs,
-        "norm_parameters": norm_parameters,
-        "norm_data": norm_data,
-        "actual_output": actual_output,
-        "global_top5_tokens": global_top5_tokens,
-        "ablated_layer": ablate_layer_num,
-        "ablated_heads": ablate_head_indices
-    }
-    
-    return result
-
 
 def execute_forward_pass_with_multi_layer_head_ablation(model, tokenizer, prompt: str, config: Dict[str, Any],
                                                         heads_by_layer: Dict[int, List[int]], original_prompt: Optional[str] = None) -> Dict[str, Any]:
@@ -622,75 +484,34 @@ def execute_forward_pass_with_multi_layer_head_ablation(model, tokenizer, prompt
     def make_hook(mod_name: str):
         return lambda module, inputs, output: captured.update({mod_name: {"output": safe_to_serializable(output)}})
     
-    # Create parameterized head ablation hook factory
-    def make_head_ablation_hook(target_mod_name: str, ablate_head_indices: List[int]):
-        """Create a hook that zeros out specific attention heads and captures the output."""
-        def head_ablation_hook(module, input, output):
-            ablated_output = output  # Default to original output
-            
-            if isinstance(output, tuple):
-                # Attention modules typically return (hidden_states, attention_weights, ...)
-                hidden_states = output[0]  # [batch, seq_len, hidden_dim]
-                
-                # Convert to tensor if needed
-                if not isinstance(hidden_states, torch.Tensor):
-                    hidden_states = torch.tensor(hidden_states)
-                
-                batch_size, seq_len, hidden_dim = hidden_states.shape
-                
-                # Determine head dimension
-                num_heads = model.config.num_attention_heads
-                head_dim = hidden_dim // num_heads
-                
-                # Reshape to [batch, seq_len, num_heads, head_dim]
-                hidden_states_reshaped = hidden_states.view(batch_size, seq_len, num_heads, head_dim)
-                
-                # Zero out specified heads
-                for head_idx in ablate_head_indices:
-                    if 0 <= head_idx < num_heads:
-                        hidden_states_reshaped[:, :, head_idx, :] = 0.0
-                
-                # Reshape back to [batch, seq_len, hidden_dim]
-                ablated_hidden = hidden_states_reshaped.view(batch_size, seq_len, hidden_dim)
-                
-                # Reconstruct output tuple
-                if len(output) > 1:
-                    # Check for attention weights (usually index 2 if output_attentions=True)
-                    if len(output) > 2:
-                        attn_weights = output[2] # [batch, heads, seq, seq]
-                        if isinstance(attn_weights, torch.Tensor):
-                            # Zero out specified heads in attention weights too
-                            # Clone to avoid in-place modification errors if any
-                            attn_weights_mod = attn_weights.clone()
-                            for head_idx in ablate_head_indices:
-                                if 0 <= head_idx < num_heads:
-                                    attn_weights_mod[:, head_idx, :, :] = 0.0
-                            
-                            # Reconstruct tuple with modified weights
-                            ablated_output = (ablated_hidden, output[1], attn_weights_mod) + output[3:]
-                        else:
-                            ablated_output = (ablated_hidden,) + output[1:]
-                    else:
-                        ablated_output = (ablated_hidden,) + output[1:]
-                else:
-                    ablated_output = (ablated_hidden,)
-            
-            # Capture the ablated output
-            captured.update({target_mod_name: {"output": safe_to_serializable(ablated_output)}})
-            
-            return ablated_output
-        return head_ablation_hook
-    
+    # Create pre-hook factory for ablation on output projection input
+    def make_head_ablation_pre_hook(ablate_head_indices: List[int]):
+        """Pre-hook on output projection: zeros head slices BEFORE projection mixing."""
+        def pre_hook(module, args):
+            x = args[0].clone()
+            num_heads = model.config.num_attention_heads
+            head_dim = x.shape[-1] // num_heads
+            for head_idx in ablate_head_indices:
+                if 0 <= head_idx < num_heads:
+                    start = head_idx * head_dim
+                    end = (head_idx + 1) * head_dim
+                    x[:, :, start:end] = 0.0
+            return (x,)
+        return pre_hook
+
     # Register hooks
     hooks = []
     for mod_name in all_modules:
         if mod_name in name_to_module:
             if mod_name in target_modules_to_heads:
-                # Apply head ablation hook for this module
-                head_indices = target_modules_to_heads[mod_name]
-                hooks.append(name_to_module[mod_name].register_forward_hook(
-                    make_head_ablation_hook(mod_name, head_indices)
+                # Ablation pre-hook on output projection (before heads are mixed)
+                attn_mod = name_to_module[mod_name]
+                _, proj_mod = _find_output_proj_submodule(attn_mod, mod_name)
+                hooks.append(proj_mod.register_forward_pre_hook(
+                    make_head_ablation_pre_hook(target_modules_to_heads[mod_name])
                 ))
+                # Capture hook on attn module (captures post-ablation output naturally)
+                hooks.append(attn_mod.register_forward_hook(make_hook(mod_name)))
             else:
                 # Regular capture hook
                 hooks.append(name_to_module[mod_name].register_forward_hook(make_hook(mod_name)))
@@ -826,42 +647,19 @@ def evaluate_sequence_ablation(model, tokenizer, sequence_text: str, config: Dic
     # Let's manually register hooks here for simplicity and control
     hooks = []
     
-    def head_ablation_hook_factory(layer_idx, head_indices):
-        def hook(module, input, output):
-            # output is (hidden_states, ...) or hidden_states
-            if isinstance(output, tuple):
-                hidden_states = output[0]
-            else:
-                hidden_states = output
-                
-            # Assume hidden_states is [batch, seq, hidden]
-            # Reshape, zero out heads, Reshape back
-            if not isinstance(hidden_states, torch.Tensor):
-                 if isinstance(hidden_states, list): hidden_states = torch.tensor(hidden_states)
-            
-            # Move to device if needed? They should be on device.
-            
+    def head_ablation_pre_hook_factory(head_indices):
+        """Pre-hook on output projection: zeros head slices BEFORE projection mixing."""
+        def pre_hook(module, args):
+            x = args[0].clone()
             num_heads = model.config.num_attention_heads
-            head_dim = hidden_states.shape[-1] // num_heads
-            
-            # view: [batch, seq, heads, dim]
-            new_shape = hidden_states.shape[:-1] + (num_heads, head_dim)
-            reshaped = hidden_states.view(new_shape)
-            
-            # Create mask or just zero out
-            # We can't modify in place securely with autograd usually, but here no_grad is on.
-            # Clone to be safe
-            reshaped = reshaped.clone()
-            
-            for h_idx in head_indices:
-                reshaped[..., h_idx, :] = 0
-                
-            ablated_hidden = reshaped.view(hidden_states.shape)
-            
-            if isinstance(output, tuple):
-                return (ablated_hidden,) + output[1:]
-            return ablated_hidden
-        return hook
+            head_dim = x.shape[-1] // num_heads
+            for head_idx in head_indices:
+                if 0 <= head_idx < num_heads:
+                    start = head_idx * head_dim
+                    end = (head_idx + 1) * head_dim
+                    x[:, :, start:end] = 0.0
+            return (x,)
+        return pre_hook
 
     # Hook for Layer Ablation (Identity/Skip or Zero)
     # We'll use Identity (Skip Layer) as a simpler approximation of "removing logic" 
@@ -885,16 +683,22 @@ def evaluate_sequence_ablation(model, tokenizer, sequence_text: str, config: Dic
             
             # Simple heuristic: find 'layers.X.self_attn' or 'h.X.attn'
             target_module = None
+            target_name = None
             for name, mod in model.named_modules():
                 # Check for standard patterns
                 # layer_num is int
                 if f"layers.{layer_num}.self_attn" in name or f"h.{layer_num}.attn" in name or f"blocks.{layer_num}.attn" in name:
                      if "k_proj" not in name and "v_proj" not in name and "q_proj" not in name: # avoid submodules
                          target_module = mod
+                         target_name = name
                          break
-            
+
             if target_module:
-                hooks.append(target_module.register_forward_hook(head_ablation_hook_factory(layer_num, head_indices)))
+                try:
+                    _, proj_mod = _find_output_proj_submodule(target_module, target_name)
+                    hooks.append(proj_mod.register_forward_pre_hook(head_ablation_pre_hook_factory(head_indices)))
+                except ValueError as e:
+                    print(f"Warning: {e}")
             else:
                 print(f"Warning: Could not find attention module for layer {layer_num}")
 

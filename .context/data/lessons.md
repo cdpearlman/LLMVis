@@ -26,3 +26,9 @@
 **Root cause**: `from_pretrained()` without `torch_dtype=torch.float32` loads models in native dtype (float16/bfloat16). On CPU, these dtypes cause numerical instability and dtype mismatches in logit lens. GPT-2 Small happened to be natively float32, masking the bug.
 **Fix**: Created centralized `load_model_for_inference()` with forced float32 + weight-tying check
 **Rule going forward**: Always specify `torch_dtype=torch.float32` when loading models for CPU inference. Never scatter `from_pretrained` across multiple call sites — use a single loader.
+
+## 2026-03-21 — Key mismatch between raw JSON and enriched helper return values
+**What happened**: Category buttons all showed "(0)" heads despite data existing
+**Root cause**: `get_active_head_summary()` returns categories with key `'heads'`, but the raw JSON file (`head_categories.json`) uses `'top_heads'`. Code in app.py used the raw key against the enriched object.
+**Fix**: Changed `cat_data.get('top_heads', [])` to `cat_data.get('heads', [])` in app.py
+**Rule going forward**: When consuming data from a helper function, check the helper's return schema — don't assume it mirrors the raw data file's keys.
