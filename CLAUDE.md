@@ -31,6 +31,19 @@ Interactive Dash app for exploring LLM internals through visualization and exper
 | Decisions | `.context/data/decisions.md` | Decision records with reasoning |
 | Lessons | `.context/data/lessons.md` | Hard-won knowledge and past mistakes |
 
+## Skills
+| Skill | Path | Invocation | Purpose |
+|-------|------|------------|---------|
+| checkpoint | `.claude/skills/checkpoint/SKILL.md` | Auto or `/checkpoint` | Session summary, pending memory updates, cross-file consolidation |
+| spec | `.claude/skills/spec/SKILL.md` | `/spec [task]` only | Generate `docs/SPEC-*.md` before non-trivial implementation |
+| lessons | `.claude/skills/lessons/SKILL.md` | Auto or `/lessons` | Audit lessons.md for stale/contradictory entries |
+
+## Spec Workflow
+Before implementing anything non-trivial, generate a spec with `/spec [task description]`.
+- Specs live in `docs/SPEC-[feature-name].md`
+- Do not begin implementation until the spec is approved
+- Completed specs stay in `docs/` as historical records
+
 ## Memory Maintenance
 
 Always look for opportunities to update the memory system:
@@ -58,3 +71,4 @@ Always look for opportunities to update the memory system:
 - Keep `todo.md` and `plans.md` current before/after changes. Tasks should be atomic.
 - When in doubt, research options and make a minimal reasonable choice, noting it in `todo.md`
 - Explain manual tests clearly — what to look for, expected behavior, where to check
+- Session summaries use neutral reporting tone — state what changed, what failed, what's uncertain

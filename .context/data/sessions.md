@@ -40,3 +40,10 @@
 **Commits**: 3c5f2fd (category buttons), uncommitted (bug fix)
 **Testing results**: User confirmed: repetition prompt ablated by induction + duplicate-token heads; chef and bat prompts ablated by previous token heads alone.
 **Open threads**: Uncommitted bug fix. Showcase prep complete.
+
+## 2026-03-24 — ContextKit Skills Bootstrap
+**Area**: Memory system, developer tooling
+**Work done**: Customized three Claude Code skills (checkpoint, spec, lessons) from scaffolded templates in `.claude/skills/`. Removed BOOTSTRAP_CUSTOMIZE placeholders. Added `disable-model-invocation` flags — checkpoint and lessons auto-invoke, spec is manual-only. Updated spec skill to write to `docs/` instead of project root. Added sessions.md cross-reference to lessons skill. Created `docs/` directory. Added Skills and Spec Workflow sections to CLAUDE.md. Added neutral reporting tone preference.
+**Decisions made**: Specs live in `docs/`; checkpoint and lessons auto-invokable, spec manual-only; neutral session tone.
+**Memory created**: Skills section and Spec Workflow section in CLAUDE.md; `docs/` directory
+**Open threads**: None

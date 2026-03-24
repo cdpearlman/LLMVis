@@ -8,7 +8,9 @@
       "Bash(grep -E '\\\\.\\(py|json|yaml|yml\\)$')",
       "Bash(find /c/Users/cdpea/OneDrive/Documents/GradProject -name *.json -type f)",
       "Bash(grep:*)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(find /c/Users/cdpea/OneDrive/Documents/GradProject/.context -type f -name *.md)",
+      "Bash(wc:*)"
     ]
   }
 }
