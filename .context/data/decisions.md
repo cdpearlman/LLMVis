@@ -66,3 +66,11 @@
 **Decision**: Option 2 — `load_model_for_inference()` in model_patterns.py, forces float32 and verifies weight tying
 **Reasoning**: 6 call sites meant high risk of missing one; central helper is DRY and adds weight-tying safety net for tied-weight models
 **Revisit if**: GPU deployment makes float16/bfloat16 desirable for performance
+
+## Dedicated store for ablation results instead of overwriting pipeline store
+**Date**: 2026-03-31
+**Context**: Ablation experiment wrote ablated data to `session-activation-store`, causing the pipeline to silently re-render with ablated visuals
+**Options considered**: (1) Stop writing to pipeline store and use `no_update` (ablation panel loses data source), (2) Repurpose `session-activation-store-original` for ablated data (conflicts with scrubber's original-data read), (3) Add new `session-ablation-results-store` dedicated to ablation
+**Decision**: Option 3 — new `session-ablation-results-store`
+**Reasoning**: Clean separation of concerns. Pipeline store is never polluted. Scrubber reads original from `-original` and ablated from the new store. Reset just clears the new store. Only app.py changes, no component changes needed.
+**Revisit if**: More experiment types are added that also need separate result storage — may want a generalized experiment-results store pattern

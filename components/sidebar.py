@@ -23,16 +23,6 @@ def create_sidebar():
         
         # Sidebar content (hidden when collapsed)
         html.Div([
-            # Help / Glossary Button
-            html.Div([
-                html.Button(
-                    [html.I(className="fas fa-book", style={'marginRight': '8px'}), "Glossary"],
-                    id="open-glossary-btn",
-                    className="action-button secondary-button",
-                    style={'marginBottom': '1rem', 'width': '100%'}
-                )
-            ]),
-
             html.H3("Module Selection", className="sidebar-title"),
             html.P("Advanced: Select which model components to inspect. "
                    "The defaults work well for most explorations.",

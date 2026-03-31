@@ -32,3 +32,9 @@
 **Root cause**: `get_active_head_summary()` returns categories with key `'heads'`, but the raw JSON file (`head_categories.json`) uses `'top_heads'`. Code in app.py used the raw key against the enriched object.
 **Fix**: Changed `cat_data.get('top_heads', [])` to `cat_data.get('heads', [])` in app.py
 **Rule going forward**: When consuming data from a helper function, check the helper's return schema — don't assume it mirrors the raw data file's keys.
+
+## 2026-03-31 — Shared dcc.Store as implicit coupling between unrelated callbacks
+**What happened**: Running an ablation experiment silently replaced the pipeline's data, making it show ablated visuals without any indication
+**Root cause**: `run_ablation_experiment()` wrote its results to `session-activation-store` — the same store the pipeline reads from. This was intentional (to show ablated state in the pipeline) but wrong (pipeline should always show original data). The "reset" mechanism papered over the issue.
+**Fix**: Added a dedicated `session-ablation-results-store` so ablation results never touch the pipeline's data source
+**Rule going forward**: When a callback produces data for a specific panel/feature, use a dedicated store rather than overwriting a shared store that other callbacks depend on. Shared stores create invisible coupling.

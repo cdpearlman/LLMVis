@@ -31,7 +31,14 @@ body {
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     color: white;
     padding: 2rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.header-text {
     text-align: center;
+    flex: 1;
 }
 
 .header-title {
@@ -43,6 +50,23 @@ body {
 .header-subtitle {
     font-size: 1.1rem;
     opacity: 0.9;
+}
+
+.header-glossary-btn {
+    background: rgba(255, 255, 255, 0.15);
+    color: white;
+    border: 1px solid rgba(255, 255, 255, 0.4);
+    padding: 0.5rem 1rem;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    white-space: nowrap;
+    transition: background 0.2s;
+    flex-shrink: 0;
+}
+
+.header-glossary-btn:hover {
+    background: rgba(255, 255, 255, 0.3);
 }
 
 /* Content container */

@@ -72,9 +72,16 @@ app.layout = html.Div([
     html.Div([
         # Header
         html.Div([
-            html.H1("Transformer Explanation Dashboard", className="header-title"),
-            html.P("Understand how transformer models process text and make predictions", 
-                   className="header-subtitle")
+            html.Div([
+                html.H1("Transformer Explanation Dashboard", className="header-title"),
+                html.P("Understand how transformer models process text and make predictions",
+                       className="header-subtitle")
+            ], className="header-text"),
+            html.Button(
+                [html.I(className="fas fa-book", style={'marginRight': '8px'}), "Glossary"],
+                id="open-glossary-btn",
+                className="header-glossary-btn",
+            )
         ], className="header"),
         
         # Main content area

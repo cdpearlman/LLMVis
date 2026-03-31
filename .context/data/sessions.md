@@ -47,3 +47,10 @@
 **Decisions made**: Specs live in `docs/`; checkpoint and lessons auto-invokable, spec manual-only; neutral session tone.
 **Memory created**: Skills section and Spec Workflow section in CLAUDE.md; `docs/` directory
 **Open threads**: None
+
+## 2026-03-31 — Fix Ablation Data Leaking into Pipeline Visuals
+**Area**: State management, ablation callbacks (app.py)
+**Work done**: Diagnosed and fixed bug where pipeline visuals silently switched to ablated data after running an ablation experiment. Root cause: `run_ablation_experiment()` wrote ablated data to `session-activation-store`, which the pipeline listens to. Fix: added a dedicated `session-ablation-results-store` so ablated data never touches the pipeline's data source. Simplified `reset_ablation()` (no longer needs to restore from backup). 6 surgical edits in app.py, no other files changed. All 120 tests pass.
+**Decisions made**: Used new dedicated store over repurposing existing stores
+**Memory created**: None
+**Open threads**: Needs manual verification (5 test scenarios in plan)
