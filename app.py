@@ -66,6 +66,7 @@ app.layout = html.Div([
     dcc.Store(id='session-original-prompt-store', storage_type='memory'),  # Original user prompt
     dcc.Store(id='session-selected-beam-store', storage_type='memory'),    # Selected beam for comparison
     dcc.Store(id='head-categories-store', storage_type='memory'),          # Category→heads mapping for ablation
+    dcc.Store(id='session-ablation-results-store', storage_type='memory'),  # Ablated activation data (separate from pipeline)
     
     # Main container
     html.Div([
@@ -215,16 +216,17 @@ def toggle_glossary(open_clicks, close_clicks, overlay_clicks):
      Output('session-selected-beam-store', 'data', allow_duplicate=True),
      Output('ablation-selected-heads', 'data', allow_duplicate=True),
      Output('pipeline-container', 'style', allow_duplicate=True),
-     Output('investigation-panel', 'style', allow_duplicate=True)],
+     Output('investigation-panel', 'style', allow_duplicate=True),
+     Output('session-ablation-results-store', 'data', allow_duplicate=True)],
     [Input('model-dropdown', 'value')],
     prevent_initial_call=True
 )
 def load_model_patterns(selected_model):
     """Load and categorize model patterns when a model is selected."""
-    # 9 new cleared outputs: activation, activation-original, gen-results-store,
+    # 10 new cleared outputs: activation, activation-original, gen-results-store,
     # gen-results-container, original-prompt, selected-beam, ablation-heads,
-    # pipeline style, investigation style
-    cleared_stores = ({}, {}, None, [], {}, {}, [], {'display': 'none'}, {'display': 'none'})
+    # pipeline style, investigation style, ablation-results
+    cleared_stores = ({}, {}, None, [], {}, {}, [], {'display': 'none'}, {'display': 'none'}, {})
     if not selected_model:
         return ({}, [], [], [], None, None, None, None) + cleared_stores
     
@@ -954,7 +956,7 @@ def manage_ablation_heads(add_clicks, clear_clicks, remove_clicks, category_clic
 
 @app.callback(
     [Output('ablation-results-container', 'children'),
-     Output('session-activation-store', 'data', allow_duplicate=True),
+     Output('session-ablation-results-store', 'data'),
      Output('session-activation-store-original', 'data', allow_duplicate=True)],
     [Input('run-ablation-btn', 'n_clicks')],
     [State('ablation-selected-heads', 'data'),
@@ -1076,7 +1078,7 @@ def run_ablation_experiment(n_clicks, selected_heads, activation_data, model_nam
      Output('ablation-divergence-indicator', 'children')],
     [Input('ablation-scrubber-slider', 'value')],
     [State('session-activation-store-original', 'data'),
-     State('session-activation-store', 'data')],
+     State('session-ablation-results-store', 'data')],
     prevent_initial_call=True
 )
 def update_ablation_scrubber(position, original_data, ablated_data):
@@ -1198,33 +1200,31 @@ def run_attribution_experiment(n_clicks, method, target_token, activation_data, 
 
 @app.callback(
     Output('reset-ablation-container', 'style'),
-    Input('session-activation-store', 'data'),
+    Input('session-ablation-results-store', 'data'),
     prevent_initial_call=False
 )
-def toggle_reset_ablation_button(activation_data):
-    if activation_data and activation_data.get('ablated', False):
+def toggle_reset_ablation_button(ablation_results_data):
+    if ablation_results_data:
         return {'display': 'block'}
     return {'display': 'none'}
 
 
 @app.callback(
-    [Output('session-activation-store', 'data', allow_duplicate=True),
-     Output('session-activation-store-original', 'data'),
+    [Output('session-ablation-results-store', 'data', allow_duplicate=True),
      Output('model-status', 'children', allow_duplicate=True)],
     Input('reset-ablation-btn', 'n_clicks'),
-    [State('session-activation-store-original', 'data')],
     prevent_initial_call=True
 )
-def reset_ablation(n_clicks, original_data):
-    if not n_clicks or not original_data:
-        return no_update, no_update, no_update
-    
+def reset_ablation(n_clicks):
+    if not n_clicks:
+        return no_update, no_update
+
     success_message = html.Div([
         html.I(className="fas fa-undo", style={'marginRight': '8px', 'color': '#28a745'}),
         "Ablation reset"
     ], className="status-success")
-    
-    return original_data, {}, success_message
+
+    return {}, success_message
 
 
 # ============================================================================
