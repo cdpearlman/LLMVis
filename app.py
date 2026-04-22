@@ -29,8 +29,7 @@ from components.model_selector import create_model_selector, EXAMPLE_PROMPTS
 from components.glossary import create_glossary_modal
 from components.pipeline import (create_pipeline_container, create_tokenization_content,
                                   create_embedding_content, create_attention_content,
-                                  create_mlp_content, create_output_content,
-                                  _build_token_display, _build_top5_chart)
+                                  create_mlp_content, create_output_content)
 from components.investigation_panel import create_investigation_panel, create_attribution_results_display
 from components.ablation_panel import create_selected_heads_display, create_ablation_results_display
 from components.chatbot import create_chatbot_container, render_messages, SUGGESTED_QUESTIONS
@@ -729,35 +728,118 @@ def update_pipeline_content(activation_data, model_name):
 # CALLBACKS: Output Scrubber
 # ============================================================================
 
-@app.callback(
+# Clientside so dragging the slider reads the already-cached Store payload
+# directly in the browser — no Flask round-trip, no Plotly re-serialization.
+app.clientside_callback(
+    """
+    function(position, activationData) {
+        const noUpdate = window.dash_clientside.no_update;
+        if (activationData == null || position == null) return [noUpdate, noUpdate];
+
+        const posData = activationData.per_position_top5 || [];
+        const tokens = activationData.generated_tokens || [];
+        const prompt = activationData.original_prompt || activationData.prompt || '';
+        if (!posData.length || !tokens.length) return [noUpdate, noUpdate];
+
+        const idx = Math.max(0, Math.min(position, posData.length - 1));
+        const cur = posData[idx];
+
+        const H = 'dash_html_components';
+        const D = 'dash_core_components';
+        function span(children, style) {
+            return {namespace: H, type: 'Span', props: {children: children, style: style || {}}};
+        }
+        function div(children, style) {
+            return {namespace: H, type: 'Div', props: {children: children, style: style || {}}};
+        }
+
+        const contextStyle = {color: '#6c757d', fontFamily: 'monospace', fontSize: '15px'};
+        const contextParts = [span(prompt, contextStyle)];
+        for (let j = 0; j < idx; j++) contextParts.push(span(tokens[j], contextStyle));
+
+        const highlighted = span(tokens[idx], {
+            padding: '4px 8px', backgroundColor: '#00f2fe', color: '#1a1a2e',
+            borderRadius: '4px', fontFamily: 'monospace', fontWeight: '600',
+            fontSize: '15px', marginLeft: '2px'
+        });
+
+        const probText = cur.actual_prob ? (cur.actual_prob * 100).toFixed(1) + '% probability' : '';
+        const confidence = div([span(probText, {
+            color: '#6c757d', fontSize: '13px', marginTop: '8px', display: 'block'
+        })]);
+
+        const tokenDisplay = div([
+            div([
+                span('Word ' + (idx + 1) + ' of ' + tokens.length + ':',
+                     {color: '#495057', marginBottom: '12px', display: 'block', fontWeight: '500'}),
+                div(contextParts.concat([highlighted]), {display: 'inline'}),
+                confidence
+            ], {textAlign: 'center'})
+        ], {
+            padding: '20px', backgroundColor: 'white', borderRadius: '8px',
+            border: '2px solid #00f2fe', marginBottom: '16px'
+        });
+
+        const top5 = cur.top5 || [];
+        const chartTokens = top5.map(e => e.token);
+        const probs = top5.map(e => e.probability);
+        const actualTok = cur.actual_token ? cur.actual_token.trim() : null;
+        let actualInTop5 = false;
+        const colors = chartTokens.map(t => {
+            if (actualTok && t.trim() === actualTok) { actualInTop5 = true; return '#00f2fe'; }
+            return '#4facfe';
+        });
+
+        const figure = {
+            data: [{
+                type: 'bar', orientation: 'h', x: probs, y: chartTokens,
+                marker: {color: colors},
+                text: probs.map(p => (p * 100).toFixed(1) + '%'),
+                textposition: 'outside',
+                hovertemplate: '%{y} (%{x:.1%})<extra></extra>'
+            }],
+            layout: {
+                title: 'Top 5 Next-Word Predictions',
+                xaxis: {title: 'Probability'},
+                yaxis: {title: 'Word', autorange: 'reversed'},
+                height: 250,
+                margin: {l: 20, r: 60, t: 40, b: 20},
+                paper_bgcolor: 'rgba(0,0,0,0)',
+                plot_bgcolor: 'rgba(0,0,0,0)'
+            }
+        };
+
+        const graph = {
+            namespace: D, type: 'Graph',
+            props: {figure: figure, config: {displayModeBar: false}}
+        };
+        const chartChildren = [graph];
+        if (actualTok && !actualInTop5) {
+            chartChildren.push(div([
+                {namespace: H, type: 'I', props: {
+                    className: 'fas fa-info-circle',
+                    style: {color: '#6c757d', marginRight: '6px'}
+                }},
+                span([
+                    'The actual word "',
+                    {namespace: H, type: 'Strong', props: {children: actualTok}},
+                    '" was not in the top 5 predictions at this position.'
+                ], {color: '#6c757d', fontSize: '13px'})
+            ], {padding: '8px 12px'}));
+        }
+        const chartContainer = div(chartChildren, {
+            backgroundColor: 'white', borderRadius: '8px', border: '1px solid #e2e8f0'
+        });
+
+        return [tokenDisplay, chartContainer];
+    }
+    """,
     [Output('output-token-display', 'children'),
      Output('output-top5-chart', 'children')],
     [Input('output-scrubber-slider', 'value')],
     [State('session-activation-store', 'data')],
-    prevent_initial_call=True
+    prevent_initial_call=True,
 )
-def update_output_scrubber(position, activation_data):
-    """Update the token display and top-5 chart when the scrubber slider moves."""
-    if activation_data is None or position is None:
-        return no_update, no_update
-
-    per_position_data = activation_data.get('per_position_top5', [])
-    generated_tokens = activation_data.get('generated_tokens', [])
-    prompt_text = activation_data.get('original_prompt', activation_data.get('prompt', ''))
-
-    if not per_position_data or not generated_tokens:
-        return no_update, no_update
-
-    # Clamp position to valid range
-    position = max(0, min(position, len(per_position_data) - 1))
-    pos_data = per_position_data[position]
-
-    token_display = _build_token_display(
-        prompt_text, generated_tokens, position, pos_data['actual_prob']
-    )
-    top5_chart = _build_top5_chart(pos_data['top5'], pos_data.get('actual_token'))
-
-    return token_display, top5_chart
 
 
 # ============================================================================
@@ -1075,7 +1157,129 @@ def run_ablation_experiment(n_clicks, selected_heads, activation_data, model_nam
         return html.Div(f"Removal test error: {str(e)}", style={'color': '#dc3545'}), no_update, no_update
 
 
-@app.callback(
+# Clientside: both Stores already sit in the browser. Slice them in JS and
+# push figures/children directly — avoids a Flask round-trip per slider step.
+app.clientside_callback(
+    """
+    function(position, originalData, ablatedData) {
+        const noUpdate = window.dash_clientside.no_update;
+        if (position == null || !originalData || !ablatedData) {
+            return [noUpdate, noUpdate, noUpdate, noUpdate, noUpdate, noUpdate, noUpdate];
+        }
+
+        const origPositions = originalData.per_position_top5 || [];
+        const ablPositions = ablatedData.per_position_top5 || [];
+        const origTokens = originalData.generated_tokens || [];
+        const ablTokens = ablatedData.generated_tokens || [];
+        const prompt = originalData.original_prompt || originalData.prompt || '';
+
+        const changed = new Set();
+        const maxLen = Math.max(origTokens.length, ablTokens.length);
+        for (let i = 0; i < maxLen; i++) {
+            if (i >= origTokens.length || i >= ablTokens.length || origTokens[i] !== ablTokens[i]) {
+                changed.add(i);
+            }
+        }
+
+        const H = 'dash_html_components';
+        function span(children, style) {
+            return {namespace: H, type: 'Span', props: {children: children, style: style || {}}};
+        }
+        function div(children, style) {
+            return {namespace: H, type: 'Div', props: {children: children, style: style || {}}};
+        }
+
+        function tokenMap(tokens, curPos, changedSet) {
+            const out = [];
+            for (let i = 0; i < tokens.length; i++) {
+                if (i > 0) out.push(span(' → ', {color: '#ced4da', margin: '0 4px'}));
+                const isCur = i === curPos;
+                const isCh = changedSet.has(i);
+                const style = {fontWeight: isCur ? 'bold' : 'normal'};
+                if (isCur) {
+                    style.color = '#ffffff';
+                    style.backgroundColor = isCh ? '#dc3545' : '#28a745';
+                    style.padding = '2px 6px';
+                    style.borderRadius = '4px';
+                } else if (isCh) {
+                    style.color = '#dc3545';
+                }
+                out.push(span('T' + i + ' (' + tokens[i].trim() + ')', style));
+            }
+            return out;
+        }
+
+        function textBox(promptText, tokens, curPos, changedSet) {
+            const out = [span(promptText, {color: '#6c757d'})];
+            for (let i = 0; i < tokens.length; i++) {
+                const isCur = i === curPos;
+                const isCh = changedSet.has(i);
+                const style = {};
+                if (isCur) {
+                    style.backgroundColor = isCh ? '#ffc107' : '#0dcaf0';
+                    style.color = '#000';
+                    style.borderRadius = '3px';
+                    style.padding = '0 2px';
+                    style.fontWeight = 'bold';
+                }
+                out.push(span(tokens[i], style));
+            }
+            return out;
+        }
+
+        function emptyFig() {
+            return {data: [], layout: {margin: {l:0,r:0,t:0,b:0}, height: 200}};
+        }
+
+        function chartFig(posData, mainColor) {
+            if (!posData) return emptyFig();
+            const top5 = (posData.top5 || []).slice().reverse();
+            const tokens = top5.map(t => t.token);
+            const probs = top5.map(t => t.probability);
+            const actual = posData.actual_token;
+            const offColor = mainColor === '#4c51bf' ? '#e2e8f0' : '#f8d7da';
+            const colors = tokens.map(t => t === actual ? mainColor : offColor);
+            return {
+                data: [{
+                    type: 'bar', orientation: 'h', x: probs, y: tokens,
+                    marker: {color: colors},
+                    text: probs.map(p => (p * 100).toFixed(1) + '%'),
+                    textposition: 'auto'
+                }],
+                layout: {
+                    margin: {l:0, r:0, t:0, b:0}, height: 200,
+                    xaxis: {visible: false, range: [0, 1]},
+                    yaxis: {tickfont: {size: 12}, automargin: true},
+                    paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
+                    showlegend: false
+                }
+            };
+        }
+
+        const origMap = tokenMap(origTokens, position, new Set());
+        const ablMap = tokenMap(ablTokens, position, changed);
+        const origText = textBox(prompt, origTokens, position, new Set());
+        const ablText = textBox(prompt, ablTokens, position, changed);
+        const origFig = position < origPositions.length ? chartFig(origPositions[position], '#4c51bf') : emptyFig();
+        const ablFig = position < ablPositions.length ? chartFig(ablPositions[position], '#e53e3e') : emptyFig();
+
+        const isDiv = changed.has(position);
+        const divergence = div([{
+            namespace: H, type: 'I',
+            props: {
+                className: isDiv ? 'fas fa-exclamation-circle' : 'fas fa-check-circle',
+                style: isDiv
+                    ? {color: '#dc3545', fontSize: '32px', backgroundColor: '#fff5f5',
+                       borderRadius: '50%', padding: '10px',
+                       boxShadow: '0 0 15px rgba(220,53,69,0.4)'}
+                    : {color: '#28a745', fontSize: '32px', backgroundColor: '#f0fdf4',
+                       borderRadius: '50%', padding: '10px'}
+            }
+        }]);
+
+        return [origMap, origText, origFig, ablMap, ablText, ablFig, divergence];
+    }
+    """,
     [Output('ablation-original-token-map', 'children'),
      Output('ablation-original-text-box', 'children'),
      Output('ablation-original-top5-chart', 'figure'),
@@ -1086,47 +1290,8 @@ def run_ablation_experiment(n_clicks, selected_heads, activation_data, model_nam
     [Input('ablation-scrubber-slider', 'value')],
     [State('session-activation-store-original', 'data'),
      State('session-ablation-results-store', 'data')],
-    prevent_initial_call=True
+    prevent_initial_call=True,
 )
-def update_ablation_scrubber(position, original_data, ablated_data):
-    if position is None or not original_data or not ablated_data:
-        import dash
-        return dash.no_update
-    
-    from components.ablation_panel import build_token_map, build_text_box, build_chart, build_divergence_indicator
-        
-    orig_pos_data = original_data.get('per_position_top5', [])
-    abl_pos_data = ablated_data.get('per_position_top5', [])
-    
-    orig_tokens = original_data.get('generated_tokens', [])
-    abl_tokens = ablated_data.get('generated_tokens', [])
-    
-    # Find changed indices
-    changed_indices = set()
-    for i in range(max(len(orig_tokens), len(abl_tokens))):
-        if i >= len(orig_tokens) or i >= len(abl_tokens) or orig_tokens[i] != abl_tokens[i]:
-            changed_indices.add(i)
-            
-    prompt_text = original_data.get('original_prompt', original_data.get('prompt', ''))
-    
-    orig_map = build_token_map(orig_tokens, position, set()) # original doesn't show red 'changed' state
-    abl_map = build_token_map(abl_tokens, position, changed_indices)
-    
-    orig_text_box = build_text_box(prompt_text, orig_tokens, position, set())
-    abl_text_box = build_text_box(prompt_text, abl_tokens, position, changed_indices)
-    
-    orig_chart = []
-    abl_chart = []
-    
-    if position < len(orig_pos_data):
-        orig_chart = build_chart(orig_pos_data[position], orig_pos_data[position].get('actual_token'), '#4c51bf')
-    if position < len(abl_pos_data):
-        abl_chart = build_chart(abl_pos_data[position], abl_pos_data[position].get('actual_token'), '#e53e3e')
-        
-    is_diverged = position in changed_indices
-    divergence_indicator = build_divergence_indicator(is_diverged)
-        
-    return orig_map, orig_text_box, orig_chart, abl_map, abl_text_box, abl_chart, divergence_indicator
 
 
 # ============================================================================

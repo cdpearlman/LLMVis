@@ -370,7 +370,6 @@ def create_ablation_results_display(original_data, ablated_data, selected_heads,
             value=0,
             marks={i: {'label': orig_tokens[i].strip()[:6] if i < len(orig_tokens) else str(i), 'style': {'fontSize': '10px', 'whiteSpace': 'nowrap'}} for i in range(max_len)},
             tooltip={"placement": "bottom", "always_visible": False},
-            updatemode='drag'
         )
     ], style={'padding': '0 20px 20px 20px'})
     
