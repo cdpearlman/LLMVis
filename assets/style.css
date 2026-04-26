@@ -52,7 +52,14 @@ body {
     opacity: 0.9;
 }
 
-.header-glossary-btn {
+.header-actions {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.header-action-btn {
     background: rgba(255, 255, 255, 0.15);
     color: white;
     border: 1px solid rgba(255, 255, 255, 0.4);
@@ -63,10 +70,16 @@ body {
     white-space: nowrap;
     transition: background 0.2s;
     flex-shrink: 0;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    line-height: 1;
 }
 
-.header-glossary-btn:hover {
+.header-action-btn:hover {
     background: rgba(255, 255, 255, 0.3);
+    color: white;
+    text-decoration: none;
 }
 
 /* Content container */
@@ -1652,4 +1665,144 @@ details[open].transformer-layers-container .transformer-layers-summary::before {
 .chat-suggestion-chip:hover {
     background-color: #667eea;
     color: white;
+}
+
+/* ============================================================================
+   Tutorial (Driver.js) — banner in header + theme overrides
+   ============================================================================ */
+
+.tutorial-banner {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: white;
+    font-size: 13px;
+    flex-shrink: 0;
+}
+
+.tutorial-banner-text {
+    opacity: 0.9;
+}
+
+.tutorial-cta-btn {
+    background: white;
+    color: #667eea;
+    border: none;
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-weight: 600;
+    font-size: 13px;
+    cursor: pointer;
+    transition: transform 0.1s ease, box-shadow 0.2s ease;
+    white-space: nowrap;
+}
+
+.tutorial-cta-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
+}
+
+/* Driver.js disables pointer-events on every element while active, which
+   breaks complex components whose menus/portals render outside the
+   highlighted element (e.g. Dash dcc.Dropdown). The overlay itself is the
+   only thing that actually needs to stay click-through; everything else
+   should work exactly as it does outside the tutorial. */
+.driver-active * {
+    pointer-events: auto !important;
+}
+.driver-active .driver-overlay {
+    pointer-events: none !important;
+}
+
+/* Driver.js also forces `overflow: hidden` on the direct parent of the
+   highlighted element, which clips floating children like dropdown menus
+   and slider tooltips. Undo it so those components render normally. */
+:not(body):has(> .driver-active-element) {
+    overflow: visible !important;
+}
+
+/* Driver.js popover — match app theme (blue Continue, gray Dismiss) */
+.driver-popover-title {
+    color: #667eea;
+    font-weight: 600;
+}
+
+.driver-popover-next-btn,
+.driver-popover-done-btn {
+    background: #667eea !important;
+    color: white !important;
+    text-shadow: none !important;
+    border: 1px solid #667eea !important;
+    border-radius: 6px !important;
+    padding: 6px 14px !important;
+    font-weight: 600 !important;
+}
+
+.driver-popover-next-btn:hover,
+.driver-popover-done-btn:hover {
+    background: #5a6fd8 !important;
+    border-color: #5a6fd8 !important;
+}
+
+.driver-popover-close-btn {
+    color: #6c757d !important;
+}
+
+/* Driver.js Back (previous) button — match the app theme */
+.driver-popover-prev-btn {
+    background: white !important;
+    color: #667eea !important;
+    text-shadow: none !important;
+    border: 1px solid #667eea !important;
+    border-radius: 6px !important;
+    padding: 6px 14px !important;
+    font-weight: 600 !important;
+}
+.driver-popover-prev-btn:hover {
+    background: #f0f3ff !important;
+}
+
+/* Floating "Continue Tutorial" pill — appears between steps when the
+   popover/overlay are closed so the user can freely interact with the app. */
+.tutorial-float-btn {
+    position: fixed;
+    top: 18px;
+    right: 18px;
+    z-index: 99999999;
+    display: none;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px 8px 14px;
+    background: #667eea;
+    color: white;
+    border: none;
+    border-radius: 24px;
+    font-weight: 600;
+    font-size: 13px;
+    cursor: pointer;
+    box-shadow: 0 4px 14px rgba(102, 126, 234, 0.45);
+    transition: transform 0.1s ease, box-shadow 0.2s ease;
+}
+.tutorial-float-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 20px rgba(102, 126, 234, 0.55);
+}
+.tutorial-float-btn-label {
+    line-height: 1;
+}
+.tutorial-float-btn-dismiss {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.22);
+    font-size: 11px;
+    line-height: 1;
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+.tutorial-float-btn-dismiss:hover {
+    background: rgba(255, 255, 255, 0.4);
 }

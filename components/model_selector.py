@@ -87,13 +87,13 @@ def create_model_selector():
                 placeholder="Enter text prompt for analysis...",
                 value="",
                 style={
-                    "width": "100%", 
+                    "width": "100%",
                     "height": "100px",
                     "resize": "vertical"
                 },
                 className="prompt-input"
             )
-        ], className="input-container"),
+        ], id="prompt-section", className="input-container"),
         
         # Status indicator
         html.Div([

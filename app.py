@@ -72,15 +72,36 @@ app.layout = html.Div([
         # Header
         html.Div([
             html.Div([
+                html.Span("Not sure where to start?", className="tutorial-banner-text"),
+                html.Button("Use this Tutorial", id="start-tutorial-btn",
+                            className="tutorial-cta-btn"),
+            ], id="tutorial-banner", className="tutorial-banner"),
+            html.Div([
                 html.H1("Transformer Explanation Dashboard", className="header-title"),
                 html.P("Understand how transformer models process text and make predictions",
                        className="header-subtitle")
             ], className="header-text"),
-            html.Button(
-                [html.I(className="fas fa-book", style={'marginRight': '8px'}), "Glossary"],
-                id="open-glossary-btn",
-                className="header-glossary-btn",
-            )
+            html.Div([
+                html.Button(
+                    [html.I(className="fas fa-book", style={'marginRight': '8px'}), "Glossary"],
+                    id="open-glossary-btn",
+                    className="header-action-btn",
+                ),
+                html.A(
+                    [html.I(className="fas fa-comment", style={'marginRight': '8px'}), "Feedback"],
+                    href="https://forms.gle/r4L65XGP1d6tpZyU8",
+                    target="_blank",
+                    rel="noopener noreferrer",
+                    className="header-action-btn",
+                ),
+                html.A(
+                    [html.I(className="fab fa-github", style={'marginRight': '8px'}), "GitHub"],
+                    href="https://github.com/cdpearlman/LLMVis",
+                    target="_blank",
+                    rel="noopener noreferrer",
+                    className="header-action-btn",
+                ),
+            ], className="header-actions"),
         ], className="header"),
         
         # Main content area
