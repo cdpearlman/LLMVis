@@ -1,4 +1,0 @@
-- ~~make it more obvious that this is an experiment (pre-loaded things to ask)~~ done (018a9f2)
-- ~~category buttons showing (0) heads~~ fixed (key mismatch: `top_heads` → `heads` in app.py:708)
-- make sure chatbot explains simpler
-- glossary button move
